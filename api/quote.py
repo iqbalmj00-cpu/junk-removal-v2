@@ -59,20 +59,37 @@ class handler(BaseHTTPRequestHandler):
         res_gemini, res_gpt = await asyncio.gather(task_gemini, task_gpt)
         
         # --- CONSENSUS LOGIC ---
+        # 1. Extract Volumes (Using new 'packed_dimensions')
         vol_gemini = self.calculate_volume(res_gemini)
         vol_gpt = self.calculate_volume(res_gpt)
         
-        # Safety Check
+        # Safety: If zeros
         if vol_gemini == 0 or vol_gpt == 0:
             return {"status": "SHADOW_MODE", "reason": "AI failed to quantify"}
 
-        # Compare (15% Variance Limit)
+        # 2. Calculate Stats
         diff = abs(vol_gemini - vol_gpt)
         avg_vol = (vol_gemini + vol_gpt) / 2
         variance = diff / avg_vol if avg_vol > 0 else 0
 
-        if variance > 0.15:
-            return {"status": "SHADOW_MODE", "message": "High Variance Detected"}
+        # 3. DECISION LOGIC
+        is_safe = False
+        
+        # Rule A: The "Small Load" Exception
+        # If the difference is small (< 1.5 yards), just quote it.
+        if diff < 1.5:
+            is_safe = True
+            
+        # Rule B: Standard Variance (Relaxed to 25%)
+        elif variance <= 0.25:
+            is_safe = True
+            
+        if not is_safe:
+            return {
+                "status": "SHADOW_MODE", 
+                "message": "High Variance Detected",
+                "debug": f"{vol_gemini} vs {vol_gpt}"
+            }
         
         # SUCCESS
         final_vol = round(avg_vol, 1)
@@ -85,20 +102,34 @@ class handler(BaseHTTPRequestHandler):
         }
 
     def calculate_volume(self, json_data):
-        if not json_data or 'dimensions' not in json_data: return 0.0
-        d = json_data['dimensions']
-        # (L x W x H * Density) / 27
-        return (d.get('l',0) * d.get('w',0) * d.get('h',0) * json_data.get('density', 1.0)) / 27.0
+        if not json_data or 'packed_dimensions' not in json_data: return 0.0
+        d = json_data['packed_dimensions']
+        return (d.get('l',0) * d.get('w',0) * d.get('h',0)) / 27.0
 
     async def ask_gemini(self, images):
         try:
             # Change this to 'gemini-3.0-pro' when available to you
             model = genai.GenerativeModel('gemini-3-pro-preview') 
             prompt = """
-            You are a Spatial Surveyor. Output JSON ONLY.
-            1. Estimate bounding box (l, w, h) in FEET.
-            2. Estimate Density (0.0 to 1.0).
-            Format: {"dimensions": {"l": float, "w": float, "h": float}, "density": float}
+            You are a Professional Junk Removal Estimator. Output JSON ONLY.
+            Your Goal: Estimate the volume of this pile as if it were loaded into a standard Dump Truck.
+
+            CRITICAL INSTRUCTION:
+            Do NOT measure the "Bounding Box" of the pile on the ground (this captures too much air).
+            Instead, perform a "Mental Tetris" simulation:
+            1. Imagine chopping up long items (like carpets/lumber).
+            2. Imagine stacking all items tightly into a cube.
+            3. Estimate the dimensions of that *TIGHTLY PACKED* cube in FEET.
+
+            OUTPUT JSON ONLY:
+            {
+              "packed_dimensions": {
+                  "l": float, // Length of the compacted cube
+                  "w": float, // Width of the compacted cube
+                  "h": float  // Height of the compacted cube
+              },
+              "density": 1.0 // Always 1.0 since you already packed it mentally
+            }
             """
             response = await model.generate_content_async(
                 [prompt, *images],
@@ -110,7 +141,29 @@ class handler(BaseHTTPRequestHandler):
 
     async def ask_gpt_nano(self, images):
         try:
-            content = [{"type": "text", "text": "Output JSON: {'dimensions': {'l': float, 'w': float, 'h': float}, 'density': float} (Estimate bounding box in feet)"}]
+            prompt = """
+            You are a Professional Junk Removal Estimator. Output JSON ONLY.
+            Your Goal: Estimate the volume of this pile as if it were loaded into a standard Dump Truck.
+
+            CRITICAL INSTRUCTION:
+            Do NOT measure the "Bounding Box" of the pile on the ground (this captures too much air).
+            Instead, perform a "Mental Tetris" simulation:
+            1. Imagine chopping up long items (like carpets/lumber).
+            2. Imagine stacking all items tightly into a cube.
+            3. Estimate the dimensions of that *TIGHTLY PACKED* cube in FEET.
+
+            OUTPUT JSON ONLY:
+            {
+              "packed_dimensions": {
+                  "l": float, // Length of the compacted cube
+                  "w": float, // Width of the compacted cube
+                  "h": float  // Height of the compacted cube
+              },
+              "density": 1.0 // Always 1.0 since you already packed it mentally
+            }
+            """
+            
+            content = [{"type": "text", "text": prompt}]
             content.extend(images)
             
             response = await openai_client.chat.completions.create(
