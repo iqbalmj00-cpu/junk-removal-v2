@@ -2,6 +2,7 @@ from http.server import BaseHTTPRequestHandler
 import json
 import os
 import asyncio
+import hashlib
 import google.generativeai as genai
 from openai import AsyncOpenAI
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
@@ -18,6 +19,9 @@ SAFETY_SETTINGS = {
     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
 }
 
+# 3. MOCK CACHE (Simulates a Database)
+MOCK_CACHE = {}
+
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         content_len = int(self.headers.get('Content-Length', 0))
@@ -28,7 +32,8 @@ class handler(BaseHTTPRequestHandler):
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(self.process_images(images_b64))
+            # CALL get_quote INSTEAD OF process_images
+            result = loop.run_until_complete(self.get_quote(images_b64))
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -37,7 +42,28 @@ class handler(BaseHTTPRequestHandler):
         except Exception as e:
             self.send_error(500, str(e))
 
-    async def process_images(self, images_b64):
+    def _generate_fingerprint(self, images):
+        """
+        Creates a unique ID based on the pixel data (base64 strings).
+        """
+        combined_data = "".join(images).encode('utf-8')
+        return hashlib.sha256(combined_data).hexdigest()
+
+    async def get_quote(self, images_b64):
+        """
+        Main Entry Point: Fingerprint -> Cache Lookup -> AI Analysis
+        """
+        # 1. HASHING (The "Fingerprint")
+        quote_id = self._generate_fingerprint(images_b64)
+        
+        # 2. CACHE LOOKUP
+        if quote_id in MOCK_CACHE:
+            print(f"✅ CACHE HIT: Serving stored price for {quote_id[:8]}...")
+            return MOCK_CACHE[quote_id]
+
+        print(f"⚠️ CACHE MISS: Running AI for {quote_id[:8]}...")
+
+        # 3. PREPARE IMAGES
         # Prepare for Gemini (Needs raw base64)
         gemini_imgs = [{'mime_type': 'image/jpeg', 'data': img.split(",")[1] if "," in img else img} for img in images_b64]
         
@@ -48,7 +74,7 @@ class handler(BaseHTTPRequestHandler):
             url = img if "data:image" in img else f"data:image/jpeg;base64,{img}"
             gpt_imgs.append({"type": "image_url", "image_url": {"url": url}})
 
-        # --- PARALLEL EXECUTION ---
+        # 4. PARALLEL EXECUTION
         # Model A: Gemini (The Expert)
         task_gemini = self.ask_gemini(gemini_imgs)
         
@@ -58,8 +84,16 @@ class handler(BaseHTTPRequestHandler):
         # Run together
         res_gemini, res_gpt = await asyncio.gather(task_gemini, task_gpt)
         
-        # --- CONSENSUS LOGIC ---
-        # 1. Extract Volumes (Using new 'packed_dimensions')
+        # 5. CONSENSUS LOGIC
+        final_quote = self._calculate_consensus(res_gemini, res_gpt)
+
+        # 6. STORAGE
+        MOCK_CACHE[quote_id] = final_quote
+        
+        return final_quote
+
+    def _calculate_consensus(self, res_gemini, res_gpt):
+        # 1. Extract Volumes (Using processed 'packed_dimensions' from models)
         vol_gemini = self.calculate_volume(res_gemini)
         vol_gpt = self.calculate_volume(res_gpt)
         
@@ -76,11 +110,10 @@ class handler(BaseHTTPRequestHandler):
         is_safe = False
         
         # Rule A: The "Small Load" Exception
-        # If the difference is small (< 1.5 yards), just quote it.
         if diff < 1.5:
             is_safe = True
             
-        # Rule B: Standard Variance (Relaxed to 25%)
+        # Rule B: Standard Variance 
         elif variance <= 0.25:
             is_safe = True
             
@@ -133,7 +166,10 @@ class handler(BaseHTTPRequestHandler):
             """
             response = await model.generate_content_async(
                 [prompt, *images],
-                generation_config={"response_mime_type": "application/json"},
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "temperature": 0.0 # Force determinism
+                },
                 safety_settings=SAFETY_SETTINGS
             )
             return json.loads(response.text)
@@ -167,9 +203,10 @@ class handler(BaseHTTPRequestHandler):
             content.extend(images)
             
             response = await openai_client.chat.completions.create(
-                model="gpt-5-nano-2025-08-07", # YOUR SPECIFIC MODEL
+                model="gpt-4o", # Stable Omni Release
                 messages=[{"role": "user", "content": content}],
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
+                temperature=0.0 # Force determinism
             )
             return json.loads(response.choices[0].message.content)
         except: return {}
