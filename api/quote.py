@@ -165,12 +165,27 @@ class PricingEngine:
 
         # 4. PRICING MATH
         final_vol = round(avg_vol, 1)
-        price = max(95, final_vol * 35)
+        base_price = max(95, final_vol * 35)
+        
+        # Range Calculation (+/- 10%)
+        min_price = max(95, round(base_price * 0.90))
+        max_price = round(base_price * 1.10)
+        
+        # Round to nearest $5 for clean aesthetics if > 100, else $1
+        def round_pretty(p):
+            if p > 100:
+                return 5 * round(p / 5)
+            return round(p)
+
+        min_price = round_pretty(min_price)
+        max_price = round_pretty(max_price)
 
         result = {
             "status": "SUCCESS",
             "volume_yards": final_vol,
-            "price": round(price, 2),
+            "min_price": min_price,
+            "max_price": max_price,
+            "price": round(base_price, 2), # Legacy support
             "quote_id": fingerprint,
             "items": res_gemini.get('debug_summary', 'Mixed Junk')
         }

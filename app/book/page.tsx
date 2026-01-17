@@ -49,17 +49,18 @@ export default function BookPage() {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // --- State for Backend Quote ---
-    const [quoteState, setQuoteState] = useState<{ price: number; volume: number } | null>(null);
+    const [quoteState, setQuoteState] = useState<{ min: number; max: number; volume: number } | null>(null);
 
     // --- Price Calculation ---
     const getPrice = () => {
         // PRIORITIZE BACKEND QUOTE if available
         if (quoteState) {
             return {
-                basePrice: quoteState.price,
-                tierName: `AI Quote (${quoteState.volume} yds³)`,
+                basePrice: quoteState.min,
+                // We'll hijack tierName to show the Logic type, but the UI handles the range display
+                tierName: `AI Estimate`,
                 surcharges: [],
-                totalPrice: quoteState.price
+                totalPrice: quoteState.max // Used for "Book This Price" placeholder if needed
             };
         }
         // Fallback to local estimation
@@ -148,9 +149,10 @@ export default function BookPage() {
                     estimatedVolumeCuFt: volumeCuFt
                 }));
 
-                // Set Exact Price from Backend
+                // Set Range Price from Backend
                 setQuoteState({
-                    price: data.price,
+                    min: data.min_price || data.price, // Fallback if old API
+                    max: data.max_price || data.price,
                     volume: volumeYards
                 });
 
@@ -306,7 +308,9 @@ export default function BookPage() {
 
                 <div className="relative z-10 p-12 text-center">
                     <p className="text-brand-orange font-bold tracking-widest uppercase text-sm mb-2">Estimated Quote</p>
-                    <h2 className="text-7xl font-extrabold text-white mb-6 tracking-tight">${priceDetails.totalPrice}</h2>
+                    <h2 className="text-7xl font-extrabold text-white mb-6 tracking-tight">
+                        {quoteState ? `$${quoteState.min} - $${quoteState.max}` : `$${priceDetails.totalPrice}`}
+                    </h2>
 
                     <div className="inline-flex items-center gap-4 bg-slate-800 px-6 py-3 rounded-full border border-slate-700 mb-10">
                         <div className="flex flex-col items-center border-r border-slate-600 pr-4">
@@ -321,12 +325,16 @@ export default function BookPage() {
 
                     <div className="text-left bg-transparent rounded-xl p-6 mb-10 border border-slate-700">
                         <div className="flex justify-between mb-4 pb-4 border-b border-slate-700">
-                            <span className="text-slate-400">Base Price (Volume)</span>
-                            <span className="font-bold">${priceDetails.basePrice}</span>
+                            <span className="text-slate-400">Estimate Range</span>
+                            <span className="font-bold">
+                                {quoteState ? `$${quoteState.min} - $${quoteState.max}` : `$${priceDetails.totalPrice}`}
+                            </span>
                         </div>
                         <div className="flex justify-between text-brand-orange">
                             <span className="font-bold">Total Estimate</span>
-                            <span className="font-bold text-2xl">${priceDetails.totalPrice}</span>
+                            <span className="font-bold text-2xl">
+                                {quoteState ? `$${quoteState.max}` : `$${priceDetails.totalPrice}`}
+                            </span>
                         </div>
                     </div>
 
@@ -335,7 +343,7 @@ export default function BookPage() {
                             onClick={() => setView('scheduler')}
                             className="w-full bg-brand-orange hover:bg-orange-600 text-white h-16 rounded-xl text-xl font-bold shadow-lg shadow-orange-900/40"
                         >
-                            BOOK THIS PRICE <ArrowRight className="ml-2" />
+                            <ArrowRight className="mr-2" /> BOOK THIS ESTIMATE
                         </Button>
                     </div>
                     <p className="text-slate-500 text-sm mt-6">*Final price confirmed on-site.</p>
