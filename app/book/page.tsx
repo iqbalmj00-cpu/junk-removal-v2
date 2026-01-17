@@ -48,16 +48,27 @@ export default function BookPage() {
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // --- State for Backend Quote ---
+    const [quoteState, setQuoteState] = useState<{ price: number; volume: number } | null>(null);
+
     // --- Price Calculation ---
     const getPrice = () => {
-        // We pass empty surcharges for now as the new design removed specific item tags
-        // You could add logic to infer surcharges from the "Stairs/Access" if needed, 
-        // e.g. "2+ Flights" adds a fee. For now keeping it simple as requested.
+        // PRIORITIZE BACKEND QUOTE if available
+        if (quoteState) {
+            return {
+                basePrice: quoteState.price,
+                tierName: `AI Quote (${quoteState.volume} yds³)`,
+                surcharges: [],
+                totalPrice: quoteState.price
+            };
+        }
+        // Fallback to local estimation
         return calculateJunkPrice(bookingData.estimatedVolumeCuFt, []);
     };
 
     const priceDetails = getPrice();
-    const volumeYards = (bookingData.estimatedVolumeCuFt / 27).toFixed(1);
+    // Use quoteState volume if available for display consistency, otherwise calc from CuFt
+    const volumeYards = quoteState ? quoteState.volume.toFixed(1) : (bookingData.estimatedVolumeCuFt / 27).toFixed(1);
 
     // --- Handlers ---
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -68,6 +79,7 @@ export default function BookPage() {
                 ...prev,
                 selectedImages: [...prev.selectedImages, ...newFiles]
             }));
+            // Reset quote if images change? strictly speaking yes, but keeping it simple.
         }
     };
 
@@ -126,21 +138,30 @@ export default function BookPage() {
 
             // 4. Handle the "Consensus" Result
             if (data.status === "SUCCESS") {
-                // SCENARIO A: Models Agree
-                // Python Backend returns: { status: "SUCCESS", volume_yards: 4.5, price: 157.5, ... }
+                // SCENARIO A: Models Agree - Update State, NO ALERTS
                 const volumeYards = data.volume_yards || 3.5;
                 const volumeCuFt = volumeYards * 27;
 
-                // Sync state for local engine compatibility 
+                // Sync state
                 setBookingData(prev => ({
                     ...prev,
                     estimatedVolumeCuFt: volumeCuFt
                 }));
 
-                // Alert as requested
-                alert(`✅ INSTANT QUOTE: $${data.price}\nVolume: ${volumeYards} Cubic Yards`);
+                // Set Exact Price from Backend
+                setQuoteState({
+                    price: data.price,
+                    volume: volumeYards
+                });
 
+                // Transition Logic
                 setView('receipt');
+
+                // Auto-Scroll to results
+                setTimeout(() => {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                }, 100);
+
             } else {
                 // SCENARIO B: SHADOW MODE (Models Disagree)
                 setLoadingState({ title: 'REVIEW REQUIRED', subtitle: 'Connecting to human specialist...' });
