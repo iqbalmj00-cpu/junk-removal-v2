@@ -110,7 +110,7 @@ class handler(BaseHTTPRequestHandler):
         is_safe = False
         
         # Rule A: The "Small Load" Exception
-        if diff < 1.5:
+        if diff < 2.0:
             is_safe = True
             
         # Rule B: Standard Variance 
