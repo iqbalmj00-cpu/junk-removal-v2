@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import base64
 import re
+import requests
 from openai import OpenAI
 from google import genai
 from google.genai import types
@@ -17,9 +18,6 @@ class PricingEngine:
         # 2. Initialize OpenAI
         self.openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-        # 3. Simple Cache
-        self.cache = {} 
-
     def _generate_fingerprint(self, images):
         """Creates a deterministic hash based on input image bytes."""
         combined_data = b""
@@ -31,6 +29,33 @@ class PricingEngine:
             else:
                 combined_data += img
         return hashlib.sha256(combined_data).hexdigest()
+
+    def _get_from_kv(self, key):
+        """Retrieve cached quote from Vercel KV (Redis) REST API."""
+        try:
+            url = f"{os.environ.get('KV_REST_API_URL')}/get/{key}"
+            headers = {"Authorization": f"Bearer {os.environ.get('KV_REST_API_TOKEN')}"}
+            response = requests.get(url, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('result'):
+                    return json.loads(data['result'])
+            return None
+        except Exception as e:
+            print(f"⚠️ KV READ ERROR: {e}")
+            return None
+
+    def _save_to_kv(self, key, data):
+        """Save quote to Vercel KV (Redis) REST API."""
+        try:
+            url = f"{os.environ.get('KV_REST_API_URL')}/set/{key}"
+            headers = {"Authorization": f"Bearer {os.environ.get('KV_REST_API_TOKEN')}"}
+            # Serialize data to string for storage
+            payload = json.dumps(data)
+            requests.post(url, headers=headers, data=payload)
+        except Exception as e:
+            print(f"⚠️ KV WRITE ERROR: {e}")
 
     def _get_mental_tetris_prompt(self):
         return """
@@ -108,14 +133,16 @@ class PricingEngine:
         return (d.get('l', 0) * d.get('w', 0) * d.get('h', 0)) / 27.0
 
     def process_quote(self, images, base64_images):
-        # 1. CACHE CHECK
+        # 1. CACHE CHECK (DATABASE)
         fingerprint = self._generate_fingerprint(images)
-        if fingerprint in self.cache:
-            print("✅ CACHE HIT: Returning saved quote.")
-            return self.cache[fingerprint]
+        cached_data = self._get_from_kv(fingerprint)
+        
+        if cached_data:
+            print("✅ DATABASE HIT: Returning saved quote.")
+            return cached_data
 
         # 2. RUN AI MODELS
-        print("⚠️ CACHE MISS: Running Analysis...")
+        print("⚠️ DATABASE MISS: Running Analysis...")
         
         # Prepare content parts for Gemini New SDK
         gemini_inputs = []
@@ -123,12 +150,6 @@ class PricingEngine:
              gemini_inputs.append(types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
 
         # Parallel Execution (Simulated here via sequential call for simplicity in class, but Vercel handles async)
-        # Note: In a real async environment we'd use await, but this class is synchronous logic wrapped in handler.
-        # Ideally we make these async, but requests library is sync. 
-        # The Google SDK 'client.models.generate_content' is synchronous.
-        # OpenAI 'client.chat.completions.create' is synchronous.
-        # To keep it simple and robust per request, we keep sync calls. Vercel Function will handle the request time.
-        
         res_gemini = self.ask_gemini(gemini_inputs)
         res_gpt = self.ask_gpt(base64_images)
 
@@ -190,8 +211,8 @@ class PricingEngine:
             "items": res_gemini.get('debug_summary', 'Mixed Junk')
         }
 
-        # 5. UPDATE CACHE
-        self.cache[fingerprint] = result
+        # 5. UPDATE CACHE (DATABASE)
+        self._save_to_kv(fingerprint, result)
         return result
 
 # --- Vercel Handler Integration ---

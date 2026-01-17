@@ -1,3 +1,4 @@
 google-genai
 openai
+requests
 wheel==0.45.1
