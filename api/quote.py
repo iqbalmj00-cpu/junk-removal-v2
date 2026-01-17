@@ -18,17 +18,19 @@ class PricingEngine:
         # 2. Initialize OpenAI
         self.openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-    def _generate_fingerprint(self, images):
-        """Creates a deterministic hash based on input image bytes."""
-        combined_data = b""
-        for img in images:
-            if hasattr(img, 'read'):
-                img.seek(0)
-                combined_data += img.read()
-                img.seek(0)
-            else:
-                combined_data += img
-        return hashlib.sha256(combined_data).hexdigest()
+    def _generate_fingerprint(self, images, base64_images):
+        """Creates a deterministic hash based on SORTED base64 input."""
+        # Note: 'images' (bytes) argument is ignored to ensure consistency across reads.
+        
+        # 1. Sort to ensure [A, B] == [B, A]
+        sorted_imgs = sorted(base64_images)
+        
+        # 2. Join and Hash
+        combined_data = "".join(sorted_imgs).encode('utf-8')
+        fingerprint = hashlib.sha256(combined_data).hexdigest()
+        
+        print(f"🔑 GENERATED FINGERPRINT: {fingerprint}")
+        return fingerprint
 
     def _get_from_kv(self, key):
         """Retrieve cached quote from Vercel KV (Redis) REST API."""
@@ -134,7 +136,8 @@ class PricingEngine:
 
     def process_quote(self, images, base64_images):
         # 1. CACHE CHECK (DATABASE)
-        fingerprint = self._generate_fingerprint(images)
+        # Fix: Pass base64_images to sorted fingerprinting
+        fingerprint = self._generate_fingerprint(images, base64_images)
         cached_data = self._get_from_kv(fingerprint)
         
         if cached_data:
