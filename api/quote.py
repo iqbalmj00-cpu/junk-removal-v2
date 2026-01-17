@@ -3,24 +3,171 @@ import json
 import os
 import asyncio
 import hashlib
-import google.generativeai as genai
-from openai import AsyncOpenAI
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+import base64
+from openai import OpenAI
+from google import genai
+from google.genai import types
 
-# 1. CONFIGURATION (You need BOTH keys now)
-genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
-openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+class PricingEngine:
+    def __init__(self):
+        # 1. Initialize New Google Client
+        self.google_client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
+        
+        # 2. Initialize OpenAI
+        self.openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-# 2. SAFETY SETTINGS
-SAFETY_SETTINGS = {
-    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-}
+        # 3. Simple Cache
+        self.cache = {} 
 
-# 3. MOCK CACHE (Simulates a Database)
-MOCK_CACHE = {}
+    def _generate_fingerprint(self, images):
+        """Creates a deterministic hash based on input image bytes."""
+        combined_data = b""
+        for img in images:
+            if hasattr(img, 'read'):
+                img.seek(0)
+                combined_data += img.read()
+                img.seek(0)
+            else:
+                combined_data += img
+        return hashlib.sha256(combined_data).hexdigest()
+
+    def _get_mental_tetris_prompt(self):
+        return """
+        You are a Professional Junk Removal Estimator. Output JSON ONLY.
+        Your Goal: Estimate the volume of this pile as if it were loaded into a standard Dump Truck.
+
+        CRITICAL INSTRUCTION:
+        Do NOT measure the "Bounding Box" of the pile on the ground (this captures too much air).
+        Instead, perform a "Mental Tetris" simulation:
+        1. Imagine chopping up long items (like carpets/lumber).
+        2. Imagine stacking all items tightly into a cube.
+        3. Estimate the dimensions of that *TIGHTLY PACKED* cube in FEET.
+
+        OUTPUT JSON ONLY:
+        {
+          "packed_dimensions": {
+              "l": float, // Length of the compacted cube in FEET
+              "w": float, // Width of the compacted cube in FEET
+              "h": float  // Height of the compacted cube in FEET
+          },
+          "debug_summary": "Brief list of items found"
+        }
+        """
+
+    def ask_gemini(self, images):
+        try:
+            # NEW SDK SYNTAX
+            response = self.google_client.models.generate_content(
+                model='gemini-1.5-pro', # Or 'gemini-2.0-flash' if available
+                contents=[self._get_mental_tetris_prompt(), *images],
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    response_mime_type='application/json'
+                )
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            print(f"❌ GEMINI ERROR: {e}")
+            return None
+
+    def ask_gpt(self, base64_images):
+        try:
+            content = [{"type": "text", "text": self._get_mental_tetris_prompt()}]
+            for img_b64 in base64_images:
+                 content.append({
+                    "type": "image_url", 
+                    "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}
+                })
+
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": content}],
+                temperature=0.0,
+                max_tokens=300
+            )
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            print(f"❌ GPT ERROR: {e}")
+            return None
+
+    def calculate_volume(self, json_data):
+        if not json_data or 'packed_dimensions' not in json_data: 
+            return 0.0
+        d = json_data['packed_dimensions']
+        return (d.get('l', 0) * d.get('w', 0) * d.get('h', 0)) / 27.0
+
+    def process_quote(self, images, base64_images):
+        # 1. CACHE CHECK
+        fingerprint = self._generate_fingerprint(images)
+        if fingerprint in self.cache:
+            print("✅ CACHE HIT: Returning saved quote.")
+            return self.cache[fingerprint]
+
+        # 2. RUN AI MODELS
+        print("⚠️ CACHE MISS: Running Analysis...")
+        # Note: 'images' are bytes, 'base64_images' are strings
+        # We wrap bytes in types.Part if needed, but the SDK often accepts raw bytes if they are identifiable?
+        # To be safe for the "images" list passed to gemini, let's wrap them as Parts if simple bytes fail.
+        # But per user instructions, we use the code provided. 
+        # The user code passed `*images` directly. 
+        # If `images` are raw bytes, `google-genai` needs `types.Part.from_bytes(data=b, mime_type='image/jpeg')`.
+        # I will inject a small fix here to ensure compatibility if images are bytes.
+        
+        gemini_inputs = []
+        for img_bytes in images:
+             gemini_inputs.append(types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
+
+        res_gemini = self.ask_gemini(gemini_inputs)
+        res_gpt = self.ask_gpt(base64_images)
+
+        # 3. CONSENSUS LOGIC
+        vol_gemini = self.calculate_volume(res_gemini)
+        vol_gpt = self.calculate_volume(res_gpt)
+
+        # --- VISIBILITY LOGGING ---
+        diff = abs(vol_gemini - vol_gpt)
+        print(f"🧮 MATH DUMP: Gemini({vol_gemini:.2f}yd) | GPT({vol_gpt:.2f}yd) | Diff({diff:.2f}yd)")
+
+        if vol_gemini == 0 or vol_gpt == 0:
+            return {"status": "SHADOW_MODE", "reason": "AI Blindness"}
+
+        avg_vol = (vol_gemini + vol_gpt) / 2
+        variance = (diff / avg_vol) if avg_vol > 0 else 0
+        is_safe = False
+
+        # --- THE SAFETY GATES (UPDATED TO 3.0) ---
+        if diff < 3.0: 
+            is_safe = True
+        elif variance <= 0.25: 
+            is_safe = True
+
+        if not is_safe:
+            print(f"⛔ BLOCKED: Variance {diff:.2f} > 3.0")
+            return {
+                "status": "SHADOW_MODE", 
+                "message": "High Variance", 
+                "debug": f"Gemini: {vol_gemini:.1f} vs GPT: {vol_gpt:.1f}"
+            }
+
+        # 4. PRICING MATH
+        final_vol = round(avg_vol, 1)
+        price = max(95, final_vol * 35)
+
+        result = {
+            "status": "SUCCESS",
+            "volume_yards": final_vol,
+            "price": round(price, 2),
+            "quote_id": fingerprint,
+            "items": res_gemini.get('debug_summary', 'Mixed Junk')
+        }
+
+        # 5. UPDATE CACHE
+        self.cache[fingerprint] = result
+        return result
+
+# --- Vercel Handler Integration ---
+# Instantiate globally to persist cache across warm starts
+engine = PricingEngine()
 
 class handler(BaseHTTPRequestHandler):
     def do_POST(self):
@@ -30,10 +177,19 @@ class handler(BaseHTTPRequestHandler):
         images_b64 = data.get('images', []) 
 
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            # CALL get_quote INSTEAD OF process_images
-            result = loop.run_until_complete(self.get_quote(images_b64))
+            # Prepare inputs
+            # 1. Base64 Strings (for GPT)
+            base64_imgs = []
+            for img in images_b64:
+                 # Strip header if present to get clean base64
+                 clean = img.split(",")[1] if "," in img else img
+                 base64_imgs.append(clean)
+
+            # 2. Bytes (for Gemini & Hashing)
+            bytes_imgs = [base64.b64decode(b64) for b64 in base64_imgs]
+
+            # Process
+            result = engine.process_quote(bytes_imgs, base64_imgs)
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -41,172 +197,3 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(result).encode('utf-8'))
         except Exception as e:
             self.send_error(500, str(e))
-
-    def _generate_fingerprint(self, images):
-        """
-        Creates a unique ID based on the pixel data (base64 strings).
-        """
-        combined_data = "".join(images).encode('utf-8')
-        return hashlib.sha256(combined_data).hexdigest()
-
-    async def get_quote(self, images_b64):
-        """
-        Main Entry Point: Fingerprint -> Cache Lookup -> AI Analysis
-        """
-        # 1. HASHING (The "Fingerprint")
-        quote_id = self._generate_fingerprint(images_b64)
-        
-        # 2. CACHE LOOKUP
-        if quote_id in MOCK_CACHE:
-            print(f"✅ CACHE HIT: Serving stored price for {quote_id[:8]}...")
-            return MOCK_CACHE[quote_id]
-
-        print(f"⚠️ CACHE MISS: Running AI for {quote_id[:8]}...")
-
-        # 3. PREPARE IMAGES
-        # Prepare for Gemini (Needs raw base64)
-        gemini_imgs = [{'mime_type': 'image/jpeg', 'data': img.split(",")[1] if "," in img else img} for img in images_b64]
-        
-        # Prepare for GPT-5 Nano (Needs Data URL with header)
-        gpt_imgs = []
-        for img in images_b64:
-            # Ensure proper Data URL format
-            url = img if "data:image" in img else f"data:image/jpeg;base64,{img}"
-            gpt_imgs.append({"type": "image_url", "image_url": {"url": url}})
-
-        # 4. PARALLEL EXECUTION
-        # Model A: Gemini (The Expert)
-        task_gemini = self.ask_gemini(gemini_imgs)
-        
-        # Model B: GPT-5 Nano (The Auditor)
-        task_gpt = self.ask_gpt_nano(gpt_imgs)
-        
-        # Run together
-        res_gemini, res_gpt = await asyncio.gather(task_gemini, task_gpt)
-        
-        # 5. CONSENSUS LOGIC
-        final_quote = self._calculate_consensus(res_gemini, res_gpt)
-
-        # 6. STORAGE
-        MOCK_CACHE[quote_id] = final_quote
-        
-        return final_quote
-
-    def _calculate_consensus(self, res_gemini, res_gpt):
-        # 1. Extract Volumes (Using processed 'packed_dimensions' from models)
-        vol_gemini = self.calculate_volume(res_gemini)
-        vol_gpt = self.calculate_volume(res_gpt)
-        
-        # Safety: If zeros
-        if vol_gemini == 0 or vol_gpt == 0:
-            return {"status": "SHADOW_MODE", "reason": "AI failed to quantify"}
-
-        # 2. Calculate Stats
-        diff = abs(vol_gemini - vol_gpt)
-        avg_vol = (vol_gemini + vol_gpt) / 2
-        variance = diff / avg_vol if avg_vol > 0 else 0
-
-        # 3. DECISION LOGIC
-        is_safe = False
-        
-        # Rule A: The "Small Load" Exception
-        if diff < 2.0:
-            is_safe = True
-            
-        # Rule B: Standard Variance 
-        elif variance <= 0.25:
-            is_safe = True
-            
-        if not is_safe:
-            return {
-                "status": "SHADOW_MODE", 
-                "message": "High Variance Detected",
-                "debug": f"{vol_gemini} vs {vol_gpt}"
-            }
-        
-        # SUCCESS
-        final_vol = round(avg_vol, 1)
-        price = max(95, final_vol * 35) # $95 min or $35/yard
-
-        return {
-            "status": "SUCCESS",
-            "volume_yards": final_vol,
-            "price": round(price, 2)
-        }
-
-    def calculate_volume(self, json_data):
-        if not json_data or 'packed_dimensions' not in json_data: return 0.0
-        d = json_data['packed_dimensions']
-        return (d.get('l',0) * d.get('w',0) * d.get('h',0)) / 27.0
-
-    async def ask_gemini(self, images):
-        try:
-            # Change this to 'gemini-3.0-pro' when available to you
-            model = genai.GenerativeModel('gemini-3-pro-preview') 
-            prompt = """
-            You are a Professional Junk Removal Estimator. Output JSON ONLY.
-            Your Goal: Estimate the volume of this pile as if it were loaded into a standard Dump Truck.
-
-            CRITICAL INSTRUCTION:
-            Do NOT measure the "Bounding Box" of the pile on the ground (this captures too much air).
-            Instead, perform a "Mental Tetris" simulation:
-            1. Imagine chopping up long items (like carpets/lumber).
-            2. Imagine stacking all items tightly into a cube.
-            3. Estimate the dimensions of that *TIGHTLY PACKED* cube in FEET.
-
-            OUTPUT JSON ONLY:
-            {
-              "packed_dimensions": {
-                  "l": float, // Length of the compacted cube
-                  "w": float, // Width of the compacted cube
-                  "h": float  // Height of the compacted cube
-              },
-              "density": 1.0 // Always 1.0 since you already packed it mentally
-            }
-            """
-            response = await model.generate_content_async(
-                [prompt, *images],
-                generation_config={
-                    "response_mime_type": "application/json",
-                    "temperature": 0.0 # Force determinism
-                },
-                safety_settings=SAFETY_SETTINGS
-            )
-            return json.loads(response.text)
-        except: return {}
-
-    async def ask_gpt_nano(self, images):
-        try:
-            prompt = """
-            You are a Professional Junk Removal Estimator. Output JSON ONLY.
-            Your Goal: Estimate the volume of this pile as if it were loaded into a standard Dump Truck.
-
-            CRITICAL INSTRUCTION:
-            Do NOT measure the "Bounding Box" of the pile on the ground (this captures too much air).
-            Instead, perform a "Mental Tetris" simulation:
-            1. Imagine chopping up long items (like carpets/lumber).
-            2. Imagine stacking all items tightly into a cube.
-            3. Estimate the dimensions of that *TIGHTLY PACKED* cube in FEET.
-
-            OUTPUT JSON ONLY:
-            {
-              "packed_dimensions": {
-                  "l": float, // Length of the compacted cube
-                  "w": float, // Width of the compacted cube
-                  "h": float  // Height of the compacted cube
-              },
-              "density": 1.0 // Always 1.0 since you already packed it mentally
-            }
-            """
-            
-            content = [{"type": "text", "text": prompt}]
-            content.extend(images)
-            
-            response = await openai_client.chat.completions.create(
-                model="gpt-4o", # Stable Omni Release
-                messages=[{"role": "user", "content": content}],
-                response_format={"type": "json_object"},
-                temperature=0.0 # Force determinism
-            )
-            return json.loads(response.choices[0].message.content)
-        except: return {}
