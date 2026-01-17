@@ -4,6 +4,7 @@ import os
 import asyncio
 import hashlib
 import base64
+import re
 from openai import OpenAI
 from google import genai
 from google.genai import types
@@ -56,9 +57,9 @@ class PricingEngine:
 
     def ask_gemini(self, images):
         try:
-            # NEW SDK SYNTAX
+            # NEW SDK SYNTAX with GEMINI 3 PREVIEW
             response = self.google_client.models.generate_content(
-                model='gemini-1.5-pro', # Or 'gemini-2.0-flash' if available
+                model='gemini-3-pro-preview', # STRICTLY THIS STRING
                 contents=[self._get_mental_tetris_prompt(), *images],
                 config=types.GenerateContentConfig(
                     temperature=0.0,
@@ -83,9 +84,19 @@ class PricingEngine:
                 model="gpt-4o",
                 messages=[{"role": "user", "content": content}],
                 temperature=0.0,
-                max_tokens=300
+                max_tokens=300,
+                response_format={"type": "json_object"} # FORCE JSON MODE
             )
-            return json.loads(response.choices[0].message.content)
+            
+            raw_content = response.choices[0].message.content
+            
+            # Remove Markdown if present
+            if raw_content.startswith("```json"):
+                raw_content = raw_content[7:]
+            if raw_content.endswith("```"):
+                raw_content = raw_content[:-3]
+                
+            return json.loads(raw_content)
         except Exception as e:
             print(f"❌ GPT ERROR: {e}")
             return None
@@ -105,18 +116,19 @@ class PricingEngine:
 
         # 2. RUN AI MODELS
         print("⚠️ CACHE MISS: Running Analysis...")
-        # Note: 'images' are bytes, 'base64_images' are strings
-        # We wrap bytes in types.Part if needed, but the SDK often accepts raw bytes if they are identifiable?
-        # To be safe for the "images" list passed to gemini, let's wrap them as Parts if simple bytes fail.
-        # But per user instructions, we use the code provided. 
-        # The user code passed `*images` directly. 
-        # If `images` are raw bytes, `google-genai` needs `types.Part.from_bytes(data=b, mime_type='image/jpeg')`.
-        # I will inject a small fix here to ensure compatibility if images are bytes.
         
+        # Prepare content parts for Gemini New SDK
         gemini_inputs = []
         for img_bytes in images:
              gemini_inputs.append(types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
 
+        # Parallel Execution (Simulated here via sequential call for simplicity in class, but Vercel handles async)
+        # Note: In a real async environment we'd use await, but this class is synchronous logic wrapped in handler.
+        # Ideally we make these async, but requests library is sync. 
+        # The Google SDK 'client.models.generate_content' is synchronous.
+        # OpenAI 'client.chat.completions.create' is synchronous.
+        # To keep it simple and robust per request, we keep sync calls. Vercel Function will handle the request time.
+        
         res_gemini = self.ask_gemini(gemini_inputs)
         res_gpt = self.ask_gpt(base64_images)
 
@@ -136,8 +148,10 @@ class PricingEngine:
         is_safe = False
 
         # --- THE SAFETY GATES (UPDATED TO 3.0) ---
+        # "Small Load Exception": If models differ by < 3.0 yards, APPROVE IT.
         if diff < 3.0: 
             is_safe = True
+        # "Percentage Guardrail": For huge jobs, ensure 25% agreement.
         elif variance <= 0.25: 
             is_safe = True
 

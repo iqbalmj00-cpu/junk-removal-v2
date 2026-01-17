@@ -1,2 +1,3 @@
 google-genai
 openai
+wheel==0.45.1
