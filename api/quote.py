@@ -1238,7 +1238,7 @@ class PricingEngine:
             
             def _call():
                 return self.google_client.models.generate_content(
-                    model='gemini-2.0-flash',
+                    model='gemini-3-pro-preview',
                     contents=[prompt, *images],
                     config=types.GenerateContentConfig(
                         temperature=0.0,
@@ -1247,7 +1247,14 @@ class PricingEngine:
                 )
 
             response = await asyncio.to_thread(_call)
-            return json.loads(response.text)
+            
+            # Safety check: handle None or empty response
+            response_text = response.text if response and response.text else None
+            if not response_text:
+                print("⚠️ Gemini returned empty/None response")
+                return None
+            
+            return json.loads(response_text)
         except Exception as e:
             print(f"❌ GEMINI ERROR: {e}")
             return None
@@ -1302,7 +1309,7 @@ class PricingEngine:
             
             def _call():
                 return self.google_client.models.generate_content(
-                    model='gemini-2.0-flash',
+                    model='gemini-3-pro-preview',
                     contents=[prompt, image_part],
                     config=types.GenerateContentConfig(
                         temperature=0.0,
