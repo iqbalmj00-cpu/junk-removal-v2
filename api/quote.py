@@ -873,9 +873,24 @@ try:
             y2 = max(d["bbox"][3] for d in valid_dets)
             return [x1, y1, x2, y2]
         
-        def analyze_image(self, image_base64: str) -> dict:
+        def analyze_image(self, image_base64: str, image_bytes: bytes = None) -> dict:
+            """
+            Main entry point for image analysis.
+            Routes to camera-aware or legacy path based on feature flag.
+            """
             import time
-            print("🚀 Starting Vision Pipeline...")
+            
+            # Route to camera-aware path if enabled and image_bytes provided
+            if CAMERA_AWARE_ENABLED and image_bytes:
+                print("🚀 Starting Camera-Aware Vision Pipeline...")
+                try:
+                    return self.analyze_image_camera_aware(image_base64, image_bytes)
+                except Exception as e:
+                    print(f"⚠️ Camera-aware failed, falling back to legacy: {e}")
+                    # Fall through to legacy
+            
+            # Legacy path
+            print("🚀 Starting Vision Pipeline (Legacy)...")
             detections = self.run_florence_detection(image_base64)
             
             # Rate limit: wait 12s between Replicate calls (burst limit = 1)
@@ -898,6 +913,61 @@ try:
                 "depth_map_url": depth_url,
                 "depth_available": depth_result.get("success", False),
                 "depth_stats": depth_stats
+            }
+        
+        def analyze_image_camera_aware(self, image_b64: str, image_bytes: bytes) -> dict:
+            """Camera-aware analysis with metric depth (Phases 1-5)."""
+            import time
+            
+            # Get image resolution
+            img = Image.open(io.BytesIO(image_bytes))
+            resolution = (img.width, img.height)
+            print(f"📷 Image resolution: {resolution[0]}x{resolution[1]}")
+            
+            # Phase 1: Get camera intrinsics
+            intrinsics = self.get_camera_intrinsics(image_bytes, resolution)
+            
+            # Run Florence detection (existing)
+            detections = self.run_florence_detection(image_b64)
+            
+            # Rate limit before depth model
+            print("   ⏳ Rate limit delay before depth (12s)...")
+            time.sleep(12)
+            
+            # Phase 2: Get scale (metric or anchor fallback)
+            scale = self.get_scale(image_bytes, image_b64, intrinsics, 
+                                   detections.get("detections", []))
+            
+            # Phase 3: Attach depth to detections if available
+            depth_map = scale.get("depth_map")
+            if depth_map is not None:
+                detections["detections"] = self.attach_depth_to_detections(
+                    detections["detections"], depth_map)
+            
+            # Phase 4-5: Calculate real dimensions and classify for non-anchors
+            reference_depth = scale.get("reference_depth_m", 2.0)
+            base_px_per_inch = scale.get("px_per_inch", 3.0)
+            
+            for det in detections.get("detections", []):
+                if det.get("type") != "anchor" and base_px_per_inch > 0:
+                    dims = self.calculate_real_dimensions(det, base_px_per_inch, reference_depth)
+                    det.update(dims)
+                    det["size_class"] = self.classify_size_by_dimensions(
+                        det["label"], det.get("width_in", 0))
+            
+            # Create visual bridge (use depth URL from Depth-Anything for visualization)
+            depth_result = self.run_depth_estimation(image_b64)
+            depth_url = depth_result.get("depth_map_url") if depth_result.get("success") else None
+            visual_bridge = self.create_visual_bridge(image_b64, detections, depth_url)
+            
+            print(f"✅ Camera-Aware Complete: {len(detections.get('detections', []))} objects, scale={scale.get('scale_source')}")
+            return {
+                "detections": detections,
+                "visual_bridge_image": visual_bridge,
+                "depth_map_url": depth_url,
+                "depth_available": scale.get("success", False),
+                "scale": scale,
+                "intrinsics": intrinsics,
             }
         
         def fuse_detection_results(self, all_results: list) -> dict:
@@ -1325,7 +1395,9 @@ class PricingEngine:
                 
                 print(f"🔍 Analyzing image {i+1}/{len(base64_images)}...")
                 try:
-                    result = vision_worker.analyze_image(img_b64)
+                    # Decode bytes for camera-aware path (EXIF extraction)
+                    img_bytes = base64.b64decode(img_b64)
+                    result = vision_worker.analyze_image(img_b64, img_bytes)
                     result["image_index"] = i
                     det_count = len(result.get("detections", {}).get("detections", []))
                     anchor = result.get("detections", {}).get("anchor_found", False)
