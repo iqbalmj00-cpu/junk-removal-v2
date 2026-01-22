@@ -68,6 +68,25 @@ try:
         "truck": {"vol_range": (0.3, 0.5, 0.8), "void": 0.2},
         "car": {"vol_range": (0.1, 0.2, 0.3), "void": 0.1},  # car parts/toys
     }
+    
+    # Confidence Factors for degraded mode calculation
+    CONFIDENCE_FACTORS = {
+        "anchor_high_trust": 1.0,
+        "anchor_medium_trust": 0.7,
+        "anchor_low_trust": 0.4,
+        "no_anchor": 0.2,
+        "depth_available": 0.15,
+        "multi_image": 0.1,  # per additional image beyond 1
+        "catalog_match_ratio": 0.2,  # if >50% items matched catalog
+    }
+    
+    # Mode thresholds determine price band width
+    MODE_THRESHOLDS = {
+        "FULL": {"threshold": 0.8, "band": 0.10},      # ±10%
+        "REDUCED": {"threshold": 0.5, "band": 0.20},   # ±20%
+        "LOW": {"threshold": 0.3, "band": 0.35},       # ±35%
+        "SHADOW": {"threshold": 0.0, "band": 0.50},    # ±50%
+    }
 
     class VisionWorker:
         """Handles vision tasks using Florence-2 and Depth-Anything-V2."""
@@ -171,6 +190,103 @@ try:
             }
             print(f"📦 Catalog Volume: {catalog_result['net_volume']} yd³ ({len(items)} items)")
             return catalog_result
+        
+        def bbox_area(self, bbox: list) -> float:
+            """Calculate area of a bounding box."""
+            if len(bbox) != 4:
+                return 0
+            return (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+        
+        def bbox_intersection(self, box1: list, box2: list) -> float:
+            """Calculate intersection area of two bboxes."""
+            if len(box1) != 4 or len(box2) != 4:
+                return 0
+            x1 = max(box1[0], box2[0])
+            y1 = max(box1[1], box2[1])
+            x2 = min(box1[2], box2[2])
+            y2 = min(box1[3], box2[3])
+            if x2 <= x1 or y2 <= y1:
+                return 0
+            return (x2 - x1) * (y2 - y1)
+        
+        def calculate_residual_pile_area(self, detections: list) -> dict:
+            """Subtract solid item footprints from pile area to estimate loose debris."""
+            if not detections:
+                return {"pile_area": 0, "subtracted_area": 0, "residual_area": 0, "coverage_ratio": 0}
+            
+            pile_bbox = self.get_pile_bbox(detections)
+            if not pile_bbox:
+                return {"pile_area": 0, "subtracted_area": 0, "residual_area": 0, "coverage_ratio": 0}
+            
+            pile_area = self.bbox_area(pile_bbox)
+            subtracted_area = 0
+            
+            for det in detections:
+                bbox = det.get("bbox", [])
+                if len(bbox) == 4:
+                    intersection = self.bbox_intersection(pile_bbox, bbox)
+                    subtracted_area += intersection
+            
+            residual_area = max(0, pile_area - subtracted_area)
+            coverage = subtracted_area / pile_area if pile_area > 0 else 0
+            
+            result = {
+                "pile_area": round(pile_area, 1),
+                "subtracted_area": round(subtracted_area, 1),
+                "residual_area": round(residual_area, 1),
+                "coverage_ratio": round(coverage, 2)
+            }
+            print(f"📐 Pile Analysis: {result['coverage_ratio']*100:.0f}% covered by items, {result['residual_area']:.0f}px² residual")
+            return result
+        
+        def calculate_pipeline_confidence(self, context: dict) -> dict:
+            """Calculate overall confidence score from all inputs."""
+            score = 0.0
+            factors = []
+            
+            # Anchor contribution
+            trust = context.get("anchor_trust")
+            if trust == "HIGH":
+                score += CONFIDENCE_FACTORS["anchor_high_trust"]
+                factors.append("HIGH anchor")
+            elif trust == "MEDIUM":
+                score += CONFIDENCE_FACTORS["anchor_medium_trust"]
+                factors.append("MEDIUM anchor")
+            elif trust == "LOW":
+                score += CONFIDENCE_FACTORS["anchor_low_trust"]
+                factors.append("LOW anchor")
+            else:
+                score += CONFIDENCE_FACTORS["no_anchor"]
+                factors.append("No anchor")
+            
+            # Depth contribution
+            if context.get("depth_available"):
+                score += CONFIDENCE_FACTORS["depth_available"]
+                factors.append("Depth")
+            
+            # Multi-image contribution
+            image_count = context.get("image_count", 1)
+            if image_count > 1:
+                score += CONFIDENCE_FACTORS["multi_image"] * (image_count - 1)
+                factors.append(f"{image_count} imgs")
+            
+            # Catalog match contribution
+            if context.get("catalog_match_ratio", 0) > 0.5:
+                score += CONFIDENCE_FACTORS["catalog_match_ratio"]
+                factors.append("Good catalog")
+            
+            # Determine mode and band width
+            mode = "SHADOW"
+            band = 0.50
+            for mode_name, config in MODE_THRESHOLDS.items():
+                if score >= config["threshold"]:
+                    mode = mode_name
+                    band = config["band"]
+                    break
+            
+            result = {"score": round(min(score, 1.5), 2), "mode": mode, "band": band, "factors": factors}
+            print(f"🎯 Confidence: {result['score']} ({mode}) - {', '.join(factors)}")
+            return result
         
         def _base64_to_file(self, image_base64: str):
             img_bytes = base64.b64decode(image_base64)
@@ -515,48 +631,54 @@ class PricingEngine:
         """
     
     def _get_vision_enhanced_prompt(self):
-        """GPT prompt for annotated visual bridge images."""
+        """Gemini auditor prompt - validates detections, does NOT estimate dimensions."""
         return """
-        You are a Logistics Physics Engine analyzing an ANNOTATED junk removal image.
+        You are a FORENSIC AUDITOR for junk removal volume estimation. Your role is to VALIDATE and CORRECT
+        the automated detection results, NOT to estimate dimensions yourself.
         
         **IMAGE LAYOUT:**
-        - LEFT SIDE: Annotated View with bounding boxes
-          - RED boxes = Scale ANCHORS (door frames, bins) with known sizes
-          - BLUE boxes = Detected items (furniture, appliances)
-        - RIGHT SIDE: Depth Heatmap (White=Near/Shallow, Black=Far/Deep)
+        - LEFT SIDE: Annotated view with bounding boxes (RED=anchors, BLUE=items)
+        - RIGHT SIDE: Depth heatmap (white=near, black=far)
         
-        **YOUR MISSION (The Subtraction Waterfall):**
+        **YOUR MISSION (Audit & Correct):**
         
-        1. **Anchor Validation:** Look at RED boxes. Use their known scale:
-           - Door frame = 80 inches tall
-           - Wheelie bin = 42 inches tall
-           - If NO red boxes, use Scene Heuristic (assume 6ft reference)
+        1. **VALIDATE LABELS:** Check each detected item label:
+           - Is "box" actually a box, or is it a toolbox/crate/container?
+           - Is "chair" a full chair or just seat/stool?
+           - Correct any obvious misidentifications
         
-        2. **Depth Analysis:** Check the heatmap:
-           - Is the pile SHALLOW (bright/white) or DEEP (dark)?
-           - Estimate depth in feet based on anchor scale
+        2. **SIZE CLASSIFICATION:** For each item, classify as:
+           - "small" (fits in car trunk)
+           - "medium" (needs SUV/truck)
+           - "large" (needs full truck)
         
-        3. **Item Verification:** Confirm BLUE boxes are valid items
-           - Are they actually junk or false positives?
-           - Estimate each item's volume using anchor scale
+        3. **DISCOVER MISSED ITEMS:** List any items you see that were NOT detected:
+           - Look for items hidden behind others
+           - Look for items at image edges
         
-        4. **Liquid Density:** For areas NOT covered by BLUE boxes:
-           - Is it loose/fluffy (0.5-0.7 density) or dense (0.8-1.0)?
+        4. **DEPTH ASSESSMENT:** Based on depth heatmap:
+           - Is pile uniform depth or varying?
+           - Approximate depth category: "shallow" (<2ft), "medium" (2-4ft), "deep" (>4ft)
         
-        5. **Volume Calculation:**
-           - Sum BLUE box item volumes
-           - Add remaining "liquid" pile volume × density
+        5. **CONFIDENCE FACTORS:** Rate confidence in the detection quality:
+           - anchor_quality: "good", "fair", "poor", "none"
+           - detection_quality: "good", "fair", "poor"
+           - visibility: "clear", "partial", "obscured"
+        
+        **DO NOT estimate packed_dimensions - the system calculates volume from catalog.**
         
         ### OUTPUT JSON:
         {
-          "packed_dimensions": { "l": 0.0, "w": 0.0, "h": 0.0 },
-          "confidence_score": 1.0,
-          "anchor_used": "String",
-          "anchor_scale_inches": 0,
-          "depth_estimate_ft": 0.0,
-          "density": 1.0,
-          "detected_items": ["item1", "item2"],
-          "debug_reasoning": "String"
+          "label_corrections": [{"original": "box", "corrected": "toolbox"}],
+          "size_classifications": [{"item": "mattress", "size": "large"}],
+          "missed_items": ["lamp behind dresser", "bags in corner"],
+          "depth_category": "medium",
+          "confidence_factors": {
+            "anchor_quality": "fair",
+            "detection_quality": "good",
+            "visibility": "clear"
+          },
+          "audit_notes": "Brief observations about the pile composition"
         }
         """
 
@@ -819,6 +941,20 @@ class PricingEngine:
             # Phase 4: Calculate catalog-based volume
             catalog_volume = vision_worker.calculate_catalog_volume(detections.get("detections", []))
             
+            # Phase 6: Calculate residual pile area (IoU subtraction)
+            residual_pile = vision_worker.calculate_residual_pile_area(detections.get("detections", []))
+            
+            # Phase 7: Calculate pipeline confidence and determine operating mode
+            catalog_matched = sum(1 for item in catalog_volume.get("items", []) if item.get("matched"))
+            catalog_total = catalog_volume.get("item_count", 1) or 1
+            confidence_ctx = {
+                "anchor_trust": detections.get("anchor_trust"),
+                "depth_available": any(r.get("depth_available", False) for r in all_vision_results),
+                "image_count": len(all_vision_results),
+                "catalog_match_ratio": catalog_matched / catalog_total
+            }
+            confidence = vision_worker.calculate_pipeline_confidence(confidence_ctx)
+            
             # Use visual bridge from image with anchor, or first image
             visual_bridge = None
             for result in all_vision_results:
@@ -840,19 +976,31 @@ class PricingEngine:
             if not gemini_result:
                 raise ValueError("Gemini vision analysis failed")
             
-            # 3. Calculate Volume
-            final_vol = self.calculate_volume(gemini_result)
+            # 3. Calculate Volume from catalog (Gemini is now auditor, not estimator)
+            final_vol = catalog_volume.get("net_volume", 0.0)
+            
+            # Apply Gemini audit corrections if available
+            if gemini_result:
+                # Add volume for missed items (rough estimate)
+                missed_items = gemini_result.get("missed_items", [])
+                if missed_items:
+                    # Each missed item adds ~0.1 yd³ as rough estimate
+                    final_vol += len(missed_items) * 0.1
+                    print(f"🔍 Added {len(missed_items)} missed items (+{len(missed_items)*0.1} yd³)")
             
             if final_vol <= 0:
-                raise ValueError("Invalid volume from vision pipeline")
+                final_vol = 0.5  # Minimum estimate if nothing detected
             
             # 4. Pricing Math
             final_vol = round(final_vol, 1)
             base_price = max(95, final_vol * 35)
             
             total_base = base_price + heavy_surcharge
-            min_price = max(95, round(total_base * 0.90))
-            max_price = round(total_base * 1.10)
+            
+            # Use dynamic price band from confidence mode
+            band = confidence.get("band", 0.10)
+            min_price = max(95, round(total_base * (1 - band)))
+            max_price = round(total_base * (1 + band))
             
             def round_pretty(p):
                 if p > 100: return 5 * round(p / 5)
@@ -875,6 +1023,8 @@ class PricingEngine:
                 "debug": {
                     "gemini_raw": gemini_result,
                     "catalog_volume": catalog_volume,
+                    "residual_pile": residual_pile,
+                    "confidence": confidence,
                     "detections_count": len(detections.get("detections", [])),
                     "depth_available": any(r.get("depth_available", False) for r in all_vision_results),
                     "heavy_level": heavy_level
