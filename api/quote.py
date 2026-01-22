@@ -43,33 +43,54 @@ try:
     }
     
     # Item Catalog: volume ranges (small, medium, large) in cubic yards + void factors
+    # CORRECTED: Industry-standard volumes based on actual truck loading
     ITEM_CATALOG = {
         # Furniture - large items
-        "mattress": {"vol_range": (0.4, 0.7, 0.9), "void": 0.1},
-        "bed": {"vol_range": (0.5, 0.8, 1.2), "void": 0.1},
-        "couch": {"vol_range": (0.8, 1.0, 1.5), "void": 0.15},
-        "sofa": {"vol_range": (0.8, 1.0, 1.5), "void": 0.15},
-        "dresser": {"vol_range": (0.4, 0.6, 0.8), "void": 0.05},
-        "table": {"vol_range": (0.2, 0.4, 0.6), "void": 0.3},
-        "desk": {"vol_range": (0.3, 0.5, 0.7), "void": 0.25},
-        "chair": {"vol_range": (0.1, 0.2, 0.3), "void": 0.2},
+        "mattress": {"vol_range": (0.8, 1.0, 1.7), "void": 0.1},  # Twin/Full/Queen/King
+        "bed": {"vol_range": (1.0, 1.3, 2.0), "void": 0.1},  # Mattress + frame
+        "box spring": {"vol_range": (0.8, 1.0, 1.7), "void": 0.1},
+        "couch": {"vol_range": (2.0, 2.5, 3.0), "void": 0.15},  # 3-seat sofa
+        "sofa": {"vol_range": (2.0, 2.5, 3.0), "void": 0.15},
+        "loveseat": {"vol_range": (1.5, 1.75, 2.0), "void": 0.15},
+        "sectional": {"vol_range": (4.0, 5.0, 6.0), "void": 0.15},
+        "recliner": {"vol_range": (1.0, 1.25, 1.5), "void": 0.15},
+        "dresser": {"vol_range": (1.0, 1.25, 1.5), "void": 0.05},
+        "nightstand": {"vol_range": (0.3, 0.4, 0.5), "void": 0.05},
+        "table": {"vol_range": (1.0, 1.5, 2.0), "void": 0.3},  # Dining table
+        "desk": {"vol_range": (1.0, 1.5, 2.0), "void": 0.25},
+        "chair": {"vol_range": (0.2, 0.25, 0.3), "void": 0.2},  # Dining chair
+        "office chair": {"vol_range": (0.3, 0.4, 0.5), "void": 0.2},
         # Appliances
-        "refrigerator": {"vol_range": (0.6, 0.8, 1.0), "void": 0.05},
-        "washer": {"vol_range": (0.4, 0.5, 0.6), "void": 0.05},
-        "dryer": {"vol_range": (0.4, 0.5, 0.6), "void": 0.05},
-        "tv": {"vol_range": (0.05, 0.1, 0.2), "void": 0.0},
-        "television": {"vol_range": (0.05, 0.1, 0.2), "void": 0.0},
+        "refrigerator": {"vol_range": (2.0, 2.5, 3.0), "void": 0.05},
+        "fridge": {"vol_range": (2.0, 2.5, 3.0), "void": 0.05},
+        "mini fridge": {"vol_range": (0.4, 0.5, 0.6), "void": 0.05},
+        "washer": {"vol_range": (0.9, 1.0, 1.1), "void": 0.05},
+        "washing machine": {"vol_range": (0.9, 1.0, 1.1), "void": 0.05},
+        "dryer": {"vol_range": (0.9, 1.0, 1.1), "void": 0.05},
+        "dishwasher": {"vol_range": (0.75, 0.9, 1.0), "void": 0.05},
+        "stove": {"vol_range": (1.0, 1.25, 1.5), "void": 0.05},
+        "oven": {"vol_range": (1.0, 1.25, 1.5), "void": 0.05},
+        "microwave": {"vol_range": (0.1, 0.15, 0.2), "void": 0.0},
+        "water heater": {"vol_range": (0.9, 1.0, 1.1), "void": 0.05},
+        "tv": {"vol_range": (0.2, 0.3, 0.4), "void": 0.0},  # Flat screen
+        "television": {"vol_range": (0.2, 0.3, 0.4), "void": 0.0},
+        "crt tv": {"vol_range": (0.8, 1.0, 1.5), "void": 0.0},  # Old tube TV
         # Small items
-        "box": {"vol_range": (0.02, 0.05, 0.15), "void": 0.0},
-        "bag": {"vol_range": (0.01, 0.03, 0.1), "void": 0.0},
-        "plastic bag": {"vol_range": (0.01, 0.02, 0.05), "void": 0.0},
-        "suitcase": {"vol_range": (0.05, 0.1, 0.15), "void": 0.1},
+        "box": {"vol_range": (0.05, 0.1, 0.15), "void": 0.0},  # Moving box
+        "bag": {"vol_range": (0.05, 0.1, 0.2), "void": 0.0},  # Contractor bag
+        "trash bag": {"vol_range": (0.03, 0.05, 0.1), "void": 0.0},  # Kitchen bag
+        "plastic bag": {"vol_range": (0.02, 0.03, 0.05), "void": 0.0},
+        "suitcase": {"vol_range": (0.1, 0.15, 0.2), "void": 0.1},
         # Outdoor/misc
-        "bicycle": {"vol_range": (0.15, 0.2, 0.3), "void": 0.4},
-        "tire": {"vol_range": (0.08, 0.1, 0.15), "void": 0.3},
-        "wheel": {"vol_range": (0.05, 0.08, 0.12), "void": 0.3},
-        "truck": {"vol_range": (0.3, 0.5, 0.8), "void": 0.2},
-        "car": {"vol_range": (0.1, 0.2, 0.3), "void": 0.1},  # car parts/toys
+        "bicycle": {"vol_range": (0.3, 0.4, 0.5), "void": 0.4},
+        "tire": {"vol_range": (0.1, 0.15, 0.2), "void": 0.3},
+        "bbq": {"vol_range": (0.5, 0.75, 1.0), "void": 0.2},
+        "grill": {"vol_range": (0.5, 0.75, 1.0), "void": 0.2},
+        "treadmill": {"vol_range": (1.0, 1.5, 2.0), "void": 0.2},
+        "elliptical": {"vol_range": (1.0, 1.25, 1.5), "void": 0.2},
+        "pallet": {"vol_range": (0.2, 0.25, 0.3), "void": 0.1},
+        "wheelbarrow": {"vol_range": (0.3, 0.4, 0.5), "void": 0.3},
+        "push mower": {"vol_range": (0.5, 0.6, 0.75), "void": 0.2},
     }
     
     # Confidence Factors for degraded mode calculation
@@ -144,69 +165,74 @@ try:
     RATE_PER_YARD = 55.0
     
     # TIER 1: Price-stable items - NO measurement needed
-    # These items have consistent sizes, so catalog lookup is sufficient
+    # CORRECTED: Industry-standard volumes based on actual truck loading
     TIER_1_CATALOG = {
         # Appliances (standardized sizes)
-        "washing machine": 0.6, "dryer": 0.6, "dishwasher": 0.5, "stove": 0.6,
-        "microwave": 0.1, "water heater": 0.8, "oven": 0.6,
-        # Bedding (defaulting to larger size for margin protection)
-        "mattress": 0.9, "box spring": 0.9, "bed": 1.0, "bed frame": 0.5,
+        "washing machine": 1.0, "washer": 1.0, "dryer": 1.0, 
+        "dishwasher": 0.9, "stove": 1.25, "oven": 1.25,
+        "microwave": 0.15, "water heater": 1.0,
+        # Bedding (Queen size default for margin protection)
+        "mattress": 1.3, "box spring": 1.3, "bed": 1.8, "bed frame": 0.75,
         # Exercise equipment
-        "treadmill": 1.2, "elliptical": 1.0, "exercise bike": 0.5,
+        "treadmill": 1.5, "elliptical": 1.25, "exercise bike": 0.6,
         # Small items
-        "tire": 0.2, "bicycle": 0.3, "grill": 0.5, "bbq": 0.5,
-        "bag": 0.1, "box": 0.15, "trash bag": 0.05,
+        "tire": 0.15, "bicycle": 0.4, "grill": 0.75, "bbq": 0.75,
+        "bag": 0.15, "box": 0.1, "trash bag": 0.05,
         # Office
-        "office chair": 0.2, "filing cabinet": 0.4,
+        "office chair": 0.4, "filing cabinet": 0.5,
+        # Additional common items
+        "nightstand": 0.4, "dresser": 1.25, "recliner": 1.25,
+        "push mower": 0.6, "wheelbarrow": 0.4, "pallet": 0.25,
     }
     
     # TIER 2: Variable items - REQUIRES measurement via Depth Pro
     # Format: "axis" = dimension to measure (h=height, w=width)
     # "bins" = [(max_inches, variant_name, volume_yards), ...]
+    # CORRECTED: Industry-standard volumes
     TIER_2_ROUTING = {
         "refrigerator": {
             "axis": "h",  # Measure HEIGHT for fridges
-            "bins": [(36, "MINI", 0.3), (60, "APT_SIZE", 0.8), (999, "STANDARD", 1.2)]
+            "bins": [(36, "MINI", 0.5), (60, "APT_SIZE", 1.5), (999, "STANDARD", 2.5)]
         },
         "fridge": {
             "axis": "h",
-            "bins": [(36, "MINI", 0.3), (60, "APT_SIZE", 0.8), (999, "STANDARD", 1.2)]
+            "bins": [(36, "MINI", 0.5), (60, "APT_SIZE", 1.5), (999, "STANDARD", 2.5)]
         },
         "sofa": {
             "axis": "w",  # Measure WIDTH for sofas
-            "bins": [(65, "LOVESEAT", 1.0), (88, "STANDARD", 1.5), (999, "SECTIONAL", 2.5)]
+            "bins": [(65, "LOVESEAT", 1.75), (88, "STANDARD", 2.5), (999, "SECTIONAL", 5.0)]
         },
         "couch": {
             "axis": "w",
-            "bins": [(65, "LOVESEAT", 1.0), (88, "STANDARD", 1.5), (999, "SECTIONAL", 2.5)]
+            "bins": [(65, "LOVESEAT", 1.75), (88, "STANDARD", 2.5), (999, "SECTIONAL", 5.0)]
         },
         "television": {
             "axis": "w",
-            "bins": [(45, "MEDIUM", 0.2), (999, "LARGE", 0.4)]
+            "bins": [(45, "MEDIUM", 0.3), (999, "LARGE", 0.4)]
         },
         "tv": {
             "axis": "w",
-            "bins": [(45, "MEDIUM", 0.2), (999, "LARGE", 0.4)]
+            "bins": [(45, "MEDIUM", 0.3), (999, "LARGE", 0.4)]
         },
         "dresser": {
             "axis": "w",
-            "bins": [(40, "SMALL", 0.5), (60, "MEDIUM", 0.8), (999, "LARGE", 1.2)]
+            "bins": [(40, "SMALL", 1.0), (60, "MEDIUM", 1.25), (999, "LARGE", 1.5)]
         },
         "cabinet": {
             "axis": "h",
-            "bins": [(48, "SHORT", 0.5), (72, "STANDARD", 0.8), (999, "TALL", 1.2)]
+            "bins": [(48, "SHORT", 0.8), (72, "STANDARD", 1.2), (999, "TALL", 1.5)]
         },
         "wardrobe": {
             "axis": "h",
-            "bins": [(60, "SHORT", 0.8), (999, "TALL", 1.5)]
+            "bins": [(60, "SHORT", 1.2), (999, "TALL", 2.0)]
         },
         "table": {
             "axis": "w",
-            "bins": [(48, "SMALL", 0.3), (72, "MEDIUM", 0.5), (999, "LARGE", 0.8)]
+            "bins": [(48, "SMALL", 1.0), (72, "MEDIUM", 1.5), (999, "LARGE", 2.0)]
         },
         "desk": {
             "axis": "w",
-            "bins": [(48, "SMALL", 0.4), (60, "MEDIUM", 0.6), (999, "LARGE", 0.8)]
+            "bins": [(48, "SMALL", 1.0), (60, "MEDIUM", 1.5), (999, "LARGE", 2.0)]
         },
     }
     
@@ -215,18 +241,17 @@ try:
                           "sleeper", "cast iron", "gun safe", "aquarium"]
     
     # ==================== TIERED PRICING ====================
-    # Ported from pricingEngine.ts - industry-aligned volume buckets
+    # Industry-aligned volume buckets - MAX 18 yd³ (Full Load capacity)
     VOLUME_TIERS = [
-        {"max_cuft": 60,   "price": 99,  "label": "Min Load"},
-        {"max_cuft": 80,   "price": 129, "label": "1/6 Load"},
-        {"max_cuft": 120,  "price": 149, "label": "1/4 Load"},
-        {"max_cuft": 180,  "price": 199, "label": "3/8 Load"},
-        {"max_cuft": 240,  "price": 299, "label": "Half Load"},
-        {"max_cuft": 300,  "price": 329, "label": "5/8 Load"},
-        {"max_cuft": 360,  "price": 379, "label": "3/4 Load"},
-        {"max_cuft": 420,  "price": 435, "label": "7/8 Load"},
-        {"max_cuft": 480,  "price": 549, "label": "Full Load"},
-        {"max_cuft": 9999, "price": 599, "label": "Overload"},
+        {"max_cuft": 60,   "price": 99,  "label": "Min Load"},      # ~2.2 yd³
+        {"max_cuft": 80,   "price": 129, "label": "1/6 Load"},      # ~3.0 yd³
+        {"max_cuft": 120,  "price": 149, "label": "1/4 Load"},      # ~4.4 yd³
+        {"max_cuft": 180,  "price": 199, "label": "3/8 Load"},      # ~6.7 yd³
+        {"max_cuft": 240,  "price": 299, "label": "Half Load"},     # ~8.9 yd³
+        {"max_cuft": 300,  "price": 349, "label": "5/8 Load"},      # ~11 yd³
+        {"max_cuft": 360,  "price": 399, "label": "3/4 Load"},      # ~13 yd³
+        {"max_cuft": 420,  "price": 479, "label": "7/8 Load"},      # ~16 yd³
+        {"max_cuft": 486,  "price": 599, "label": "Full Load"},     # 18 yd³ MAX
     ]
     
     def round_to_half(value: float) -> float:
