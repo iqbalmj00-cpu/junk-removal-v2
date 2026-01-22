@@ -38,6 +38,36 @@ try:
         "bicycle": {"size_inches": 40, "trust": "LOW", "aspect_ratio": (0.6, 1.8)},
         "tv": {"size_inches": 24, "trust": "LOW", "aspect_ratio": (1.2, 2.5), "aliases": ["television", "monitor"]},
     }
+    
+    # Item Catalog: volume ranges (small, medium, large) in cubic yards + void factors
+    ITEM_CATALOG = {
+        # Furniture - large items
+        "mattress": {"vol_range": (0.4, 0.7, 0.9), "void": 0.1},
+        "bed": {"vol_range": (0.5, 0.8, 1.2), "void": 0.1},
+        "couch": {"vol_range": (0.8, 1.0, 1.5), "void": 0.15},
+        "sofa": {"vol_range": (0.8, 1.0, 1.5), "void": 0.15},
+        "dresser": {"vol_range": (0.4, 0.6, 0.8), "void": 0.05},
+        "table": {"vol_range": (0.2, 0.4, 0.6), "void": 0.3},
+        "desk": {"vol_range": (0.3, 0.5, 0.7), "void": 0.25},
+        "chair": {"vol_range": (0.1, 0.2, 0.3), "void": 0.2},
+        # Appliances
+        "refrigerator": {"vol_range": (0.6, 0.8, 1.0), "void": 0.05},
+        "washer": {"vol_range": (0.4, 0.5, 0.6), "void": 0.05},
+        "dryer": {"vol_range": (0.4, 0.5, 0.6), "void": 0.05},
+        "tv": {"vol_range": (0.05, 0.1, 0.2), "void": 0.0},
+        "television": {"vol_range": (0.05, 0.1, 0.2), "void": 0.0},
+        # Small items
+        "box": {"vol_range": (0.02, 0.05, 0.15), "void": 0.0},
+        "bag": {"vol_range": (0.01, 0.03, 0.1), "void": 0.0},
+        "plastic bag": {"vol_range": (0.01, 0.02, 0.05), "void": 0.0},
+        "suitcase": {"vol_range": (0.05, 0.1, 0.15), "void": 0.1},
+        # Outdoor/misc
+        "bicycle": {"vol_range": (0.15, 0.2, 0.3), "void": 0.4},
+        "tire": {"vol_range": (0.08, 0.1, 0.15), "void": 0.3},
+        "wheel": {"vol_range": (0.05, 0.08, 0.12), "void": 0.3},
+        "truck": {"vol_range": (0.3, 0.5, 0.8), "void": 0.2},
+        "car": {"vol_range": (0.1, 0.2, 0.3), "void": 0.1},  # car parts/toys
+    }
 
     class VisionWorker:
         """Handles vision tasks using Florence-2 and Depth-Anything-V2."""
@@ -94,6 +124,53 @@ try:
             }
             print(f"📐 Scale: {result['scale']} px/inch from {best['anchor_name']} ({result['confidence']} confidence)")
             return result
+        
+        def lookup_item_volume(self, label: str, bbox: list, image_dims: tuple) -> dict:
+            """Lookup item volume from catalog, inferring size from bbox area."""
+            norm_label = label.lower().strip()
+            
+            for item_name, config in ITEM_CATALOG.items():
+                if item_name in norm_label or norm_label in item_name:
+                    bbox_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+                    image_area = image_dims[0] * image_dims[1] if image_dims[0] > 0 and image_dims[1] > 0 else 1
+                    area_ratio = bbox_area / image_area
+                    
+                    # Size thresholds: <5% = small, 5-15% = medium, >15% = large
+                    if area_ratio < 0.05:
+                        size_idx, size_label = 0, "small"
+                    elif area_ratio < 0.15:
+                        size_idx, size_label = 1, "medium"
+                    else:
+                        size_idx, size_label = 2, "large"
+                    
+                    vol = config["vol_range"][size_idx]
+                    return {"volume": vol, "void": config["void"], "size": size_label, "matched": item_name}
+            
+            return {"volume": 0.05, "void": 0.0, "size": "unknown", "matched": None}
+        
+        def calculate_catalog_volume(self, detections: list, image_dims: tuple = (320, 320)) -> dict:
+            """Calculate total volume from catalog lookups."""
+            total_vol = 0.0
+            total_void = 0.0
+            items = []
+            
+            for det in detections:
+                if det.get("type") == "anchor":
+                    continue
+                result = self.lookup_item_volume(det["label"], det.get("bbox", [0,0,0,0]), image_dims)
+                total_vol += result["volume"]
+                total_void += result["volume"] * result["void"]
+                items.append({"label": det["label"], **result})
+            
+            catalog_result = {
+                "gross_volume": round(total_vol, 2),
+                "void_volume": round(total_void, 2),
+                "net_volume": round(total_vol - total_void, 2),
+                "item_count": len(items),
+                "items": items
+            }
+            print(f"📦 Catalog Volume: {catalog_result['net_volume']} yd³ ({len(items)} items)")
+            return catalog_result
         
         def _base64_to_file(self, image_base64: str):
             img_bytes = base64.b64decode(image_base64)
@@ -699,6 +776,9 @@ class PricingEngine:
             # Phase 2: Fuse detections from all images
             detections = vision_worker.fuse_detection_results(all_vision_results)
             
+            # Phase 4: Calculate catalog-based volume
+            catalog_volume = vision_worker.calculate_catalog_volume(detections.get("detections", []))
+            
             # Use visual bridge from image with anchor, or first image
             visual_bridge = None
             for result in all_vision_results:
@@ -754,6 +834,7 @@ class PricingEngine:
                 "detected_items": gemini_result.get("detected_items", []),
                 "debug": {
                     "gemini_raw": gemini_result,
+                    "catalog_volume": catalog_volume,
                     "detections_count": len(detections.get("detections", [])),
                     "depth_available": any(r.get("depth_available", False) for r in all_vision_results),
                     "heavy_level": heavy_level
