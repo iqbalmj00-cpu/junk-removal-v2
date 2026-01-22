@@ -8,6 +8,7 @@ import ast
 import redis
 import requests
 from openai import AsyncOpenAI
+from anthropic import AsyncAnthropic
 from google import genai
 from google.genai import types
 
@@ -1421,6 +1422,9 @@ class PricingEngine:
         
         # 2. Initialize OpenAI Client (Async)
         self.openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        
+        # 3. Initialize Anthropic Client (Async) for Claude 4 Sonnet
+        self.anthropic_client = AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
         # 3. Initialize Redis (for Rate Limiting)
         try:
@@ -1593,7 +1597,7 @@ class PricingEngine:
             return None
     
     async def classify_with_gemma(self, image_b64: str, items: list) -> list:
-        """Use Google Gemini Vision to classify ambiguous items into pricing categories."""
+        """Use Claude 4 Sonnet to classify ambiguous items into pricing categories."""
         try:
             items_json = json.dumps([{"label": i.get("label", "unknown"), "bbox": i.get("bbox", [])} for i in items])
             
@@ -1635,44 +1639,43 @@ Special instructions:
 
 Return JSON array ONLY. No explanation."""
 
-            print(f"🔮 Calling Google Gemini Vision for {len(items)} items...")
+            print(f"🔮 Calling Claude 4 Sonnet for {len(items)} items...")
             
-            # Use Google Gemini Vision API
-            response = self.google_client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=[
-                    types.Content(
-                        role="user",
-                        parts=[
-                            types.Part.from_bytes(
-                                data=base64.b64decode(image_b64),
-                                mime_type="image/jpeg"
-                            ),
-                            types.Part.from_text(text=prompt)
+            # Use Anthropic Claude 4 Sonnet API
+            response = await self.anthropic_client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=1000,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": image_b64
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": prompt
+                            }
                         ]
-                    )
-                ],
-                config=types.GenerateContentConfig(
-                    max_output_tokens=1000
-                )
+                    }
+                ]
             )
             
-            # Debug: print raw response
-            result_text = response.text if response.text else ""
-            print(f"🔮 Gemini raw response length: {len(result_text)} chars")
+            # Extract text from Claude response
+            result_text = ""
+            for block in response.content:
+                if hasattr(block, 'text'):
+                    result_text += block.text
+            
+            print(f"🔮 Claude raw response length: {len(result_text)} chars")
             
             if not result_text:
-                # Try getting text from candidates
-                if hasattr(response, 'candidates') and response.candidates:
-                    for candidate in response.candidates:
-                        if hasattr(candidate, 'content') and candidate.content:
-                            for part in candidate.content.parts:
-                                if hasattr(part, 'text') and part.text:
-                                    result_text = part.text
-                                    break
-            
-            if not result_text:
-                raise ValueError("Empty response from Gemini")
+                raise ValueError("Empty response from Claude")
             
             # Clean up any markdown formatting
             if "```json" in result_text:
@@ -1681,11 +1684,11 @@ Return JSON array ONLY. No explanation."""
                 result_text = result_text.split("```")[1].split("```")[0]
             
             result = json.loads(result_text.strip())
-            print(f"🔮 Gemini classifications: {result}")
+            print(f"🔮 Claude classifications: {result}")
             return result
             
         except Exception as e:
-            print(f"⚠️ Gemini classification failed: {e}, using static mapping")
+            print(f"⚠️ Claude classification failed: {e}, using static mapping")
             # Fallback to static mapping
             return [
                 {"item": i.get("label", "unknown"), 
@@ -2102,7 +2105,7 @@ Return JSON array ONLY. No explanation."""
                                or d.get("label", "").lower() not in ITEM_TO_CATEGORY]
             
             if ambiguous_items and visual_bridge:
-                print(f"🔮 {len(ambiguous_items)} ambiguous items found, calling Gemini Vision...")
+                print(f"🔮 {len(ambiguous_items)} ambiguous items found, calling Claude 4 Sonnet...")
                 classifications = await self.classify_with_gemma(visual_bridge, ambiguous_items)
                 
                 # Store Gemini classifications for volume calculation
