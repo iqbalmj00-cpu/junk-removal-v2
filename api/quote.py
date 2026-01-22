@@ -1653,12 +1653,24 @@ Return JSON array ONLY. No explanation."""
                     )
                 ],
                 config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    max_output_tokens=800
+                    max_output_tokens=1000
                 )
             )
             
-            result_text = response.text
+            # Debug: print raw response
+            result_text = response.text if response.text else ""
+            print(f"🔮 Gemini raw response length: {len(result_text)} chars")
+            
+            if not result_text:
+                # Try getting text from candidates
+                if hasattr(response, 'candidates') and response.candidates:
+                    for candidate in response.candidates:
+                        if hasattr(candidate, 'content') and candidate.content:
+                            for part in candidate.content.parts:
+                                if hasattr(part, 'text') and part.text:
+                                    result_text = part.text
+                                    break
+            
             if not result_text:
                 raise ValueError("Empty response from Gemini")
             
