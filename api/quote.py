@@ -2121,17 +2121,20 @@ Return JSON array ONLY. No explanation."""
             
             # 2b. GPT-5.2 Audit (replaces Gemini)
             # Build initial classifications list for audit
+            catalog_items = catalog_volume.get("items", [])
             initial_classifications = [
                 {"category": gemma_categories.get(item.get("label", "").lower()) or 
                             ITEM_TO_CATEGORY.get(item.get("label", "").lower(), "furniture"),
                  "variant": "unknown",
+                 "label": item.get("label", "unknown"),  # Include label for matching
                  "add_on_flags": gemma_add_ons if item.get("label", "").lower() in gemma_categories else []}
-                for item in catalog_volume.get("items", [])
+                for item in catalog_items
             ]
             
+            # Pass catalog_items (not detections) so indices match the volume calculation loop
             audit_result = await self.audit_with_gpt5(
                 visual_bridge,
-                detections.get("detections", []),
+                catalog_items,  # Use catalog items for consistent indexing
                 catalog_volume,
                 initial_classifications
             )
