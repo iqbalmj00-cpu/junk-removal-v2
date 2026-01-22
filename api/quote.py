@@ -24,6 +24,9 @@ try:
     FLORENCE_MODEL = "lucataco/florence-2-large:da53547e17d45b9cfb48174b2f18af8b83ca020fa76db62136bf9c6616762595"
     DEPTH_MODEL = "chenxwh/depth-anything-v2:b239ea33cff32bb7abb5db39ffe9a09c14cbc2894331d1ef66fe096eed88ebd4"
     
+    # Feature flag for camera-aware pipeline (Phases 1-8)
+    CAMERA_AWARE_ENABLED = os.environ.get("CAMERA_AWARE", "false").lower() == "true"
+    
     # Anchor Trust Registry: trust tiers + validation rules
     ANCHOR_REGISTRY = {
         # HIGH trust - consistent, standardized sizes
@@ -650,6 +653,128 @@ try:
             
             return detections
         
+        # ===== PHASE 4: DEPTH-CORRECTED SIZING =====
+        
+        def calculate_real_dimensions(self, det: dict, base_px_per_inch: float,
+                                       reference_depth: float, depth_map=None) -> dict:
+            """Convert bbox pixels to inches with parallax correction."""
+            bbox = det.get("bbox", [0, 0, 0, 0])
+            item_depth = det.get("depth_m", reference_depth)
+            
+            # Safety clamps
+            if reference_depth <= 0.1:
+                reference_depth = 1.0
+            if item_depth <= 0.1:
+                item_depth = reference_depth
+            
+            # Parallax correction: closer items have more px/inch
+            depth_ratio = item_depth / reference_depth
+            
+            # Clamp correction ratio to avoid extreme values
+            depth_ratio = max(0.25, min(depth_ratio, 4.0))
+            
+            corrected_px_per_inch = base_px_per_inch / depth_ratio
+            
+            width_px = bbox[2] - bbox[0]
+            height_px = bbox[3] - bbox[1]
+            
+            width_in = width_px / corrected_px_per_inch if corrected_px_per_inch > 0 else 0
+            height_in = height_px / corrected_px_per_inch if corrected_px_per_inch > 0 else 0
+            
+            # Sanity check: if dimensions are unreasonable, fallback
+            if width_in > 200 or height_in > 200 or width_in < 1 or height_in < 1:
+                # Fallback to uncorrected
+                width_in = width_px / base_px_per_inch if base_px_per_inch > 0 else 0
+                height_in = height_px / base_px_per_inch if base_px_per_inch > 0 else 0
+            
+            return {
+                "width_in": round(width_in, 1),
+                "height_in": round(height_in, 1),
+                "depth_m": round(item_depth, 2),
+                "px_per_inch_used": round(corrected_px_per_inch, 2),
+                "parallax_corrected": abs(depth_ratio - 1.0) > 0.1,
+            }
+        
+        # ===== PHASE 5: DIMENSION-BASED CLASSIFICATION =====
+        
+        # Size thresholds in inches (width-based)
+        SIZE_THRESHOLDS = {
+            "mattress": {"king": 76, "queen": 60, "full": 54, "twin": 38},
+            "bed": {"king": 76, "queen": 60, "full": 54, "twin": 38},
+            "couch": {"large": 84, "medium": 72, "small": 60},
+            "sofa": {"large": 84, "medium": 72, "small": 60},
+            "dresser": {"large": 60, "medium": 48, "small": 36},
+            "table": {"large": 72, "medium": 48, "small": 30},
+            "desk": {"large": 60, "medium": 48, "small": 36},
+            "chair": {"large": 36, "medium": 24, "small": 18},
+            "box": {"large": 24, "medium": 18, "small": 12},
+            "bag": {"large": 36, "medium": 24, "small": 12},
+            "refrigerator": {"large": 36, "medium": 30, "small": 24},
+            "washer": {"large": 30, "medium": 27, "small": 24},
+            "dryer": {"large": 30, "medium": 27, "small": 24},
+        }
+        
+        def classify_size_by_dimensions(self, label: str, width_in: float) -> str:
+            """Classify item size using measured width in inches."""
+            label_lower = label.lower()
+            
+            for item_type, thresholds in self.SIZE_THRESHOLDS.items():
+                if item_type in label_lower:
+                    for size_name, min_width in thresholds.items():
+                        if width_in >= min_width:
+                            return size_name
+                    return "small"
+            
+            # Unknown item: generic classification
+            if width_in > 60:
+                return "large"
+            elif width_in > 30:
+                return "medium"
+            return "small"
+        
+        # ===== PHASE 7: UNCERTAINTY CALCULATION =====
+        
+        def calculate_uncertainty(self, context: dict) -> dict:
+            """Calculate price band uncertainty from all sources."""
+            uncertainty = 0.0
+            factors = []
+            
+            # Scale source uncertainty
+            scale_source = context.get("scale_source", "none")
+            if scale_source == "metric_depth":
+                base_unc = context.get("intrinsics_uncertainty", 0.10)
+                uncertainty += base_unc
+                factors.append(f"metric +{base_unc*100:.0f}%")
+            elif scale_source == "anchor":
+                trust = context.get("anchor_trust", "LOW")
+                anchor_unc = {"HIGH": 0.08, "MEDIUM": 0.15, "LOW": 0.25}.get(trust, 0.20)
+                uncertainty += anchor_unc
+                factors.append(f"anchor ({trust}) +{anchor_unc*100:.0f}%")
+            else:
+                uncertainty += 0.40
+                factors.append("no scale +40%")
+            
+            # Detection quality penalty
+            if context.get("detection_conflicts"):
+                uncertainty += 0.10
+                factors.append("conflicts +10%")
+            
+            # Multi-image bonus (reduces uncertainty)
+            image_count = context.get("image_count", 1)
+            if image_count > 1:
+                reduction = min(0.05 * (image_count - 1), 0.10)
+                uncertainty -= reduction
+                factors.append(f"{image_count} images -{reduction*100:.0f}%")
+            
+            # Clamp to reasonable range
+            uncertainty = max(0.08, min(uncertainty, 0.45))
+            
+            print(f"📊 Uncertainty: ±{uncertainty*100:.0f}% ({', '.join(factors)})")
+            return {
+                "uncertainty": round(uncertainty, 2),
+                "factors": factors,
+            }
+        
         def run_depth_estimation(self, image_base64: str) -> dict:
             """Run Depth-Anything-V2. Output is {'color_depth': <url>, 'grey_depth': <url>}."""
             print("🔍 Running Depth-Anything-V2...")
@@ -930,54 +1055,36 @@ class PricingEngine:
         """
     
     def _get_vision_enhanced_prompt(self):
-        """Gemini auditor prompt - validates detections, does NOT estimate dimensions."""
+        """Gemini auditor prompt - validates labels only, cannot override measured dimensions."""
         return """
-        You are a FORENSIC AUDITOR for junk removal volume estimation. Your role is to VALIDATE and CORRECT
-        the automated detection results, NOT to estimate dimensions yourself.
-        
+        You are a FORENSIC AUDITOR for junk removal detection. Your role is LIMITED:
+
         **IMAGE LAYOUT:**
         - LEFT SIDE: Annotated view with bounding boxes (RED=anchors, BLUE=items)
         - RIGHT SIDE: Depth heatmap (white=near, black=far)
+
+        **ALLOWED ACTIONS:**
         
-        **YOUR MISSION (Audit & Correct):**
-        
-        1. **VALIDATE LABELS:** Check each detected item label:
-           - Is "box" actually a box, or is it a toolbox/crate/container?
-           - Is "chair" a full chair or just seat/stool?
-           - Correct any obvious misidentifications
-        
-        2. **SIZE CLASSIFICATION:** For each item, classify as:
-           - "small" (fits in car trunk)
-           - "medium" (needs SUV/truck)
-           - "large" (needs full truck)
-        
-        3. **DISCOVER MISSED ITEMS:** List any items you see that were NOT detected:
-           - Look for items hidden behind others
-           - Look for items at image edges
-        
-        4. **DEPTH ASSESSMENT:** Based on depth heatmap:
-           - Is pile uniform depth or varying?
-           - Approximate depth category: "shallow" (<2ft), "medium" (2-4ft), "deep" (>4ft)
-        
-        5. **CONFIDENCE FACTORS:** Rate confidence in the detection quality:
-           - anchor_quality: "good", "fair", "poor", "none"
-           - detection_quality: "good", "fair", "poor"
-           - visibility: "clear", "partial", "obscured"
-        
-        **DO NOT estimate packed_dimensions - the system calculates volume from catalog.**
-        
-        ### OUTPUT JSON:
+        1. **CORRECT MISLABELED ITEMS:**
+           - "box" should be "microwave" or "TV"
+           - "chair" should be "office chair" or "stool"
+           
+        2. **ADD MISSED ITEMS:**
+           - Items hidden behind others
+           - Items at image edges
+           - Small items not detected
+
+        **NOT ALLOWED (sensors measured these):**
+        - DO NOT classify item sizes (small/medium/large)
+        - DO NOT estimate dimensions
+        - DO NOT override depth measurements
+        - DO NOT estimate volumes
+
+        ### OUTPUT JSON (only these fields):
         {
-          "label_corrections": [{"original": "box", "corrected": "toolbox"}],
-          "size_classifications": [{"item": "mattress", "size": "large"}],
+          "label_corrections": [{"original": "box", "corrected": "microwave"}],
           "missed_items": ["lamp behind dresser", "bags in corner"],
-          "depth_category": "medium",
-          "confidence_factors": {
-            "anchor_quality": "fair",
-            "detection_quality": "good",
-            "visibility": "clear"
-          },
-          "audit_notes": "Brief observations about the pile composition"
+          "visibility_notes": "Brief observation about image quality"
         }
         """
 
@@ -1243,11 +1350,27 @@ class PricingEngine:
             # Phase 6: Calculate residual pile area (IoU subtraction)
             residual_pile = vision_worker.calculate_residual_pile_area(detections.get("detections", []))
             
-            # Phase 7: Calculate pipeline confidence and determine operating mode
+            # Phase 7: Calculate uncertainty using new propagation model
             catalog_matched = sum(1 for item in catalog_volume.get("items", []) if item.get("matched"))
             catalog_total = catalog_volume.get("item_count", 1) or 1
+            
+            # Determine scale source from best anchor
+            scale_source = "anchor" if detections.get("anchor_found") else "none"
+            anchor_trust = detections.get("anchor_trust", "LOW")
+            
+            uncertainty_ctx = {
+                "scale_source": scale_source,
+                "anchor_trust": anchor_trust,
+                "image_count": len(all_vision_results),
+                "detection_conflicts": False,  # TODO: detect conflicts across images
+            }
+            
+            # Use new uncertainty calculation
+            uncertainty_result = vision_worker.calculate_uncertainty(uncertainty_ctx)
+            
+            # Also calculate old confidence for backward compatibility
             confidence_ctx = {
-                "anchor_trust": detections.get("anchor_trust"),
+                "anchor_trust": anchor_trust,
                 "depth_available": any(r.get("depth_available", False) for r in all_vision_results),
                 "image_count": len(all_vision_results),
                 "catalog_match_ratio": catalog_matched / catalog_total
@@ -1296,9 +1419,9 @@ class PricingEngine:
             
             total_base = base_price + heavy_surcharge
             
-            # Use dynamic price band from confidence mode
-            band = confidence.get("band", 0.10)
-            min_price = max(95, round(total_base * (1 - band)))
+            # Use dynamic price band from new uncertainty calculation
+            band = uncertainty_result.get("uncertainty", confidence.get("band", 0.10))
+            min_price = max(95, round(total_base * (1 - band)))  # Floor at minimum load
             max_price = round(total_base * (1 + band))
             
             def round_pretty(p):
