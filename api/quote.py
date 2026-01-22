@@ -1654,7 +1654,7 @@ Return JSON array ONLY. No explanation."""
                     ]}
                 ],
                 response_format={"type": "json_object"},
-                max_tokens=1500
+                max_completion_tokens=1500
             )
             
             raw_content = response.choices[0].message.content
