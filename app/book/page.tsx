@@ -121,6 +121,13 @@ export default function BookPage() {
         }
     };
 
+    const removeImage = (indexToRemove: number) => {
+        setBookingData(prev => ({
+            ...prev,
+            selectedImages: prev.selectedImages.filter((_, index) => index !== indexToRemove)
+        }));
+    };
+
     // Helper to convert File to Base64
     const fileToBase64 = (file: File): Promise<string> => {
         return new Promise((resolve, reject) => {
@@ -347,6 +354,15 @@ export default function BookPage() {
                                                 alt={`Upload ${index + 1}`}
                                                 className="h-full w-full object-cover"
                                             />
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    removeImage(index);
+                                                }}
+                                                className="absolute top-2 right-2 w-6 h-6 bg-black/60 hover:bg-red-500 rounded-full flex items-center justify-center text-white text-xs transition-colors"
+                                            >
+                                                ✕
+                                            </button>
                                         </div>
                                     ))}
                                 </div>
