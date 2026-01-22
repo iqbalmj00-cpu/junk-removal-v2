@@ -161,8 +161,14 @@ try:
             return base64.b64encode(buffer.getvalue()).decode()
         
         def analyze_image(self, image_base64: str) -> dict:
+            import time
             print("🚀 Starting Vision Pipeline...")
             detections = self.run_florence_detection(image_base64)
+            
+            # Rate limit: wait 12s between Replicate calls (burst limit = 1)
+            print("   ⏳ Rate limit delay before depth (12s)...")
+            time.sleep(12)
+            
             depth_result = self.run_depth_estimation(image_base64)
             depth_url = depth_result.get("depth_map_url") if depth_result.get("success") else None
             visual_bridge = self.create_visual_bridge(image_base64, detections, depth_url)
