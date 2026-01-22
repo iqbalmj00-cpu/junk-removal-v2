@@ -1470,19 +1470,44 @@ class PricingEngine:
                     final_vol += len(missed_items) * 0.1
                     print(f"🔍 Added {len(missed_items)} missed items (+{len(missed_items)*0.1} yd³)")
             
+            # Add residue volume (pile area not covered by detected items)
+            residual_area = residual_pile.get("residual_area", 0)
+            if residual_area > 0:
+                # Get scale from best available source
+                best_scale = None
+                for result in all_vision_results:
+                    if result.get("scale_result", {}).get("px_per_inch"):
+                        best_scale = result["scale_result"]["px_per_inch"]
+                        break
+                
+                if best_scale and best_scale > 0:
+                    # Convert residual px² to volume: assume 12" average debris height
+                    residue_sq_inches = residual_area / (best_scale ** 2)
+                    residue_vol_yd3 = (residue_sq_inches * 12) / (27 * 1728)  # 1728 cu in = 1 cu ft
+                    final_vol += residue_vol_yd3
+                    print(f"📐 Added residue: {residue_vol_yd3:.2f} yd³ from {residual_area:.0f}px² pile area")
+            
             if final_vol <= 0:
                 final_vol = 0.5  # Minimum estimate if nothing detected
             
-            # 4. Pricing Math
+            # 4. Pricing Math (FIXED: protect surcharges from discounting)
             final_vol = round(final_vol, 1)
-            base_price = max(95, final_vol * 35)
             
-            total_base = base_price + heavy_surcharge
+            # Constants
+            RATE_PER_YARD = 55  # Increased from 35 to differentiate small loads
+            MIN_LOAD = 95
             
-            # Use dynamic price band from new uncertainty calculation
+            # Step 1: Calculate volume price (variable component)
+            vol_price = max(MIN_LOAD, final_vol * RATE_PER_YARD)
+            
+            # Step 2: Apply uncertainty band to VOLUME ONLY
             band = uncertainty_result.get("uncertainty", confidence.get("band", 0.10))
-            min_price = max(95, round(total_base * (1 - band)))  # Floor at minimum load
-            max_price = round(total_base * (1 + band))
+            min_vol_price = max(MIN_LOAD, round(vol_price * (1 - band)))
+            max_vol_price = round(vol_price * (1 + band))
+            
+            # Step 3: Add fixed surcharges AFTER (protected from discounting)
+            min_price = min_vol_price + heavy_surcharge
+            max_price = max_vol_price + heavy_surcharge
             
             def round_pretty(p):
                 if p > 100: return 5 * round(p / 5)
@@ -1496,7 +1521,7 @@ class PricingEngine:
                 "volume_yards": final_vol,
                 "min_price": min_price,
                 "max_price": max_price,
-                "price": round(total_base, 2),
+                "price": round(vol_price + heavy_surcharge, 2),
                 "heavy_surcharge": heavy_surcharge,
                 "vision_enhanced": True,
                 "anchor_found": detections.get("anchor_found", False),
