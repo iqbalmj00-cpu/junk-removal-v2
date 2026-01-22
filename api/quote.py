@@ -337,13 +337,51 @@ try:
         "pool": "bulky_outdoor", "gazebo": "bulky_outdoor",
     }
     
-    # Add-on fees for special handling
+    # Add-on fees for special handling (expanded for GPT-5.2)
     ADD_ON_FEES = {
-        "mounted": 50,       # Wall-mounted TV removal
-        "disassembly": 75,   # Shed, playset, etc. teardown
+        "mounted": 50,              # Wall-mounted TV removal
+        "disassembly": 75,          # Legacy key
+        "disassembly_needed": 75,   # Shed, playset, etc. teardown
+        "stairs_present": 50,       # Stairs to navigate
+        "long_carry": 50,           # Long distance to truck
+        "two_person_lift": 100,     # Heavy item requiring 2 people
+        "heavy_material": 75,       # Extra handling for heavy debris
+        "freon": 25,                # Freon appliance handling
+        "ewaste": 0,                # Covered by multiplier
+        "tires": 0,                 # Covered by multiplier
+        "mattress": 0,              # Covered by multiplier
+        "hazmat_possible": 100,     # Potential hazardous materials
     }
     
-    # Missed item volume estimates by variant
+    # GPT-5.2 category to multiplier mapping
+    GPT_CATEGORY_TO_MULTIPLIER = {
+        "furniture": 1.0,
+        "mattress": 1.1,
+        "appliance_non_freon": 1.2,
+        "appliance_freon": 1.3,
+        "ewaste_tv": 1.15,
+        "ewaste_other": 1.15,
+        "yard_green": 0.9,
+        "yard_heavy": 1.6,
+        "demo_light": 1.25,
+        "demo_heavy": 1.6,
+        "tires": 1.2,
+        "scrap_metal": 1.2,
+        "boxes_bags": 1.0,
+        "misc": 1.0,
+    }
+    
+    # Size bucket to volume mapping (for GPT-5.2 missed items)
+    SIZE_BUCKET_VOLUMES = {
+        "xs": 0.1,
+        "small": 0.25,
+        "medium": 0.75,
+        "large": 1.5,
+        "xl": 3.0,
+        "unknown": 0.5,
+    }
+    
+    # Missed item volume estimates by variant (legacy support)
     MISSED_ITEM_VOLUMES = {
         # Tires
         "tire_single": 0.15,
@@ -375,6 +413,69 @@ try:
     
     # Labels that require Gemma classification (ambiguous)
     AMBIGUOUS_LABELS = ["pile", "debris", "unknown", "junk", "stuff", "items", "trash"]
+    
+    # GPT-5.2 Audit System Prompt
+    GPT5_AUDIT_PROMPT = """You are an audit model for a junk-removal instant-quote pipeline. Your job is to validate detections and classifications from upstream models and catch missed items. You do not compute prices. You do not write code. You output valid JSON only matching the schema.
+
+Inputs you will receive:
+- scene_image: the original photo with bounding boxes drawn and item IDs
+- detections: list of detected items (label + bbox + item_id)
+- measurements (optional): per-item size buckets or estimated dimensions
+- initial_classification: per-item category + variant + add_on_flags
+
+Your tasks:
+1. Identify missed items visible in the image that are not in detections.
+2. Identify incorrect classifications (wrong category or wrong variant).
+3. Identify missing add_on_flags (mounted, disassembly_needed, stairs_present, long_carry, two_person_lift, heavy_material, freon, ewaste, tires, mattress, hazmat_possible).
+4. For any missed item, provide a type and size bucket so the pricing engine can assign a default volume.
+
+Hard rules:
+- If you are unsure, include the item but mark low confidence and use size_bucket: "unknown".
+- Do not invent items that are not visible.
+- Do not output explanations. JSON only.
+- Use the exact enums provided in the schema below.
+
+Output JSON Schema:
+{
+  "missed_items": [
+    {
+      "label": "string",
+      "proposed_category": "one_of: [furniture, mattress, appliance_non_freon, appliance_freon, ewaste_tv, ewaste_other, yard_green, yard_heavy, demo_light, demo_heavy, tires, scrap_metal, boxes_bags, misc]",
+      "variant": "string_or_unknown",
+      "size_bucket": "one_of: [xs, small, medium, large, xl, unknown]",
+      "count": "integer>=1",
+      "confidence": "number_0_to_1",
+      "reason_code": "one_of: [VISIBLE_CLEAR, PARTIALLY_OCCLUDED, EDGE_OF_FRAME, CLUTTERED_SCENE]"
+    }
+  ],
+  "classification_corrections": [
+    {
+      "item_id": "string",
+      "current_category": "string",
+      "suggested_category": "string",
+      "current_variant": "string_or_unknown",
+      "suggested_variant": "string_or_unknown",
+      "confidence": "number_0_to_1",
+      "reason_code": "one_of: [WRONG_TYPE, WRONG_SIZE_BUCKET, WRONG_MATERIAL_CLASS, MISLABELED_PILE]"
+    }
+  ],
+  "add_on_flag_corrections": [
+    {
+      "item_id_or_missed_label": "string",
+      "add_on_flag": "one_of: [mounted, disassembly_needed, stairs_present, long_carry, two_person_lift, heavy_material, freon, ewaste, tires, mattress, hazmat_possible]",
+      "should_be": "boolean",
+      "confidence": "number_0_to_1",
+      "reason_code": "one_of: [VISUAL_CUE, CONTEXT_CUE, MATERIAL_CUE]"
+    }
+  ],
+  "scene_confidence": "number_0_to_1",
+  "uncertainty_band": {
+    "risk_level": "one_of: [low, medium, high]",
+    "drivers": ["one_of: [OCCLUSION, DEPTH_UNRELIABLE, CLUTTER, REFLECTIONS, FAR_DISTANCE, HEAVY_MATERIAL_UNCERTAINTY]"]
+  }
+}
+
+Now run the audit using the provided inputs. Output JSON only."""
 
     class VisionWorker:
         """Handles vision tasks using Florence-2, Depth Pro, and camera intrinsics."""
@@ -1513,6 +1614,126 @@ Return JSON array ONLY. No explanation."""
                 for i in items
             ]
     
+    async def audit_with_gpt5(
+        self, 
+        visual_bridge_b64: str, 
+        detections: list,
+        measurements: dict,
+        initial_classifications: list
+    ) -> dict:
+        """Use GPT-5.2 to audit detections, catch missed items, and validate classifications."""
+        try:
+            # Build structured input for GPT-5.2
+            audit_input = {
+                "detections": [
+                    {"item_id": f"item_{i}", "label": d.get("label", "unknown"), "bbox": d.get("bbox", [])}
+                    for i, d in enumerate(detections)
+                ],
+                "measurements": {
+                    f"item_{i}": item.get("size_bucket", "unknown")
+                    for i, item in enumerate(measurements.get("items", []))
+                },
+                "initial_classification": [
+                    {"item_id": f"item_{i}", 
+                     "category": cls.get("category", "furniture"),
+                     "variant": cls.get("variant", "unknown"),
+                     "add_on_flags": cls.get("add_on_flags", [])}
+                    for i, cls in enumerate(initial_classifications)
+                ]
+            }
+            
+            print(f"🔍 Calling GPT-5.2 audit for {len(detections)} items...")
+            
+            response = self.openai_client.chat.completions.create(
+                model="gpt-5.2-2025-12-11",
+                messages=[
+                    {"role": "system", "content": GPT5_AUDIT_PROMPT},
+                    {"role": "user", "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{visual_bridge_b64}"}},
+                        {"type": "text", "text": f"Audit input:\n{json.dumps(audit_input, indent=2)}"}
+                    ]}
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=1500
+            )
+            
+            raw_content = response.choices[0].message.content
+            if not raw_content:
+                print("⚠️ GPT-5.2 returned empty response")
+                return self._default_audit_result()
+            
+            result = json.loads(raw_content)
+            
+            # Log audit results
+            missed = result.get("missed_items", [])
+            corrections = result.get("classification_corrections", [])
+            addon_corrections = result.get("add_on_flag_corrections", [])
+            scene_conf = result.get("scene_confidence", 0.8)
+            
+            print(f"🔍 GPT-5.2 Audit: {len(missed)} missed, {len(corrections)} corrections, {len(addon_corrections)} add-on flags, scene_conf={scene_conf:.2f}")
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ GPT-5.2 Audit Error: {e}")
+            return self._default_audit_result()
+    
+    def _default_audit_result(self) -> dict:
+        """Return default audit result when GPT-5.2 fails."""
+        return {
+            "missed_items": [],
+            "classification_corrections": [],
+            "add_on_flag_corrections": [],
+            "scene_confidence": 0.7,
+            "uncertainty_band": {
+                "risk_level": "medium",
+                "drivers": ["DEPTH_UNRELIABLE"]
+            }
+        }
+    
+    def apply_audit_corrections(
+        self,
+        classifications: list,
+        audit_result: dict
+    ) -> tuple:
+        """Apply GPT-5.2 audit corrections and calculate missed item volume."""
+        
+        # 1. Apply category corrections
+        corrections = audit_result.get("classification_corrections", [])
+        for corr in corrections:
+            if corr.get("confidence", 0) >= 0.7:
+                item_idx = int(corr.get("item_id", "item_0").replace("item_", ""))
+                if 0 <= item_idx < len(classifications):
+                    old_cat = classifications[item_idx].get("category", "unknown")
+                    new_cat = corr.get("suggested_category", old_cat)
+                    classifications[item_idx]["category"] = new_cat
+                    print(f"🔄 Correction: item_{item_idx} {old_cat} → {new_cat}")
+        
+        # 2. Calculate missed item volumes with GPT-5.2 size buckets
+        missed_vol = 0.0
+        for item in audit_result.get("missed_items", []):
+            if item.get("confidence", 0) >= 0.5:  # Include if moderately confident
+                size_bucket = item.get("size_bucket", "unknown")
+                base_vol = SIZE_BUCKET_VOLUMES.get(size_bucket, 0.5)
+                count = item.get("count", 1)
+                category = item.get("proposed_category", "misc")
+                multiplier = GPT_CATEGORY_TO_MULTIPLIER.get(category, 1.0)
+                
+                item_vol = base_vol * count * multiplier
+                missed_vol += item_vol
+                print(f"🔍 Missed: {item.get('label', 'unknown')} ({size_bucket}×{count}) = {base_vol:.2f} × {multiplier} = {item_vol:.2f} yd³")
+        
+        # 3. Collect add-on flags
+        add_on_flags = []
+        for corr in audit_result.get("add_on_flag_corrections", []):
+            if corr.get("should_be", False) and corr.get("confidence", 0) >= 0.7:
+                flag = corr.get("add_on_flag")
+                if flag and flag not in add_on_flags:
+                    add_on_flags.append(flag)
+                    print(f"➕ GPT-5.2 detected add-on: {flag}")
+        
+        return classifications, missed_vol, add_on_flags
+    
     async def ask_gemini_with_vision(self, visual_bridge_b64: str, detections: dict) -> dict:
         """
         Send annotated visual bridge image to Gemini 3 Pro for enhanced analysis.
@@ -1790,53 +2011,65 @@ Return JSON array ONLY. No explanation."""
                         gemma_add_ons.extend(cls["add_on_flags"])
                         print(f"➕ Gemma detected add-ons for {label}: {cls['add_on_flags']}")
             
-            # 2b. Send visual bridge to Gemini for final audit
-            gemini_result = await self.ask_gemini_with_vision(visual_bridge, detections)
+            # 2b. GPT-5.2 Audit (replaces Gemini)
+            # Build initial classifications list for audit
+            initial_classifications = [
+                {"category": gemma_categories.get(item.get("label", "").lower()) or 
+                            ITEM_TO_CATEGORY.get(item.get("label", "").lower(), "furniture"),
+                 "variant": "unknown",
+                 "add_on_flags": gemma_add_ons if item.get("label", "").lower() in gemma_categories else []}
+                for item in catalog_volume.get("items", [])
+            ]
             
-            if not gemini_result:
-                raise ValueError("Gemini vision analysis failed")
+            audit_result = await self.audit_with_gpt5(
+                visual_bridge,
+                detections.get("detections", []),
+                catalog_volume,
+                initial_classifications
+            )
             
-            # 3. Calculate Billable Volume with category multipliers
+            # Apply GPT-5.2 audit corrections
+            corrected_classifications, missed_vol, gpt_add_ons = self.apply_audit_corrections(
+                initial_classifications,
+                audit_result
+            )
+            
+            # Merge GPT-5.2 add-ons with Gemma add-ons
+            for flag in gpt_add_ons:
+                if flag not in gemma_add_ons:
+                    gemma_add_ons.append(flag)
+            
+            # 3. Calculate Billable Volume with corrected categories
             raw_vol = catalog_volume.get("net_volume", 0.0)
             
             # Apply category multipliers per detected item
             billable_vol = 0.0
-            for item in catalog_volume.get("items", []):
+            for i, item in enumerate(catalog_volume.get("items", [])):
                 label = item.get("label", "").lower()
                 item_vol = item.get("volume", 0.0) * (1 - item.get("void", 0.0))  # Net volume
                 
-                # Use Gemma category if available, else static lookup
-                category = gemma_categories.get(label) or ITEM_TO_CATEGORY.get(label, "furniture")
-                multiplier = CATEGORY_MULTIPLIERS.get(category, 1.0)
+                # Use corrected category if available, else Gemma, else static lookup
+                if i < len(corrected_classifications):
+                    category = corrected_classifications[i].get("category", "furniture")
+                else:
+                    category = gemma_categories.get(label) or ITEM_TO_CATEGORY.get(label, "furniture")
+                
+                # Use GPT-5.2 multipliers for GPT categories, else fall back to existing
+                multiplier = GPT_CATEGORY_TO_MULTIPLIER.get(category) or CATEGORY_MULTIPLIERS.get(category, 1.0)
                 billable_item_vol = item_vol * multiplier
                 billable_vol += billable_item_vol
                 print(f"📦 {label}: {item_vol:.2f} × {multiplier} ({category}) = {billable_item_vol:.2f} yd³")
+            
+            # Add missed item volume from GPT-5.2 audit
+            if missed_vol > 0:
+                billable_vol += missed_vol
+                print(f"➕ Added missed items volume: +{missed_vol:.2f} yd³")
             
             # Use billable volume if we have item breakdown, else apply default 1.1×
             if billable_vol > 0:
                 final_vol = billable_vol
             else:
                 final_vol = raw_vol * 1.1  # Fallback multiplier
-            
-            # Apply Gemini audit corrections if available
-            if gemini_result:
-                # Add volume for missed items with typed estimates
-                missed_items = gemini_result.get("missed_items", [])
-                if missed_items:
-                    for item in missed_items:
-                        if isinstance(item, dict):
-                            # Typed missed item from upgraded Gemini
-                            variant = item.get("variant", "unknown_medium")
-                            vol = MISSED_ITEM_VOLUMES.get(variant, item.get("estimated_volume", 0.75))
-                            category = item.get("category", "furniture")
-                            multiplier = CATEGORY_MULTIPLIERS.get(category, 1.0)
-                            billable_missed = vol * multiplier
-                            final_vol += billable_missed
-                            print(f"🔍 Missed: {item.get('type', 'unknown')} ({variant}) = {vol:.2f} × {multiplier} = {billable_missed:.2f} yd³")
-                        else:
-                            # Legacy string format - use default 0.2 yd³
-                            final_vol += 0.2
-                            print(f"🔍 Missed: {item} = +0.2 yd³ (legacy)")
             
             # Add residue volume (pile area not covered by detected items)
             residual_area = residual_pile.get("residual_area", 0)
@@ -1875,8 +2108,12 @@ Return JSON array ONLY. No explanation."""
             vol_price = tier_price
             print(f"💰 Tier: {tier_label} → ${tier_price} (for {final_vol} yd³)")
             
-            # Apply uncertainty band to VOLUME ONLY
-            band = uncertainty_result.get("uncertainty", confidence.get("band", 0.10))
+            # Apply uncertainty band from GPT-5.2 (if available) or fallback
+            gpt_uncertainty = audit_result.get("uncertainty_band", {})
+            risk_level = gpt_uncertainty.get("risk_level", "medium")
+            band_map = {"low": 0.10, "medium": 0.20, "high": 0.35}
+            band = band_map.get(risk_level, uncertainty_result.get("uncertainty", confidence.get("band", 0.20)))
+            
             min_vol_price = max(95, round(vol_price * (1 - band)))  # Floor at Min Load ($95)
             max_vol_price = round(vol_price * (1 + band))
             
@@ -1903,9 +2140,9 @@ Return JSON array ONLY. No explanation."""
                 "vision_enhanced": True,
                 "anchor_found": detections.get("anchor_found", False),
                 "anchor_scale_inches": detections.get("anchor_scale_inches"),
-                "detected_items": gemini_result.get("detected_items", []),
+                "detected_items": [d.get("label") for d in detections.get("detections", [])],
                 "debug": {
-                    "gemini_raw": gemini_result,
+                    "audit_result": audit_result,
                     "catalog_volume": catalog_volume,
                     "residual_pile": residual_pile,
                     "confidence": confidence,
@@ -1913,7 +2150,9 @@ Return JSON array ONLY. No explanation."""
                     "depth_available": any(r.get("depth_available", False) for r in all_vision_results),
                     "heavy_level": heavy_level,
                     "gemma_categories": gemma_categories,
-                    "gemma_add_ons": gemma_add_ons
+                    "gemma_add_ons": gemma_add_ons,
+                    "gpt5_risk_level": risk_level,
+                    "missed_vol": missed_vol
                 }
             }
             
