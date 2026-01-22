@@ -87,15 +87,288 @@ try:
         "LOW": {"threshold": 0.3, "band": 0.35},       # ±35%
         "SHADOW": {"threshold": 0.0, "band": 0.50},    # ±50%
     }
+    
+    # Camera Intrinsics Database for metric depth calculation
+    # K matrix: fx, fy = focal length in pixels; cx, cy = principal point
+    CAMERA_INTRINSICS_DB = {
+        # Apple iPhones
+        "Apple iPhone 15 Pro": {
+            "rear_wide": {"ref_res": [4032, 3024], "K": {"fx": 2850, "fy": 2848, "cx": 2016, "cy": 1512}, "focal_mm": 6.765, "uncertainty": 0.08},
+            "rear_ultrawide": {"ref_res": [4032, 3024], "K": {"fx": 1420, "fy": 1418, "cx": 2016, "cy": 1512}, "focal_mm": 2.22, "uncertainty": 0.12},
+        },
+        "Apple iPhone 15": {
+            "rear_wide": {"ref_res": [4032, 3024], "K": {"fx": 2750, "fy": 2748, "cx": 2016, "cy": 1512}, "focal_mm": 5.7, "uncertainty": 0.10},
+        },
+        "Apple iPhone 14 Pro": {
+            "rear_wide": {"ref_res": [4032, 3024], "K": {"fx": 2800, "fy": 2798, "cx": 2016, "cy": 1512}, "focal_mm": 6.86, "uncertainty": 0.08},
+        },
+        "Apple iPhone 14": {
+            "rear_wide": {"ref_res": [4032, 3024], "K": {"fx": 2700, "fy": 2698, "cx": 2016, "cy": 1512}, "focal_mm": 5.7, "uncertainty": 0.10},
+        },
+        "Apple iPhone 13": {
+            "rear_wide": {"ref_res": [4032, 3024], "K": {"fx": 2650, "fy": 2648, "cx": 2016, "cy": 1512}, "focal_mm": 5.7, "uncertainty": 0.10},
+        },
+        "Apple iPhone 12": {
+            "rear_wide": {"ref_res": [4032, 3024], "K": {"fx": 2600, "fy": 2598, "cx": 2016, "cy": 1512}, "focal_mm": 4.2, "uncertainty": 0.12},
+        },
+        # Samsung Galaxy
+        "samsung SM-S928B": {  # S24 Ultra
+            "rear_wide": {"ref_res": [4000, 3000], "K": {"fx": 2900, "fy": 2898, "cx": 2000, "cy": 1500}, "focal_mm": 6.3, "uncertainty": 0.10},
+        },
+        "samsung SM-S918B": {  # S23 Ultra
+            "rear_wide": {"ref_res": [4000, 3000], "K": {"fx": 2850, "fy": 2848, "cx": 2000, "cy": 1500}, "focal_mm": 6.3, "uncertainty": 0.10},
+        },
+        "samsung SM-S908B": {  # S22 Ultra
+            "rear_wide": {"ref_res": [4000, 3000], "K": {"fx": 2800, "fy": 2798, "cx": 2000, "cy": 1500}, "focal_mm": 6.4, "uncertainty": 0.10},
+        },
+        # Google Pixel
+        "Google Pixel 8 Pro": {
+            "rear_wide": {"ref_res": [4080, 3072], "K": {"fx": 2820, "fy": 2818, "cx": 2040, "cy": 1536}, "focal_mm": 6.9, "uncertainty": 0.08},
+        },
+        "Google Pixel 7 Pro": {
+            "rear_wide": {"ref_res": [4080, 3072], "K": {"fx": 2780, "fy": 2778, "cx": 2040, "cy": 1536}, "focal_mm": 6.81, "uncertainty": 0.10},
+        },
+    }
+    
+    # Depth Pro model on Replicate
+    DEPTH_PRO_MODEL = "garg-aayush/ml-depth-pro"
 
     class VisionWorker:
-        """Handles vision tasks using Florence-2 and Depth-Anything-V2."""
+        """Handles vision tasks using Florence-2, Depth Pro, and camera intrinsics."""
         
         def __init__(self):
             token = os.environ.get("REPLICATE_API_TOKEN")
             if not token:
                 raise ValueError("REPLICATE_API_TOKEN environment variable not set")
             print(f"✅ VisionWorker initialized with token: {token[:8]}...")
+        
+        # ===== PHASE 1: CAMERA IDENTIFICATION =====
+        
+        def extract_exif(self, image_bytes: bytes) -> dict:
+            """Extract camera info from EXIF metadata."""
+            from PIL.ExifTags import TAGS
+            try:
+                img = Image.open(io.BytesIO(image_bytes))
+                exif_raw = img._getexif() or {}
+                
+                exif = {}
+                for tag_id, value in exif_raw.items():
+                    tag = TAGS.get(tag_id, tag_id)
+                    exif[tag] = value
+                
+                return {
+                    "make": str(exif.get("Make", "")).strip(),
+                    "model": str(exif.get("Model", "")).strip(),
+                    "focal_length": float(exif.get("FocalLength", 0) or 0),
+                    "focal_35mm": int(exif.get("FocalLengthIn35mmFilm", 0) or 0),
+                    "image_width": exif.get("ExifImageWidth", img.width),
+                    "image_height": exif.get("ExifImageHeight", img.height),
+                }
+            except Exception as e:
+                print(f"⚠️ EXIF extraction failed: {e}")
+                return {"make": "", "model": "", "focal_length": 0}
+        
+        def infer_camera_module(self, exif: dict, device_config: dict) -> tuple:
+            """Determine which camera module was used based on focal length."""
+            focal_mm = exif.get("focal_length", 0)
+            
+            best_match = "rear_wide"  # default
+            best_diff = float('inf')
+            
+            for module_name, spec in device_config.items():
+                diff = abs(focal_mm - spec.get("focal_mm", 0))
+                if diff < best_diff:
+                    best_diff = diff
+                    best_match = module_name
+            
+            confidence = "high" if best_diff < 0.5 else "medium"
+            return best_match, confidence
+        
+        def scale_intrinsics(self, K: dict, ref_res: list, actual_res: tuple) -> dict:
+            """Scale K matrix when image is resized from reference resolution."""
+            scale_x = actual_res[0] / ref_res[0]
+            scale_y = actual_res[1] / ref_res[1]
+            
+            return {
+                "fx": K["fx"] * scale_x,
+                "fy": K["fy"] * scale_y,
+                "cx": K["cx"] * scale_x,
+                "cy": K["cy"] * scale_y,
+            }
+        
+        def get_camera_intrinsics(self, image_bytes: bytes, actual_resolution: tuple) -> dict:
+            """Main entry point for camera identification. Returns K matrix if known."""
+            exif = self.extract_exif(image_bytes)
+            device_key = f"{exif['make']} {exif['model']}".strip()
+            
+            if device_key not in CAMERA_INTRINSICS_DB:
+                print(f"📷 Unknown device: {device_key}")
+                return {"available": False, "reason": "unknown_device", "device": device_key}
+            
+            device_config = CAMERA_INTRINSICS_DB[device_key]
+            module, module_conf = self.infer_camera_module(exif, device_config)
+            
+            if module not in device_config:
+                module = list(device_config.keys())[0]
+            
+            spec = device_config[module]
+            scaled_K = self.scale_intrinsics(spec["K"], spec["ref_res"], actual_resolution)
+            
+            print(f"📷 Device: {device_key} ({module}) - K available")
+            return {
+                "available": True,
+                "device": device_key,
+                "module": module,
+                "K": scaled_K,
+                "uncertainty": spec.get("uncertainty", 0.10),
+                "module_confidence": module_conf,
+            }
+        
+        # ===== PHASE 2: SCALE CALCULATION =====
+        
+        def run_depth_pro(self, image_b64: str) -> dict:
+            """Run Depth Pro for metric depth estimation."""
+            import time
+            print("🔬 Running Depth Pro (Metric Depth)...")
+            
+            try:
+                output = replicate.run(
+                    DEPTH_PRO_MODEL,
+                    input={"image": f"data:image/jpeg;base64,{image_b64}"}
+                )
+                
+                # Depth Pro outputs depth map and optionally focal length
+                depth_url = None
+                focal_px = None
+                
+                if isinstance(output, dict):
+                    depth_url = str(output.get("depth", output.get("depth_map", "")))
+                    focal_px = output.get("focal_length_px") or output.get("focallength_px")
+                else:
+                    depth_url = str(output)
+                
+                if depth_url:
+                    # Download and parse depth map
+                    response = requests.get(depth_url, timeout=30)
+                    depth_img = Image.open(io.BytesIO(response.content))
+                    import numpy as np
+                    depth_array = np.array(depth_img).astype(float)
+                    
+                    # Normalize if 16-bit (0-65535) to meters
+                    if depth_array.max() > 255:
+                        # Assume millimeters, convert to meters
+                        depth_array = depth_array / 1000.0
+                    elif depth_array.max() <= 1:
+                        # Already normalized 0-1, scale to reasonable depth (0-10m)
+                        depth_array = depth_array * 10.0
+                    
+                    print(f"✅ Depth Pro: shape={depth_array.shape}, range=[{depth_array.min():.2f}, {depth_array.max():.2f}]m")
+                    return {
+                        "success": True,
+                        "depth_map": depth_array,
+                        "focal_px": focal_px,
+                        "units": "meters",
+                    }
+                else:
+                    return {"success": False, "error": "No depth URL in output"}
+                    
+            except Exception as e:
+                print(f"❌ Depth Pro Error: {e}")
+                import traceback
+                traceback.print_exc()
+                return {"success": False, "error": str(e)}
+        
+        def calculate_metric_scale(self, K: dict, depth_map, reference_point: tuple = None) -> dict:
+            """Calculate px_per_inch from intrinsics + metric depth using pinhole model."""
+            import numpy as np
+            
+            if reference_point is None:
+                h, w = depth_map.shape[:2]
+                reference_point = (w // 2, h // 2)
+            
+            ref_x, ref_y = reference_point
+            Z = float(depth_map[ref_y, ref_x])
+            
+            if Z <= 0.1 or Z > 20:
+                return {"success": False, "error": f"Invalid depth: {Z:.2f}m"}
+            
+            fx = K["fx"]
+            px_per_meter = fx / Z
+            px_per_inch = px_per_meter / 39.37
+            
+            return {
+                "success": True,
+                "px_per_inch": round(px_per_inch, 2),
+                "reference_depth_m": round(Z, 2),
+                "scale_source": "metric_depth",
+            }
+        
+        def find_anchor(self, detections: list) -> dict:
+            """Find best anchor from detections for fallback scale."""
+            for det in detections:
+                label = det.get("label", "")
+                bbox = det.get("bbox", [])
+                if len(bbox) == 4:
+                    validation = self.validate_anchor(label, bbox)
+                    if validation.get("is_valid"):
+                        return {
+                            "found": True,
+                            "anchor_type": validation["anchor_name"],
+                            "anchor_height_px": bbox[3] - bbox[1],
+                            "anchor_height_in": validation["size_inches"],
+                            "trust": validation["trust_level"],
+                            "bbox": bbox,
+                        }
+            return {"found": False}
+        
+        def get_scale(self, image_bytes: bytes, image_b64: str, 
+                      intrinsics: dict, detections: list) -> dict:
+            """
+            Main scale calculation - tries metric path first, falls back to anchor.
+            Returns px_per_inch and scale source.
+            """
+            depth_map = None
+            
+            # Path A: Metric depth (if intrinsics available)
+            if intrinsics.get("available"):
+                depth_result = self.run_depth_pro(image_b64)
+                
+                if depth_result.get("success"):
+                    depth_map = depth_result["depth_map"]
+                    scale = self.calculate_metric_scale(intrinsics["K"], depth_map)
+                    
+                    if scale.get("success"):
+                        print(f"📐 Metric Scale: {scale['px_per_inch']} px/inch at {scale['reference_depth_m']}m")
+                        return {
+                            **scale,
+                            "depth_map": depth_map,
+                            "uncertainty": intrinsics.get("uncertainty", 0.10),
+                        }
+            
+            # Path B: Anchor fallback
+            anchor = self.find_anchor(detections)
+            if anchor.get("found"):
+                px_per_inch = anchor["anchor_height_px"] / anchor["anchor_height_in"]
+                uncertainty = {"HIGH": 0.08, "MEDIUM": 0.15, "LOW": 0.25}.get(anchor["trust"], 0.20)
+                print(f"📐 Anchor Scale: {px_per_inch:.2f} px/inch from {anchor['anchor_type']} ({anchor['trust']})")
+                return {
+                    "success": True,
+                    "px_per_inch": round(px_per_inch, 2),
+                    "scale_source": "anchor",
+                    "anchor_type": anchor["anchor_type"],
+                    "anchor_trust": anchor["trust"],
+                    "uncertainty": uncertainty,
+                    "depth_map": depth_map,  # may be None
+                }
+            
+            # No scale available
+            print("⚠️ No scale source available (no intrinsics or anchor)")
+            return {
+                "success": False,
+                "scale_source": "none",
+                "error": "No intrinsics or anchor available",
+                "uncertainty": 0.40,
+            }
         
         def validate_anchor(self, label: str, bbox: list) -> dict:
             """Validate an anchor by checking aspect ratio against expected range."""
@@ -350,6 +623,32 @@ try:
             
             print(f"📦 Parsed {len(result['detections'])} detections, {len(result['validated_anchors'])} anchors validated")
             return result
+        
+        # ===== PHASE 3: DETECTION + DEPTH =====
+        
+        def attach_depth_to_detections(self, detections: list, depth_map) -> list:
+            """Add depth value to each detection from depth map."""
+            import numpy as np
+            
+            if depth_map is None:
+                return detections
+            
+            h, w = depth_map.shape[:2]
+            
+            for det in detections:
+                bbox = det.get("bbox", [])
+                if len(bbox) == 4:
+                    x1, y1, x2, y2 = [int(c) for c in bbox]
+                    cx = (x1 + x2) // 2
+                    cy = (y1 + y2) // 2
+                    
+                    # Clamp to image bounds
+                    cx = min(max(cx, 0), w - 1)
+                    cy = min(max(cy, 0), h - 1)
+                    
+                    det["depth_m"] = float(depth_map[cy, cx])
+            
+            return detections
         
         def run_depth_estimation(self, image_base64: str) -> dict:
             """Run Depth-Anything-V2. Output is {'color_depth': <url>, 'grey_depth': <url>}."""
