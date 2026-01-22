@@ -381,6 +381,31 @@ try:
         "unknown": 0.5,
     }
     
+    # Default volumes by category (for re-lookup when label is corrected)
+    # Used when GPT-5.2 says "this isn't a car, it's a TV" but Florence gave tiny volume
+    CATEGORY_DEFAULT_VOLUMES = {
+        "furniture": 1.0,           # Average chair/table
+        "mattress": 1.3,            # Queen mattress default
+        "appliance_non_freon": 1.0, # Washer/dryer default
+        "appliance": 1.0,           # Legacy key
+        "appliance_freon": 2.5,     # Standard fridge
+        "ewaste_tv": 1.2,           # CRT TV default
+        "ewaste_other": 0.5,        # Monitor/printer
+        "ewaste": 0.8,              # Legacy key
+        "yard_green": 0.8,          # Bagged leaves
+        "yard_heavy": 2.0,          # Dirt/rocks pile
+        "yard_branches": 1.0,       # Brush pile
+        "demo_light": 1.5,          # Wood/drywall pile
+        "demo_heavy": 2.0,          # Concrete pile
+        "tires": 0.5,               # Stack of tires
+        "tires_metal": 0.5,         # Legacy key
+        "scrap_metal": 1.0,         # Metal pile
+        "boxes_bags": 0.3,          # Boxes/bags default
+        "bulky_outdoor": 5.0,       # Hot tub default
+        "misc": 0.5,                # Unknown items
+        "pallets": 1.0,             # 4-pallet stack default
+    }
+    
     # Missed item volume estimates by variant (legacy support)
     MISSED_ITEM_VOLUMES = {
         # Tires
@@ -1711,6 +1736,9 @@ Return JSON array ONLY. No explanation."""
     ) -> tuple:
         """Apply GPT-5.2 audit corrections and calculate missed item volume."""
         
+        # Track volume corrections for items where category changed significantly
+        volume_corrections = {}  # item_idx -> new_volume
+        
         # 1. Apply category corrections
         corrections = audit_result.get("classification_corrections", [])
         for corr in corrections:
@@ -1721,6 +1749,13 @@ Return JSON array ONLY. No explanation."""
                     new_cat = corr.get("suggested_category", old_cat)
                     classifications[item_idx]["category"] = new_cat
                     print(f"🔄 Correction: item_{item_idx} {old_cat} → {new_cat}")
+                    
+                    # If category changed significantly, re-lookup volume
+                    # This handles cases like "car" (0.05 yd³) being corrected to "ewaste_tv" (1.2 yd³)
+                    if old_cat != new_cat:
+                        new_vol = CATEGORY_DEFAULT_VOLUMES.get(new_cat, 0.5)
+                        volume_corrections[item_idx] = new_vol
+                        print(f"📏 Volume re-lookup: item_{item_idx} → {new_vol:.2f} yd³ ({new_cat} default)")
         
         # 2. Calculate missed item volumes with GPT-5.2 size buckets
         missed_vol = 0.0
@@ -1745,7 +1780,7 @@ Return JSON array ONLY. No explanation."""
                     add_on_flags.append(flag)
                     print(f"➕ GPT-5.2 detected add-on: {flag}")
         
-        return classifications, missed_vol, add_on_flags
+        return classifications, missed_vol, add_on_flags, volume_corrections
     
     async def ask_gemini_with_vision(self, visual_bridge_b64: str, detections: dict) -> dict:
         """
@@ -2042,7 +2077,7 @@ Return JSON array ONLY. No explanation."""
             )
             
             # Apply GPT-5.2 audit corrections
-            corrected_classifications, missed_vol, gpt_add_ons = self.apply_audit_corrections(
+            corrected_classifications, missed_vol, gpt_add_ons, volume_corrections = self.apply_audit_corrections(
                 initial_classifications,
                 audit_result
             )
@@ -2052,14 +2087,20 @@ Return JSON array ONLY. No explanation."""
                 if flag not in gemma_add_ons:
                     gemma_add_ons.append(flag)
             
-            # 3. Calculate Billable Volume with corrected categories
+            # 3. Calculate Billable Volume with corrected categories and volumes
             raw_vol = catalog_volume.get("net_volume", 0.0)
             
             # Apply category multipliers per detected item
             billable_vol = 0.0
             for i, item in enumerate(catalog_volume.get("items", [])):
                 label = item.get("label", "").lower()
-                item_vol = item.get("volume", 0.0) * (1 - item.get("void", 0.0))  # Net volume
+                
+                # Use corrected volume if available (for mis-labeled items like "car" → "ewaste_tv")
+                if i in volume_corrections:
+                    item_vol = volume_corrections[i]
+                    print(f"📏 Using corrected volume for item_{i}: {item_vol:.2f} yd³")
+                else:
+                    item_vol = item.get("volume", 0.0) * (1 - item.get("void", 0.0))  # Net volume
                 
                 # Use corrected category if available, else Gemma, else static lookup
                 if i < len(corrected_classifications):
