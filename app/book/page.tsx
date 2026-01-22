@@ -439,10 +439,10 @@ export default function BookPage() {
                 </div>
 
                 {/* Heavy Material Surcharge Alert */}
-                {quoteState?.heavySurcharge && quoteState.heavySurcharge > 0 && (
+                {(quoteState?.heavySurcharge ?? 0) > 0 && (
                     <div className="bg-amber-900/30 border border-amber-700/50 rounded-lg p-4 mt-4">
                         <p className="text-amber-200 text-sm">
-                            ⚠️ Heavy Material Surcharge: +${quoteState.heavySurcharge} included in price
+                            ⚠️ Heavy Material Surcharge: +${quoteState?.heavySurcharge} included in price
                         </p>
                     </div>
                 )}

@@ -213,6 +213,33 @@ try:
     # HIGH RISK: Items requiring GPT-4o audit for surcharges
     HIGH_RISK_KEYWORDS = ["piano", "safe", "hot tub", "spa", "pool table", 
                           "sleeper", "cast iron", "gun safe", "aquarium"]
+    
+    # ==================== TIERED PRICING ====================
+    # Ported from pricingEngine.ts - industry-aligned volume buckets
+    VOLUME_TIERS = [
+        {"max_cuft": 60,   "price": 99,  "label": "Min Load"},
+        {"max_cuft": 80,   "price": 129, "label": "1/6 Load"},
+        {"max_cuft": 120,  "price": 149, "label": "1/4 Load"},
+        {"max_cuft": 180,  "price": 199, "label": "3/8 Load"},
+        {"max_cuft": 240,  "price": 299, "label": "Half Load"},
+        {"max_cuft": 300,  "price": 329, "label": "5/8 Load"},
+        {"max_cuft": 360,  "price": 379, "label": "3/4 Load"},
+        {"max_cuft": 420,  "price": 435, "label": "7/8 Load"},
+        {"max_cuft": 480,  "price": 549, "label": "Full Load"},
+        {"max_cuft": 9999, "price": 599, "label": "Overload"},
+    ]
+    
+    def round_to_half(value: float) -> float:
+        """Round to nearest 0.5."""
+        return round(value * 2) / 2
+    
+    def get_tier_price(volume_yards: float) -> tuple:
+        """Convert cubic yards to (price, label) using tiers."""
+        cuft = volume_yards * 27
+        for tier in VOLUME_TIERS:
+            if cuft <= tier["max_cuft"]:
+                return tier["price"], tier["label"]
+        return 599, "Overload"
 
     class VisionWorker:
         """Handles vision tasks using Florence-2, Depth Pro, and camera intrinsics."""
@@ -1582,22 +1609,20 @@ class PricingEngine:
             if final_vol <= 0:
                 final_vol = 0.5  # Minimum estimate if nothing detected
             
-            # 4. Pricing Math (FIXED: protect surcharges from discounting)
-            final_vol = round(final_vol, 1)
+            # 4. Pricing Math (TIERED PRICING)
+            final_vol = round_to_half(final_vol)  # Round to nearest 0.5
             
-            # Constants
-            RATE_PER_YARD = 55  # Increased from 35 to differentiate small loads
-            MIN_LOAD = 95
+            # Get tier price (replaces flat rate)
+            tier_price, tier_label = get_tier_price(final_vol)
+            vol_price = tier_price
+            print(f"💰 Tier: {tier_label} → ${tier_price} (for {final_vol} yd³)")
             
-            # Step 1: Calculate volume price (variable component)
-            vol_price = max(MIN_LOAD, final_vol * RATE_PER_YARD)
-            
-            # Step 2: Apply uncertainty band to VOLUME ONLY
+            # Apply uncertainty band to VOLUME ONLY
             band = uncertainty_result.get("uncertainty", confidence.get("band", 0.10))
-            min_vol_price = max(MIN_LOAD, round(vol_price * (1 - band)))
+            min_vol_price = max(99, round(vol_price * (1 - band)))  # Floor at Min Load ($99)
             max_vol_price = round(vol_price * (1 + band))
             
-            # Step 3: Add fixed surcharges AFTER (protected from discounting)
+            # Add fixed surcharges AFTER (protected from discounting)
             min_price = min_vol_price + heavy_surcharge
             max_price = max_vol_price + heavy_surcharge
             
@@ -1767,8 +1792,12 @@ class PricingEngine:
     
     def _finalize_single_item_quote(self, volume: float, item_name: str, surcharges: list) -> dict:
         """Build final response with synthesized dimensions."""
-        # Calculate volume price (unified rate)
-        vol_price = max(MIN_LOAD_PRICE, volume * RATE_PER_YARD)
+        # Round volume to nearest 0.5
+        volume = round_to_half(volume)
+        
+        # Get tier price (replaces flat rate)
+        tier_price, tier_label = get_tier_price(volume)
+        vol_price = tier_price
         
         # Add surcharges (protected from min load)
         surcharge_total = sum(s.get('amount', 0) for s in surcharges)
@@ -1777,14 +1806,14 @@ class PricingEngine:
         # Synthesize cube dimensions for frontend compatibility
         cube_side = (volume * 46656) ** (1/3) if volume > 0 else 12
         
-        print(f"💰 Single Item Quote: {item_name} → ${final_price:.0f} ({volume:.2f} yd³)")
+        print(f"💰 Single Item: {tier_label} → ${final_price:.0f} ({volume} yd³)")
         
         return {
             "status": "SUCCESS",
             "min_price": int(final_price),
             "max_price": int(final_price),  # Fixed price for single items
             "price": round(final_price, 2),
-            "volume_yards": round(volume, 2),
+            "volume_yards": volume,  # Already rounded to 0.5
             "item_detected": item_name,
             "heavy_surcharge": int(surcharge_total),
             "surcharges": surcharges,
