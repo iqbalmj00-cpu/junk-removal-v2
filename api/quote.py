@@ -265,7 +265,116 @@ try:
         for tier in VOLUME_TIERS:
             if cuft <= tier["max_cuft"]:
                 return tier["price"], tier["label"]
-        return 599, "Overload"
+        return 599, "Full Load"
+    
+    # ==================== BILLABLE VOLUME MULTIPLIERS ====================
+    # Convert raw volume to billable volume based on item handling difficulty
+    CATEGORY_MULTIPLIERS = {
+        "furniture": 1.0,        # Standard handling
+        "mattress": 1.1,         # Awkward, bulky
+        "appliance": 1.2,        # Heavy, loading time
+        "appliance_freon": 1.3,  # Handling + disposal (fridge, freezer, AC)
+        "ewaste": 1.15,          # Handling + recycling (TVs, monitors)
+        "yard_green": 0.9,       # Compressible (bagged leaves)
+        "yard_branches": 1.0,    # Awkward, air gaps
+        "demo_light": 1.25,      # Heavier + messy (wood, drywall)
+        "demo_heavy": 1.6,       # Weight cap risk (concrete, tile, dirt)
+        "tires_metal": 1.2,      # Disposal rules
+        "bulky_outdoor": 1.4,    # Labor + disassembly (hot tub, shed)
+    }
+    
+    # Map detected item labels to pricing categories
+    ITEM_TO_CATEGORY = {
+        # Furniture (1.0×)
+        "couch": "furniture", "sofa": "furniture", "loveseat": "furniture",
+        "sectional": "furniture", "recliner": "furniture", "chair": "furniture",
+        "table": "furniture", "desk": "furniture", "dresser": "furniture",
+        "nightstand": "furniture", "cabinet": "furniture", "wardrobe": "furniture",
+        "bookshelf": "furniture", "shelf": "furniture", "office chair": "furniture",
+        
+        # Mattress (1.1×)
+        "mattress": "mattress", "box spring": "mattress", "bed": "mattress",
+        "bed frame": "mattress",
+        
+        # Appliances - no freon (1.2×)
+        "washer": "appliance", "washing machine": "appliance",
+        "dryer": "appliance", "stove": "appliance", "oven": "appliance",
+        "dishwasher": "appliance", "water heater": "appliance",
+        "microwave": "appliance",
+        
+        # Appliances - freon (1.3×)
+        "refrigerator": "appliance_freon", "fridge": "appliance_freon",
+        "freezer": "appliance_freon", "mini fridge": "appliance_freon",
+        "ac unit": "appliance_freon", "air conditioner": "appliance_freon",
+        
+        # E-waste (1.15×)
+        "tv": "ewaste", "television": "ewaste", "monitor": "ewaste",
+        "computer": "ewaste", "crt tv": "ewaste", "printer": "ewaste",
+        
+        # Yard - green (0.9×)
+        "leaves": "yard_green", "grass": "yard_green", "clippings": "yard_green",
+        
+        # Yard - branches (1.0×)
+        "branches": "yard_branches", "brush": "yard_branches", 
+        "wood": "yard_branches", "lumber": "yard_branches",
+        
+        # Demo - light (1.25×)
+        "drywall": "demo_light", "carpet": "demo_light", "cardboard": "demo_light",
+        "debris": "demo_light",
+        
+        # Demo - heavy (1.6×)
+        "concrete": "demo_heavy", "tile": "demo_heavy", "brick": "demo_heavy",
+        "dirt": "demo_heavy", "rocks": "demo_heavy", "rubble": "demo_heavy",
+        
+        # Tires/Metal (1.2×)
+        "tire": "tires_metal", "tires": "tires_metal", 
+        "scrap metal": "tires_metal", "metal": "tires_metal",
+        
+        # Bulky outdoor (1.4×)
+        "hot tub": "bulky_outdoor", "spa": "bulky_outdoor",
+        "shed": "bulky_outdoor", "playset": "bulky_outdoor",
+        "trampoline": "bulky_outdoor", "swing set": "bulky_outdoor",
+        "pool": "bulky_outdoor", "gazebo": "bulky_outdoor",
+    }
+    
+    # Add-on fees for special handling
+    ADD_ON_FEES = {
+        "mounted": 50,       # Wall-mounted TV removal
+        "disassembly": 75,   # Shed, playset, etc. teardown
+    }
+    
+    # Missed item volume estimates by variant
+    MISSED_ITEM_VOLUMES = {
+        # Tires
+        "tire_single": 0.15,
+        "tire_stack_3": 0.45,
+        "tire_stack_6": 0.9,
+        
+        # Bags
+        "bag_kitchen": 0.05,
+        "bag_contractor": 0.2,
+        "bags_contractor_5": 1.0,
+        "bags_contractor_10": 2.0,
+        
+        # Debris piles
+        "debris_small": 0.5,
+        "debris_medium": 2.0,
+        "debris_large": 5.0,
+        
+        # Common items
+        "box_single": 0.1,
+        "boxes_stack": 0.5,
+        "furniture_small": 0.5,
+        "furniture_large": 2.0,
+        
+        # Defaults
+        "unknown_small": 0.25,
+        "unknown_medium": 0.75,
+        "unknown_large": 1.5,
+    }
+    
+    # Labels that require Gemma classification (ambiguous)
+    AMBIGUOUS_LABELS = ["pile", "debris", "unknown", "junk", "stuff", "items", "trash"]
 
     class VisionWorker:
         """Handles vision tasks using Florence-2, Depth Pro, and camera intrinsics."""
@@ -1341,6 +1450,69 @@ class PricingEngine:
             print(f"❌ GPT ERROR: {e}")
             return None
     
+    async def classify_with_gemma(self, image_b64: str, items: list) -> list:
+        """Use Gemma 3 27B to classify ambiguous items into pricing categories."""
+        try:
+            items_json = json.dumps([{"label": i.get("label", "unknown"), "bbox": i.get("bbox", [])} for i in items])
+            
+            prompt = f"""Classify these junk removal items for pricing: {items_json}
+
+For EACH item, return:
+- item: original label
+- category: furniture/mattress/appliance/appliance_freon/ewaste/yard_green/yard_branches/demo_light/demo_heavy/tires_metal/bulky_outdoor
+- add_on_flags: ["mounted", "disassembly"] if applicable (empty array if none)
+- confidence: 0.0-1.0
+
+Categories:
+- furniture: couches, chairs, tables (1.0×)
+- mattress: beds, mattresses (1.1×)
+- appliance: washer, dryer, stove (1.2×)
+- appliance_freon: fridge, freezer, AC (1.3×)
+- ewaste: TVs, monitors, computers (1.15×)
+- yard_green: bagged leaves (0.9×)
+- yard_branches: brush, branches (1.0×)
+- demo_light: wood, drywall, carpet (1.25×)
+- demo_heavy: concrete, tile, dirt, rocks (1.6×)
+- tires_metal: tires, scrap metal (1.2×)
+- bulky_outdoor: hot tub, shed, playset (1.4×)
+
+Return JSON array ONLY. No explanation."""
+
+            print(f"🔮 Calling Gemma 3 27B for {len(items)} ambiguous items...")
+            
+            output = replicate.run(
+                "google-deepmind/gemma-3-27b-it",
+                input={
+                    "prompt": prompt,
+                    "image": f"data:image/jpeg;base64,{image_b64}",
+                    "max_tokens": 500
+                }
+            )
+            
+            # Parse output (may be list or string)
+            result_text = output[0] if isinstance(output, list) else output
+            
+            # Clean up any markdown formatting
+            if "```json" in result_text:
+                result_text = result_text.split("```json")[1].split("```")[0]
+            elif "```" in result_text:
+                result_text = result_text.split("```")[1].split("```")[0]
+            
+            result = json.loads(result_text.strip())
+            print(f"🔮 Gemma classifications: {result}")
+            return result
+            
+        except Exception as e:
+            print(f"⚠️ Gemma classification failed: {e}, using static mapping")
+            # Fallback to static mapping
+            return [
+                {"item": i.get("label", "unknown"), 
+                 "category": ITEM_TO_CATEGORY.get(i.get("label", "").lower(), "furniture"),
+                 "add_on_flags": [],
+                 "confidence": 0.5}
+                for i in items
+            ]
+    
     async def ask_gemini_with_vision(self, visual_bridge_b64: str, detections: dict) -> dict:
         """
         Send annotated visual bridge image to Gemini 3 Pro for enhanced analysis.
@@ -1597,23 +1769,74 @@ class PricingEngine:
             if not visual_bridge:
                 raise ValueError("Vision pipeline failed to create visual bridge")
             
-            # 2. Send visual bridge to GPT for reasoning
+            # 2a. Classify ambiguous items with Gemma 3 27B
+            gemma_categories = {}  # label -> category override
+            gemma_add_ons = []     # add-on flags from Gemma
+            
+            all_detections = detections.get("detections", [])
+            ambiguous_items = [d for d in all_detections 
+                               if d.get("label", "").lower() in AMBIGUOUS_LABELS 
+                               or d.get("label", "").lower() not in ITEM_TO_CATEGORY]
+            
+            if ambiguous_items and visual_bridge:
+                print(f"🔮 {len(ambiguous_items)} ambiguous items found, calling Gemma...")
+                classifications = await self.classify_with_gemma(visual_bridge, ambiguous_items)
+                
+                # Store Gemma classifications for volume calculation
+                for cls in classifications:
+                    label = cls.get("item", "").lower()
+                    gemma_categories[label] = cls.get("category", "furniture")
+                    if cls.get("add_on_flags"):
+                        gemma_add_ons.extend(cls["add_on_flags"])
+                        print(f"➕ Gemma detected add-ons for {label}: {cls['add_on_flags']}")
+            
+            # 2b. Send visual bridge to Gemini for final audit
             gemini_result = await self.ask_gemini_with_vision(visual_bridge, detections)
             
             if not gemini_result:
                 raise ValueError("Gemini vision analysis failed")
             
-            # 3. Calculate Volume from catalog (Gemini is now auditor, not estimator)
-            final_vol = catalog_volume.get("net_volume", 0.0)
+            # 3. Calculate Billable Volume with category multipliers
+            raw_vol = catalog_volume.get("net_volume", 0.0)
+            
+            # Apply category multipliers per detected item
+            billable_vol = 0.0
+            for item in catalog_volume.get("items", []):
+                label = item.get("label", "").lower()
+                item_vol = item.get("volume", 0.0) * (1 - item.get("void", 0.0))  # Net volume
+                
+                # Use Gemma category if available, else static lookup
+                category = gemma_categories.get(label) or ITEM_TO_CATEGORY.get(label, "furniture")
+                multiplier = CATEGORY_MULTIPLIERS.get(category, 1.0)
+                billable_item_vol = item_vol * multiplier
+                billable_vol += billable_item_vol
+                print(f"📦 {label}: {item_vol:.2f} × {multiplier} ({category}) = {billable_item_vol:.2f} yd³")
+            
+            # Use billable volume if we have item breakdown, else apply default 1.1×
+            if billable_vol > 0:
+                final_vol = billable_vol
+            else:
+                final_vol = raw_vol * 1.1  # Fallback multiplier
             
             # Apply Gemini audit corrections if available
             if gemini_result:
-                # Add volume for missed items (rough estimate)
+                # Add volume for missed items with typed estimates
                 missed_items = gemini_result.get("missed_items", [])
                 if missed_items:
-                    # Each missed item adds ~0.1 yd³ as rough estimate
-                    final_vol += len(missed_items) * 0.1
-                    print(f"🔍 Added {len(missed_items)} missed items (+{len(missed_items)*0.1} yd³)")
+                    for item in missed_items:
+                        if isinstance(item, dict):
+                            # Typed missed item from upgraded Gemini
+                            variant = item.get("variant", "unknown_medium")
+                            vol = MISSED_ITEM_VOLUMES.get(variant, item.get("estimated_volume", 0.75))
+                            category = item.get("category", "furniture")
+                            multiplier = CATEGORY_MULTIPLIERS.get(category, 1.0)
+                            billable_missed = vol * multiplier
+                            final_vol += billable_missed
+                            print(f"🔍 Missed: {item.get('type', 'unknown')} ({variant}) = {vol:.2f} × {multiplier} = {billable_missed:.2f} yd³")
+                        else:
+                            # Legacy string format - use default 0.2 yd³
+                            final_vol += 0.2
+                            print(f"🔍 Missed: {item} = +0.2 yd³ (legacy)")
             
             # Add residue volume (pile area not covered by detected items)
             residual_area = residual_pile.get("residual_area", 0)
@@ -1629,13 +1852,22 @@ class PricingEngine:
                     # Convert residual px² to volume: assume 12" average debris height
                     residue_sq_inches = residual_area / (best_scale ** 2)
                     residue_vol_yd3 = (residue_sq_inches * 12) / (27 * 1728)  # 1728 cu in = 1 cu ft
+                    # Apply demo_light multiplier for unknown residue
+                    residue_vol_yd3 *= CATEGORY_MULTIPLIERS.get("demo_light", 1.25)
                     final_vol += residue_vol_yd3
-                    print(f"📐 Added residue: {residue_vol_yd3:.2f} yd³ from {residual_area:.0f}px² pile area")
+                    print(f"📐 Added residue: {residue_vol_yd3:.2f} yd³ (with 1.25× demo_light mult)")
             
             if final_vol <= 0:
                 final_vol = 0.5  # Minimum estimate if nothing detected
             
-            # 4. Pricing Math (TIERED PRICING)
+            # 4. Add-on surcharges from Gemma classification
+            add_on_surcharge = 0
+            for flag in gemma_add_ons:
+                if flag in ADD_ON_FEES:
+                    add_on_surcharge += ADD_ON_FEES[flag]
+                    print(f"➕ Add-on fee: {flag} = +${ADD_ON_FEES[flag]}")
+            
+            # 5. Pricing Math (TIERED PRICING)
             final_vol = round_to_half(final_vol)  # Round to nearest 0.5
             
             # Get tier price (replaces flat rate)
@@ -1645,12 +1877,13 @@ class PricingEngine:
             
             # Apply uncertainty band to VOLUME ONLY
             band = uncertainty_result.get("uncertainty", confidence.get("band", 0.10))
-            min_vol_price = max(99, round(vol_price * (1 - band)))  # Floor at Min Load ($99)
+            min_vol_price = max(95, round(vol_price * (1 - band)))  # Floor at Min Load ($95)
             max_vol_price = round(vol_price * (1 + band))
             
             # Add fixed surcharges AFTER (protected from discounting)
-            min_price = min_vol_price + heavy_surcharge
-            max_price = max_vol_price + heavy_surcharge
+            total_surcharge = heavy_surcharge + add_on_surcharge
+            min_price = min_vol_price + total_surcharge
+            max_price = max_vol_price + total_surcharge
             
             def round_pretty(p):
                 if p > 100: return 5 * round(p / 5)
@@ -1664,8 +1897,9 @@ class PricingEngine:
                 "volume_yards": final_vol,
                 "min_price": min_price,
                 "max_price": max_price,
-                "price": round(vol_price + heavy_surcharge, 2),
-                "heavy_surcharge": heavy_surcharge,
+                "price": round(vol_price + total_surcharge, 2),
+                "heavy_surcharge": total_surcharge,  # Combined heavy + add-ons
+                "add_on_surcharge": add_on_surcharge,
                 "vision_enhanced": True,
                 "anchor_found": detections.get("anchor_found", False),
                 "anchor_scale_inches": detections.get("anchor_scale_inches"),
@@ -1677,7 +1911,9 @@ class PricingEngine:
                     "confidence": confidence,
                     "detections_count": len(detections.get("detections", [])),
                     "depth_available": any(r.get("depth_available", False) for r in all_vision_results),
-                    "heavy_level": heavy_level
+                    "heavy_level": heavy_level,
+                    "gemma_categories": gemma_categories,
+                    "gemma_add_ons": gemma_add_ons
                 }
             }
             
