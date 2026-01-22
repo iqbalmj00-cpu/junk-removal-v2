@@ -892,11 +892,8 @@ try:
             
             # Legacy path
             print("🚀 Starting Vision Pipeline (Legacy)...")
+            # Run Florence detection
             detections = self.run_florence_detection(image_base64)
-            
-            # Rate limit: wait 12s between Replicate calls (burst limit = 1)
-            print("   ⏳ Rate limit delay before depth (12s)...")
-            time.sleep(12)
             
             depth_result = self.run_depth_estimation(image_base64)
             depth_url = depth_result.get("depth_map_url") if depth_result.get("success") else None
@@ -928,12 +925,8 @@ try:
             # Phase 1: Get camera intrinsics
             intrinsics = self.get_camera_intrinsics(image_bytes, resolution)
             
-            # Run Florence detection (existing)
+            # Run Florence detection
             detections = self.run_florence_detection(image_b64)
-            
-            # Rate limit before depth model
-            print("   ⏳ Rate limit delay before depth (12s)...")
-            time.sleep(12)
             
             # Phase 2: Get scale (metric or anchor fallback)
             scale = self.get_scale(image_bytes, image_b64, intrinsics, 
@@ -1388,12 +1381,6 @@ class PricingEngine:
             print(f"📸 Processing {len(base64_images)} image(s)...")
             
             for i, img_b64 in enumerate(base64_images):
-                # Rate limit: wait 12s between images to respect Replicate burst limits
-                if i > 0:
-                    import time
-                    print(f"   ⏳ Rate limit delay (12s)...")
-                    time.sleep(12)
-                
                 print(f"🔍 Analyzing image {i+1}/{len(base64_images)}...")
                 try:
                     # Decode bytes for camera-aware path (EXIF extraction)
