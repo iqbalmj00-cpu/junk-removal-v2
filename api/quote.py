@@ -358,16 +358,23 @@ try:
         "furniture": 1.0,
         "mattress": 1.1,
         "appliance_non_freon": 1.2,
+        "appliance": 1.2,          # Legacy key
         "appliance_freon": 1.3,
-        "ewaste_tv": 1.15,
+        "ewaste_crt": 1.2,         # CRT TVs - heavier
+        "ewaste_flat_tv": 1.15,    # Flat screen TVs
+        "ewaste_tv": 1.15,         # Legacy key
         "ewaste_other": 1.15,
         "yard_green": 0.9,
         "yard_heavy": 1.6,
+        "yard_branches": 1.0,
         "demo_light": 1.25,
         "demo_heavy": 1.6,
         "tires": 1.2,
+        "tires_metal": 1.2,        # Legacy key
         "scrap_metal": 1.2,
+        "pallets": 1.25,           # Wood pallets
         "boxes_bags": 1.0,
+        "bulky_outdoor": 1.4,
         "misc": 1.0,
     }
     
@@ -438,6 +445,15 @@ try:
     
     # Labels that require Gemma classification (ambiguous)
     AMBIGUOUS_LABELS = ["pile", "debris", "unknown", "junk", "stuff", "items", "trash"]
+    
+    # Background objects to filter out (not junk items)
+    BACKGROUND_LABELS = [
+        "car", "truck", "vehicle", "bus", "motorcycle",
+        "building", "house", "tree", "sky", "grass", "road", 
+        "person", "people", "dog", "cat", "bird",
+        "window", "door", "fence", "wall", "parking lot",
+        "taillight", "license plate", "tire"  # Parts of cars
+    ]
     
     # GPT-5.2 Audit System Prompt
     GPT5_AUDIT_PROMPT = """You are an audit model for a junk-removal instant-quote pipeline. Your job is to validate detections and classifications from upstream models and catch missed items. You do not compute prices. You do not write code. You output valid JSON only matching the schema.
@@ -1581,30 +1597,45 @@ class PricingEngine:
         try:
             items_json = json.dumps([{"label": i.get("label", "unknown"), "bbox": i.get("bbox", [])} for i in items])
             
-            prompt = f"""Classify these junk removal items for pricing: {items_json}
+            prompt = f"""Analyze these junk removal items detected in the image: {items_json}
 
 For EACH item, return:
-- item: original label
-- category: furniture/mattress/appliance/appliance_freon/ewaste/yard_green/yard_branches/demo_light/demo_heavy/tires_metal/bulky_outdoor
-- add_on_flags: ["mounted", "disassembly"] if applicable (empty array if none)
+- item: original detected label
+- is_junk: true/false (false if this is a background object like parked cars, buildings, people)
+- corrected_label: what this item actually is (if different from detection, e.g., "car" might be "CRT TV")
+- category: one of the categories listed below
+- size: xs/small/medium/large/xl (estimate physical size)
+- add_on_flags: ["mounted", "disassembly", "heavy_material"] if applicable (empty array if none)
 - confidence: 0.0-1.0
 
 Categories:
-- furniture: couches, chairs, tables (1.0×)
-- mattress: beds, mattresses (1.1×)
-- appliance: washer, dryer, stove (1.2×)
-- appliance_freon: fridge, freezer, AC (1.3×)
-- ewaste: TVs, monitors, computers (1.15×)
-- yard_green: bagged leaves (0.9×)
-- yard_branches: brush, branches (1.0×)
+- furniture: couches, chairs, tables, bookcases, shelves (1.0×)
+- mattress: beds, mattresses, box springs (1.1×)
+- appliance: washer, dryer, stove, dishwasher (1.2×)
+- appliance_freon: fridge, freezer, AC unit (1.3×)
+- ewaste_crt: CRT TVs (boxy, deep, heavy) (1.2×)
+- ewaste_flat_tv: flat screen TVs (1.15×)
+- ewaste_other: monitors, computers, printers (1.15×)
+- yard_green: bagged leaves, grass clippings (0.9×)
+- yard_branches: brush, branches, lumber scraps (1.0×)
 - demo_light: wood, drywall, carpet (1.25×)
 - demo_heavy: concrete, tile, dirt, rocks (1.6×)
-- tires_metal: tires, scrap metal (1.2×)
-- bulky_outdoor: hot tub, shed, playset (1.4×)
+- tires: tires, tire stacks (1.2×)
+- scrap_metal: scrap metal, metal parts (1.2×)
+- pallets: wood pallets (count them individually!) (1.25×)
+- boxes_bags: cardboard boxes, trash bags (1.0×)
+- bulky_outdoor: hot tub, shed, playset, trampoline (1.4×)
+- misc: anything else (1.0×)
+
+Special instructions:
+1. For background objects (parked cars, trucks, buildings), set is_junk: false
+2. For TVs: distinguish CRT (boxy, deep) from flat screens - different categories!
+3. For piles: estimate what material it is (wood, concrete, mixed)
+4. Count pallets if stacked together (put count in corrected_label: "4 pallets")
 
 Return JSON array ONLY. No explanation."""
 
-            print(f"🔮 Calling Google Gemini Vision for {len(items)} ambiguous items...")
+            print(f"🔮 Calling Google Gemini Vision for {len(items)} items...")
             
             # Use Google Gemini Vision API
             response = self.google_client.models.generate_content(
@@ -1623,7 +1654,7 @@ Return JSON array ONLY. No explanation."""
                 ],
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    max_output_tokens=500
+                    max_output_tokens=800
                 )
             )
             
@@ -1990,6 +2021,17 @@ Return JSON array ONLY. No explanation."""
             # Phase 2: Fuse detections from all images
             detections = vision_worker.fuse_detection_results(all_vision_results)
             
+            # Phase 3: Filter out background objects (cars, trucks, buildings, etc.)
+            raw_detection_count = len(detections.get("detections", []))
+            filtered_detections = [
+                d for d in detections.get("detections", [])
+                if d.get("label", "").lower() not in BACKGROUND_LABELS
+            ]
+            detections["detections"] = filtered_detections
+            filtered_count = raw_detection_count - len(filtered_detections)
+            if filtered_count > 0:
+                print(f"🚫 Filtered {filtered_count} background objects (cars, trucks, etc.)")
+            
             # Phase 4: Calculate catalog-based volume
             catalog_volume = vision_worker.calculate_catalog_volume(detections.get("detections", []))
             
@@ -2048,16 +2090,34 @@ Return JSON array ONLY. No explanation."""
                                or d.get("label", "").lower() not in ITEM_TO_CATEGORY]
             
             if ambiguous_items and visual_bridge:
-                print(f"🔮 {len(ambiguous_items)} ambiguous items found, calling Gemma...")
+                print(f"🔮 {len(ambiguous_items)} ambiguous items found, calling Gemini Vision...")
                 classifications = await self.classify_with_gemma(visual_bridge, ambiguous_items)
                 
-                # Store Gemma classifications for volume calculation
+                # Store Gemini classifications for volume calculation
+                gemma_sizes = {}  # label -> size bucket
                 for cls in classifications:
                     label = cls.get("item", "").lower()
+                    
+                    # Skip if Gemini says this isn't junk (background object)
+                    if cls.get("is_junk") == False:
+                        print(f"🚫 Gemini identified {label} as background object, skipping")
+                        continue
+                    
+                    # Store category
                     gemma_categories[label] = cls.get("category", "furniture")
+                    
+                    # Store size for volume lookup
+                    if cls.get("size"):
+                        gemma_sizes[label] = cls["size"]
+                    
+                    # Store corrected label for logging
+                    if cls.get("corrected_label") and cls["corrected_label"] != label:
+                        print(f"🔄 Gemini corrected: {label} → {cls['corrected_label']}")
+                    
+                    # Store add-on flags
                     if cls.get("add_on_flags"):
                         gemma_add_ons.extend(cls["add_on_flags"])
-                        print(f"➕ Gemma detected add-ons for {label}: {cls['add_on_flags']}")
+                        print(f"➕ Gemini detected add-ons for {label}: {cls['add_on_flags']}")
             
             # 2b. GPT-5.2 Audit (replaces Gemini)
             # Build initial classifications list for audit
