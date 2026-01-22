@@ -241,17 +241,18 @@ try:
                           "sleeper", "cast iron", "gun safe", "aquarium"]
     
     # ==================== TIERED PRICING ====================
-    # Industry-aligned volume buckets - MAX 18 yd³ (Full Load capacity)
+    # Industry-aligned volume buckets - MIN 1 yd³, MAX 18 yd³
     VOLUME_TIERS = [
-        {"max_cuft": 60,   "price": 99,  "label": "Min Load"},      # ~2.2 yd³
-        {"max_cuft": 80,   "price": 129, "label": "1/6 Load"},      # ~3.0 yd³
-        {"max_cuft": 120,  "price": 149, "label": "1/4 Load"},      # ~4.4 yd³
-        {"max_cuft": 180,  "price": 199, "label": "3/8 Load"},      # ~6.7 yd³
-        {"max_cuft": 240,  "price": 299, "label": "Half Load"},     # ~8.9 yd³
-        {"max_cuft": 300,  "price": 349, "label": "5/8 Load"},      # ~11 yd³
-        {"max_cuft": 360,  "price": 399, "label": "3/4 Load"},      # ~13 yd³
-        {"max_cuft": 420,  "price": 479, "label": "7/8 Load"},      # ~16 yd³
-        {"max_cuft": 486,  "price": 599, "label": "Full Load"},     # 18 yd³ MAX
+        {"max_cuft": 27,   "price": 95,  "label": "Min Load"},       # 1 yd³
+        {"max_cuft": 60,   "price": 99,  "label": "1/8 Load"},       # ~2.2 yd³
+        {"max_cuft": 80,   "price": 129, "label": "1/6 Load"},       # ~3.0 yd³
+        {"max_cuft": 120,  "price": 149, "label": "1/4 Load"},       # ~4.4 yd³
+        {"max_cuft": 180,  "price": 199, "label": "3/8 Load"},       # ~6.7 yd³
+        {"max_cuft": 240,  "price": 299, "label": "Half Load"},      # ~8.9 yd³
+        {"max_cuft": 300,  "price": 349, "label": "5/8 Load"},       # ~11 yd³
+        {"max_cuft": 360,  "price": 399, "label": "3/4 Load"},       # ~13 yd³
+        {"max_cuft": 420,  "price": 479, "label": "7/8 Load"},       # ~16 yd³
+        {"max_cuft": 486,  "price": 599, "label": "Full Load"},      # 18 yd³ MAX
     ]
     
     def round_to_half(value: float) -> float:
