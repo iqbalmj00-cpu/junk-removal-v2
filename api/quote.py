@@ -1639,7 +1639,7 @@ Return JSON array ONLY. No explanation."""
             
             # Use Google Gemini Vision API
             response = self.google_client.models.generate_content(
-                model="gemini-2.5-pro",
+                model="gemini-2.0-flash",
                 contents=[
                     types.Content(
                         role="user",
