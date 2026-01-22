@@ -5,3 +5,4 @@ redis
 wheel==0.45.1
 replicate
 Pillow
+numpy

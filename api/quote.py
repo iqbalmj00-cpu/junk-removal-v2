@@ -300,6 +300,39 @@ try:
             annotated.save(buffer, format="JPEG", quality=85)
             return base64.b64encode(buffer.getvalue()).decode()
         
+        def extract_depth_statistics(self, depth_url: str) -> dict:
+            """Download depth map and extract statistical metrics."""
+            try:
+                import numpy as np
+                response = requests.get(depth_url, timeout=10)
+                depth_img = Image.open(io.BytesIO(response.content)).convert("L")
+                depth_array = np.array(depth_img)
+                
+                stats = {
+                    "mean": round(float(np.mean(depth_array)), 1),
+                    "median": round(float(np.median(depth_array)), 1),
+                    "std": round(float(np.std(depth_array)), 1),
+                    "min": int(np.min(depth_array)),
+                    "max": int(np.max(depth_array)),
+                    "range": int(np.max(depth_array) - np.min(depth_array))
+                }
+                print(f"📊 Depth Stats: mean={stats['mean']}, std={stats['std']}, range={stats['range']}")
+                return stats
+            except Exception as e:
+                print(f"⚠️ Depth stats error: {e}")
+                return None
+        
+        def get_pile_bbox(self, detections: list) -> list:
+            """Calculate bounding box encompassing all detections."""
+            valid_dets = [d for d in detections if "bbox" in d and len(d["bbox"]) == 4]
+            if not valid_dets:
+                return None
+            x1 = min(d["bbox"][0] for d in valid_dets)
+            y1 = min(d["bbox"][1] for d in valid_dets)
+            x2 = max(d["bbox"][2] for d in valid_dets)
+            y2 = max(d["bbox"][3] for d in valid_dets)
+            return [x1, y1, x2, y2]
+        
         def analyze_image(self, image_base64: str) -> dict:
             import time
             print("🚀 Starting Vision Pipeline...")
@@ -311,13 +344,20 @@ try:
             
             depth_result = self.run_depth_estimation(image_base64)
             depth_url = depth_result.get("depth_map_url") if depth_result.get("success") else None
+            
+            # Phase 5: Extract depth statistics
+            depth_stats = None
+            if depth_url:
+                depth_stats = self.extract_depth_statistics(depth_url)
+            
             visual_bridge = self.create_visual_bridge(image_base64, detections, depth_url)
             print(f"✅ Vision Complete: {len(detections.get('detections', []))} objects")
             return {
                 "detections": detections,
                 "visual_bridge_image": visual_bridge,
                 "depth_map_url": depth_url,
-                "depth_available": depth_result.get("success", False)
+                "depth_available": depth_result.get("success", False),
+                "depth_stats": depth_stats
             }
         
         def fuse_detection_results(self, all_results: list) -> dict:
