@@ -23,6 +23,21 @@ try:
     # Model versions (from official Replicate pages)
     FLORENCE_MODEL = "lucataco/florence-2-large:da53547e17d45b9cfb48174b2f18af8b83ca020fa76db62136bf9c6616762595"
     DEPTH_MODEL = "chenxwh/depth-anything-v2:b239ea33cff32bb7abb5db39ffe9a09c14cbc2894331d1ef66fe096eed88ebd4"
+    
+    # Anchor Trust Registry: trust tiers + validation rules
+    ANCHOR_REGISTRY = {
+        # HIGH trust - consistent, standardized sizes
+        "door": {"size_inches": 80, "trust": "HIGH", "aspect_ratio": (0.3, 0.6), "aliases": ["door frame", "doorway"]},
+        "standard door": {"size_inches": 80, "trust": "HIGH", "aspect_ratio": (0.3, 0.6)},
+        # MEDIUM trust - common but variable sizes
+        "person": {"size_inches": 66, "trust": "MEDIUM", "aspect_ratio": (0.25, 0.5), "size_range": (60, 76)},
+        "wheelie bin": {"size_inches": 42, "trust": "MEDIUM", "aspect_ratio": (0.4, 0.8)},
+        "trash can": {"size_inches": 36, "trust": "MEDIUM", "aspect_ratio": (0.5, 1.2)},
+        # LOW trust - highly variable, use as fallback only
+        "chair": {"size_inches": 32, "trust": "LOW", "aspect_ratio": (0.6, 1.4)},
+        "bicycle": {"size_inches": 40, "trust": "LOW", "aspect_ratio": (0.6, 1.8)},
+        "tv": {"size_inches": 24, "trust": "LOW", "aspect_ratio": (1.2, 2.5), "aliases": ["television", "monitor"]},
+    }
 
     class VisionWorker:
         """Handles vision tasks using Florence-2 and Depth-Anything-V2."""
@@ -32,6 +47,53 @@ try:
             if not token:
                 raise ValueError("REPLICATE_API_TOKEN environment variable not set")
             print(f"✅ VisionWorker initialized with token: {token[:8]}...")
+        
+        def validate_anchor(self, label: str, bbox: list) -> dict:
+            """Validate an anchor by checking aspect ratio against expected range."""
+            for anchor_name, config in ANCHOR_REGISTRY.items():
+                names_to_check = [anchor_name] + config.get("aliases", [])
+                if any(name in label.lower() for name in names_to_check):
+                    width = bbox[2] - bbox[0]
+                    height = bbox[3] - bbox[1]
+                    if height <= 0:
+                        continue
+                    aspect = width / height
+                    min_aspect, max_aspect = config["aspect_ratio"]
+                    is_valid = min_aspect <= aspect <= max_aspect
+                    
+                    result = {
+                        "anchor_name": anchor_name,
+                        "size_inches": config["size_inches"],
+                        "trust": config["trust"],
+                        "aspect_valid": is_valid,
+                        "aspect_ratio": round(aspect, 2),
+                        "bbox_height_px": height
+                    }
+                    print(f"🔑 Anchor validated: {anchor_name} ({config['trust']} trust, aspect={result['aspect_ratio']}, valid={is_valid})")
+                    return result
+            return None
+        
+        def cross_validate_anchors(self, validated_anchors: list) -> dict:
+            """Cross-validate multiple anchors to derive px_per_inch scale."""
+            if not validated_anchors:
+                return {"scale": None, "confidence": "NONE", "anchor_used": None}
+            
+            trust_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+            sorted_anchors = sorted(validated_anchors, key=lambda a: (trust_order.get(a["trust"], 3), not a["aspect_valid"]))
+            
+            best = sorted_anchors[0]
+            if not best["aspect_valid"]:
+                return {"scale": None, "confidence": "LOW", "reason": "No aspect-valid anchors", "anchor_used": best["anchor_name"]}
+            
+            px_per_inch = best["bbox_height_px"] / best["size_inches"]
+            result = {
+                "scale": round(px_per_inch, 3),
+                "anchor_used": best["anchor_name"],
+                "trust": best["trust"],
+                "confidence": "HIGH" if best["trust"] == "HIGH" else "MEDIUM"
+            }
+            print(f"📐 Scale: {result['scale']} px/inch from {best['anchor_name']} ({result['confidence']} confidence)")
+            return result
         
         def _base64_to_file(self, image_base64: str):
             img_bytes = base64.b64decode(image_base64)
@@ -52,21 +114,15 @@ try:
                 return {"detections": [], "error": str(e)}
         
         def _parse_florence_output(self, raw_output) -> dict:
-            """Parse Florence-2 output. The 'text' field is a Python literal string."""
-            result = {"detections": [], "anchor_found": False, "anchor_scale_inches": None}
-            ANCHOR_SIZES = {"door": 80, "door frame": 80, "wheelie bin": 42, "trash can": 36, "person": 66}
+            """Parse Florence-2 output with anchor validation."""
+            result = {"detections": [], "anchor_found": False, "anchor_scale_inches": None, "anchor_trust": None, "validated_anchors": []}
             
             try:
-                # Florence-2 returns: {'img': <FileOutput>, 'text': "{'<OD>': {'bboxes': [...], 'labels': [...]}}}"}
-                # The 'text' field is a STRING representation of a Python dict
                 if isinstance(raw_output, dict) and 'text' in raw_output:
                     text_str = raw_output['text']
                     print(f"🔬 Florence text field: {text_str[:200]}..." if len(text_str) > 200 else f"🔬 Florence text field: {text_str}")
                     
-                    # Parse the Python literal string
                     parsed = ast.literal_eval(text_str)
-                    
-                    # Access the '<OD>' key containing detections
                     od_data = parsed.get('<OD>', {})
                     
                     if 'bboxes' in od_data and 'labels' in od_data:
@@ -77,12 +133,19 @@ try:
                             label = labels[i] if i < len(labels) else "unknown"
                             detection = {"label": label, "bbox": bbox, "type": "item"}
                             
-                            for anchor_name, size in ANCHOR_SIZES.items():
-                                if anchor_name in label.lower():
-                                    detection["type"] = "anchor"
+                            # Use anchor validation with trust tiers
+                            anchor_info = self.validate_anchor(label, bbox)
+                            if anchor_info:
+                                detection["type"] = "anchor"
+                                detection["anchor_info"] = anchor_info
+                                result["validated_anchors"].append(anchor_info)
+                                
+                                # Only set anchor_found if aspect is valid
+                                if anchor_info["aspect_valid"]:
                                     result["anchor_found"] = True
-                                    result["anchor_scale_inches"] = size
-                                    break
+                                    result["anchor_scale_inches"] = anchor_info["size_inches"]
+                                    result["anchor_trust"] = anchor_info["trust"]
+                            
                             result["detections"].append(detection)
                 else:
                     print(f"⚠️ Unexpected Florence output format: {type(raw_output)}")
@@ -92,7 +155,7 @@ try:
                 import traceback
                 traceback.print_exc()
             
-            print(f"📦 Parsed {len(result['detections'])} detections")
+            print(f"📦 Parsed {len(result['detections'])} detections, {len(result['validated_anchors'])} anchors validated")
             return result
         
         def run_depth_estimation(self, image_base64: str) -> dict:
