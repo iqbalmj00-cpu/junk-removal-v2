@@ -1552,7 +1552,7 @@ class PricingEngine:
             return None
     
     async def classify_with_gemma(self, image_b64: str, items: list) -> list:
-        """Use Gemma 3 27B to classify ambiguous items into pricing categories."""
+        """Use Google Gemini Vision to classify ambiguous items into pricing categories."""
         try:
             items_json = json.dumps([{"label": i.get("label", "unknown"), "bbox": i.get("bbox", [])} for i in items])
             
@@ -1579,19 +1579,32 @@ Categories:
 
 Return JSON array ONLY. No explanation."""
 
-            print(f"🔮 Calling Gemma 3 27B for {len(items)} ambiguous items...")
+            print(f"🔮 Calling Google Gemini Vision for {len(items)} ambiguous items...")
             
-            output = replicate.run(
-                "google-deepmind/gemma-3-27b-it:c0f0aebe8e578c15a7531e08a62cf01206f5870e9d0a67804b8152822db58c54",
-                input={
-                    "prompt": prompt,
-                    "image": f"data:image/jpeg;base64,{image_b64}",
-                    "max_tokens": 500
-                }
+            # Use Google Gemini Vision API
+            response = self.google_client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=[
+                            types.Part.from_bytes(
+                                data=base64.b64decode(image_b64),
+                                mime_type="image/jpeg"
+                            ),
+                            types.Part.from_text(prompt)
+                        ]
+                    )
+                ],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    max_output_tokens=500
+                )
             )
             
-            # Parse output (may be list or string)
-            result_text = output[0] if isinstance(output, list) else output
+            result_text = response.text
+            if not result_text:
+                raise ValueError("Empty response from Gemini")
             
             # Clean up any markdown formatting
             if "```json" in result_text:
@@ -1600,11 +1613,11 @@ Return JSON array ONLY. No explanation."""
                 result_text = result_text.split("```")[1].split("```")[0]
             
             result = json.loads(result_text.strip())
-            print(f"🔮 Gemma classifications: {result}")
+            print(f"🔮 Gemini classifications: {result}")
             return result
             
         except Exception as e:
-            print(f"⚠️ Gemma classification failed: {e}, using static mapping")
+            print(f"⚠️ Gemini classification failed: {e}, using static mapping")
             # Fallback to static mapping
             return [
                 {"item": i.get("label", "unknown"), 
