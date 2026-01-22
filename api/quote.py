@@ -603,6 +603,12 @@ class PricingEngine:
             print(f"📸 Processing {len(base64_images)} image(s)...")
             
             for i, img_b64 in enumerate(base64_images):
+                # Rate limit: wait 12s between images to respect Replicate burst limits
+                if i > 0:
+                    import time
+                    print(f"   ⏳ Rate limit delay (12s)...")
+                    time.sleep(12)
+                
                 print(f"🔍 Analyzing image {i+1}/{len(base64_images)}...")
                 try:
                     result = vision_worker.analyze_image(img_b64)
@@ -680,7 +686,7 @@ class PricingEngine:
                 "debug": {
                     "gemini_raw": gemini_result,
                     "detections_count": len(detections.get("detections", [])),
-                    "depth_available": vision_result.get("depth_available", False),
+                    "depth_available": any(r.get("depth_available", False) for r in all_vision_results),
                     "heavy_level": heavy_level
                 }
             }
