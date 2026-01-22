@@ -1592,7 +1592,7 @@ Return JSON array ONLY. No explanation."""
                                 data=base64.b64decode(image_b64),
                                 mime_type="image/jpeg"
                             ),
-                            types.Part.from_text(prompt)
+                            types.Part.from_text(text=prompt)
                         ]
                     )
                 ],
