@@ -1238,7 +1238,7 @@ class PricingEngine:
             
             def _call():
                 return self.google_client.models.generate_content(
-                    model='gemini-3-pro-preview',
+                    model='gemini-2.0-flash',
                     contents=[prompt, *images],
                     config=types.GenerateContentConfig(
                         temperature=0.0,
@@ -1302,7 +1302,7 @@ class PricingEngine:
             
             def _call():
                 return self.google_client.models.generate_content(
-                    model='gemini-3-pro-preview',
+                    model='gemini-2.0-flash',
                     contents=[prompt, image_part],
                     config=types.GenerateContentConfig(
                         temperature=0.0,
@@ -1311,8 +1311,15 @@ class PricingEngine:
                 )
 
             response = await asyncio.to_thread(_call)
-            print(f"✅ Gemini Vision Response: {response.text[:200]}..." if len(response.text) > 200 else f"✅ Gemini Vision Response: {response.text}")
-            return json.loads(response.text)
+            
+            # Safety check: handle None or empty response
+            response_text = response.text if response and response.text else None
+            if not response_text:
+                print("⚠️ Gemini returned empty/None response")
+                return None
+            
+            print(f"✅ Gemini Vision Response: {response_text[:200]}..." if len(response_text) > 200 else f"✅ Gemini Vision Response: {response_text}")
+            return json.loads(response_text)
         except Exception as e:
             print(f"❌ GEMINI VISION ERROR: {e}")
             import traceback
