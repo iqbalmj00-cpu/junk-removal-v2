@@ -18,7 +18,7 @@ export default function AboutPage() {
                         <div className="absolute inset-0 bg-slate-900/80 z-10"></div>
                         <div
                             className="absolute inset-0 bg-cover bg-center bg-no-repeat grayscale opacity-40 transform scale-105"
-                            style={{ backgroundImage: "url('https://placehold.co/1920x1080/1e293b/FFFFFF/png?text=Truck+Background')" }}
+                            style={{ backgroundImage: "url('https://images.unsplash.com/photo-1503596476-1c12a8ab9a8b?auto=format&fit=crop&q=80&w=1920')" }}
                         ></div>
                     </div>
 
@@ -64,8 +64,8 @@ export default function AboutPage() {
                                 </div>
                                 <div className="h-full min-h-[500px] bg-slate-100 relative">
                                     <img
-                                        src="https://placehold.co/800x800/e2e8f0/475569/png?text=Worker+With+Blueprints"
-                                        alt="Worker with Blueprints"
+                                        src="/images/worker-trust.png"
+                                        alt="Smiling junk removal professional"
                                         className="w-full h-full object-cover"
                                     />
                                     {/* Overlay */}
@@ -130,9 +130,9 @@ export default function AboutPage() {
                             <div className="group">
                                 <div className="aspect-square bg-slate-100 rounded-2xl overflow-hidden mb-6 relative">
                                     <img
-                                        src="https://placehold.co/400x400/cbd5e1/64748b/png?text=Mike"
-                                        alt="Mike Ross"
-                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                        src="/images/staff-mike.png"
+                                        alt="Mike Ross - Operations Lead"
+                                        className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                                     />
                                 </div>
                                 <h3 className="font-bold text-slate-900 text-xl mb-1">Mike Ross</h3>
@@ -143,9 +143,9 @@ export default function AboutPage() {
                             <div className="group">
                                 <div className="aspect-square bg-slate-100 rounded-2xl overflow-hidden mb-6 relative">
                                     <img
-                                        src="https://placehold.co/400x400/cbd5e1/64748b/png?text=Sarah"
-                                        alt="Sarah Jenkins"
-                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                        src="/images/staff-sarah.png"
+                                        alt="Sarah Jenkins - Logistics Manager"
+                                        className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                                     />
                                 </div>
                                 <h3 className="font-bold text-slate-900 text-xl mb-1">Sarah Jenkins</h3>
@@ -156,9 +156,9 @@ export default function AboutPage() {
                             <div className="group">
                                 <div className="aspect-square bg-slate-100 rounded-2xl overflow-hidden mb-6 relative">
                                     <img
-                                        src="https://placehold.co/400x400/cbd5e1/64748b/png?text=David"
-                                        alt="David Chen"
-                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                        src="/images/staff-david.png"
+                                        alt="David Chen - Senior Hauler"
+                                        className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                                     />
                                 </div>
                                 <h3 className="font-bold text-slate-900 text-xl mb-1">David Chen</h3>
@@ -169,9 +169,9 @@ export default function AboutPage() {
                             <div className="group">
                                 <div className="aspect-square bg-slate-100 rounded-2xl overflow-hidden mb-6 relative">
                                     <img
-                                        src="https://placehold.co/400x400/cbd5e1/64748b/png?text=Marcus"
-                                        alt="Marcus Johnson"
-                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                        src="/images/staff-marcus.png"
+                                        alt="Marcus Johnson - Fleet Supervisor"
+                                        className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                                     />
                                 </div>
                                 <h3 className="font-bold text-slate-900 text-xl mb-1">Marcus Johnson</h3>

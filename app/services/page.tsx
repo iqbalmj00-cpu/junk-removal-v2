@@ -137,8 +137,8 @@ export default function ServicesPage() {
                         </p>
 
                         <div className="flex flex-col sm:flex-row gap-6 justify-center">
-                            {/* Task 1: High Visibility White Button */}
-                            <Button className="bg-white text-slate-900 hover:bg-slate-100 text-lg font-bold px-10 py-5 rounded-full shadow-xl transition-all h-auto">
+                            {/* Task 1: High Visibility White Button -> Orange High Contrast */}
+                            <Button className="bg-brand-orange text-white hover:bg-orange-600 text-lg font-bold px-10 py-5 rounded-full shadow-xl transition-all h-auto">
                                 <MapPin size={22} className="mr-3" /> VIEW COVERAGE AREA
                             </Button>
 
@@ -208,7 +208,7 @@ export default function ServicesPage() {
                                 </Button>
                             </Link>
                             <span className="text-slate-500 text-lg font-medium">
-                                or call us at <span className="text-slate-300 hover:text-white cursor-pointer transition-colors border-b border-slate-600 hover:border-white pb-0.5">(800) 555-0199</span>
+                                or call us at <a href="tel:8327936566" className="inline-block"><span className="text-slate-300 hover:text-white cursor-pointer transition-colors border-b border-slate-600 hover:border-white pb-0.5">(832) 793-6566</span></a>
                             </span>
                         </div>
                     </div>

@@ -61,7 +61,7 @@ export default function ContactPage() {
                                             <input
                                                 type="tel"
                                                 className="w-full h-14 px-5 rounded-xl bg-slate-50 border border-slate-200 focus:border-brand-orange focus:ring-brand-orange outline-none transition-colors text-lg"
-                                                placeholder="(555) 123-4567"
+                                                placeholder="(832) 793-6566"
                                             />
                                         </div>
                                         <div>
@@ -103,7 +103,9 @@ export default function ContactPage() {
                                     </div>
                                     <div>
                                         <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">CALL US</h4>
-                                        <p className="text-2xl font-bold text-slate-900 group-hover:text-brand-orange transition-colors">(555) 123-4567</p>
+                                        <a href="tel:8327936566" className="block hover:opacity-80 transition-opacity">
+                                            <p className="text-2xl font-bold text-slate-900 group-hover:text-brand-orange transition-colors">(832) 793-6566</p>
+                                        </a>
                                         <p className="text-sm text-brand-orange font-bold mt-2 flex items-center bg-orange-50 inline-block px-2 py-1 rounded">
                                             <CheckCircle size={14} className="mr-1.5" /> Available 24/7
                                         </p>

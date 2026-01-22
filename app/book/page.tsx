@@ -4,12 +4,14 @@ import { useState, useRef } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
-import { UploadCloud, CheckCircle, ArrowRight, Loader2, Calendar, User, Phone, MapPin, Mail, Building, ArrowUp, Bell } from 'lucide-react';
+import { UploadCloud, CheckCircle, ArrowRight, Loader2, Calendar, User, Phone, MapPin, Mail, Building, ArrowUp, Bell, Receipt, Info } from 'lucide-react';
 import Link from 'next/link';
 import imageCompression from 'browser-image-compression';
 
 // --- Pricing Engine ---
+// --- Pricing Engine ---
 import { calculateJunkPrice } from '@/lib/pricingEngine';
+import BookingModal from "./BookingModal";
 
 type ViewState = 'calculator' | 'analyzing' | 'receipt' | 'scheduler' | 'success';
 
@@ -45,13 +47,48 @@ export default function BookPage() {
         instructions: ''
     });
     const [loadingState, setLoadingState] = useState({ title: 'ANALYZING JUNK...', subtitle: 'Calculating volume and finding the best price.' });
+    // Smart Validation State
+    const [jobType, setJobType] = useState<'single' | 'pile'>('single');
+    const [heavyMaterialLevel, setHeavyMaterialLevel] = useState<string>('none');
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // --- State for Backend Quote ---
-    const [quoteState, setQuoteState] = useState<{ min: number; max: number; volume: number } | null>(null);
+    const [quoteState, setQuoteState] = useState<{ min: number; max: number; volume: number; heavySurcharge?: number } | null>(null);
+    const [quoteHistory, setQuoteHistory] = useState<Array<{ min: number; max: number; volume: number }>>([]);
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
     // --- Price Calculation ---
+    // Helper for Grand Totals
+    const getGrandTotal = () => {
+        const historyMin = quoteHistory.reduce((acc, item) => acc + item.min, 0);
+        const historyMax = quoteHistory.reduce((acc, item) => acc + item.max, 0);
+        const historyVol = quoteHistory.reduce((acc, item) => acc + item.volume, 0);
+
+        const currentMin = quoteState ? quoteState.min : 0;
+        const currentMax = quoteState ? quoteState.max : 0;
+        const currentVol = quoteState ? quoteState.volume : 0;
+
+        return {
+            min: historyMin + currentMin,
+            max: historyMax + currentMax,
+            volume: historyVol + currentVol,
+            count: quoteHistory.length + (quoteState ? 1 : 0)
+        };
+    };
+
+    const grandTotal = getGrandTotal();
+
+    const handleAddPile = () => {
+        if (quoteState) {
+            setQuoteHistory([...quoteHistory, quoteState]);
+            setQuoteState(null);
+            setBookingData(prev => ({ ...prev, selectedImages: [] }));
+            setJobType('single');
+            setView('calculator');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    };
     const getPrice = () => {
         // PRIORITIZE BACKEND QUOTE if available
         if (quoteState) {
@@ -122,11 +159,22 @@ export default function BookPage() {
                 }
             }
 
-            // 3. Call the Python Backend
+            // 3. Extract Metadata for Stable Fingerprinting
+            const metadata = bookingData.selectedImages.map(file => ({
+                name: file.name,
+                size: file.size,
+                lastModified: file.lastModified
+            }));
+
+            // 4. Call the Python Backend
             const response = await fetch('/api/quote', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ images: compressedBase64s }),
+                body: JSON.stringify({
+                    images: compressedBase64s,
+                    metadata: metadata,
+                    heavyMaterialLevel: heavyMaterialLevel
+                }),
             });
 
             if (!response.ok) {
@@ -153,7 +201,8 @@ export default function BookPage() {
                 setQuoteState({
                     min: data.min_price || data.price, // Fallback if old API
                     max: data.max_price || data.price,
-                    volume: volumeYards
+                    volume: volumeYards,
+                    heavySurcharge: data.heavy_surcharge || 0
                 });
 
                 // Transition Logic
@@ -204,6 +253,83 @@ export default function BookPage() {
             </div>
 
             <div className="bg-white rounded-[2rem] shadow-xl border border-slate-100 overflow-hidden">
+
+                {/* --- MULTI-PILE SUMMARY (If history exists) --- */}
+                {quoteHistory.length > 0 && (
+                    <div className="bg-slate-900 text-white p-6 border-b border-slate-800">
+                        <div className="flex justify-between items-center mb-2">
+                            <h3 className="font-bold uppercase tracking-wider text-sm text-brand-orange">Current Job Summary</h3>
+                            <span className="bg-slate-800 text-xs px-2 py-1 rounded text-slate-400">{quoteHistory.length} Pile(s) Banked</span>
+                        </div>
+                        <div className="flex justify-between items-end">
+                            <div>
+                                <p className="text-slate-400 text-sm">Running Total:</p>
+                                <p className="text-2xl font-extrabold">${quoteHistory.reduce((acc, i) => acc + i.min, 0)} - ${quoteHistory.reduce((acc, i) => acc + i.max, 0)}</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-slate-400 text-sm">Volume:</p>
+                                <p className="text-xl font-bold">{quoteHistory.reduce((acc, i) => acc + i.volume, 0).toFixed(1)} yd³</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* --- START NEW ALERT BOX --- */}
+                {/* --- SMART VALIDATION TOGGLE --- */}
+                <div className="px-10 mt-10 mb-6">
+                    <div className="bg-slate-100 p-1.5 rounded-xl flex relative mb-4">
+                        <button
+                            onClick={() => setJobType('single')}
+                            className={`flex-1 flex items-center justify-center py-3 text-sm font-bold rounded-lg transition-all duration-300 ${jobType === 'single' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Single Item
+                        </button>
+                        <button
+                            onClick={() => setJobType('pile')}
+                            className={`flex-1 flex items-center justify-center py-3 text-sm font-bold rounded-lg transition-all duration-300 ${jobType === 'pile' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                            Pile / Cleanout
+                        </button>
+                    </div>
+
+                    {jobType === 'pile' && (
+                        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-md animate-in fade-in slide-in-from-top-2">
+                            <div className="flex items-start">
+                                <div className="text-blue-500 mr-3 mt-0.5">
+                                    <Info className="w-5 h-5" />
+                                </div>
+                                <p className="text-sm text-blue-700 leading-relaxed">
+                                    For loose piles, please upload <strong>3 photos</strong> from different angles (Left, Right, Center) for the best price.
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Heavy Material Dropdown - Only show for Pile / Cleanout */}
+                    {jobType === 'pile' && (
+                        <div className="mt-4">
+                            <label className="text-sm font-bold text-slate-700 mb-2 block">
+                                Does your pile contain heavy materials?
+                            </label>
+                            <select
+                                value={heavyMaterialLevel}
+                                onChange={(e) => setHeavyMaterialLevel(e.target.value)}
+                                className="w-full h-12 px-4 rounded-xl border border-gray-300 bg-white text-gray-900 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                            >
+                                <option value="none">No heavy materials (furniture, bags, boxes)</option>
+                                <option value="some">Some (~25%) - A few bricks or small debris</option>
+                                <option value="mixed">Mixed (~50%) - Half construction debris</option>
+                                <option value="mostly">Mostly Heavy (~75%) - Majority concrete/dirt</option>
+                                <option value="all">All Heavy (100%) - Full debris load</option>
+                            </select>
+                            <p className="text-xs text-slate-400 mt-1">
+                                Heavy: concrete, bricks, dirt, roofing, stone, gravel
+                            </p>
+                        </div>
+                    )}
+                </div>
+                {/* --- END NEW ALERT BOX --- */}
+
                 {/* Upload Zone */}
                 <div
                     className="p-10 border-b border-slate-100 cursor-pointer group bg-slate-50/50 hover:bg-orange-50/30 transition-colors"
@@ -244,112 +370,98 @@ export default function BookPage() {
                     </div>
                 </div>
 
-                {/* Property Details Box */}
-                <div className="p-10 bg-white">
-                    <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-6">Property Details</h3>
+                {/* Calculate Price Button - Restored */}
+                <div className="p-10 bg-white border-t border-slate-100">
+                    {(() => {
+                        const minImages = jobType === 'single' ? 1 : 3;
+                        const currentCount = bookingData.selectedImages.length;
+                        const isReady = currentCount >= minImages;
+                        const remaining = minImages - currentCount;
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                        <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
-                                <Building size={16} className="text-brand-orange" /> Building Type
-                            </label>
-                            <select
-                                className="w-full h-14 px-4 rounded-xl bg-slate-50 border border-slate-200 focus:border-brand-orange outline-none text-lg font-medium text-slate-700"
-                                value={bookingData.buildingType}
-                                onChange={(e) => setBookingData({ ...bookingData, buildingType: e.target.value })}
+                        return (
+                            <Button
+                                onClick={handleAnalyze}
+                                disabled={!isReady}
+                                className={`w-full h-16 text-xl font-bold rounded-xl shadow-xl transition-all ${isReady
+                                    ? 'bg-brand-orange hover:bg-orange-600 text-white shadow-orange-900/20'
+                                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                    }`}
                             >
-                                <option>Residential</option>
-                                <option>Commercial</option>
-                                <option>Construction Site</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
-                                <ArrowUp size={16} className="text-brand-orange" /> Stairs / Access
-                            </label>
-                            <select
-                                className="w-full h-14 px-4 rounded-xl bg-slate-50 border border-slate-200 focus:border-brand-orange outline-none text-lg font-medium text-slate-700"
-                                value={bookingData.stairsAccess}
-                                onChange={(e) => setBookingData({ ...bookingData, stairsAccess: e.target.value })}
-                            >
-                                <option>Ground Floor</option>
-                                <option>1 Flight of Stairs</option>
-                                <option>2+ Flights</option>
-                                <option>Elevator Available</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <Button
-                        onClick={handleAnalyze}
-                        disabled={bookingData.selectedImages.length === 0}
-                        className={`w-full h-16 text-xl font-bold rounded-xl shadow-xl transition-all ${bookingData.selectedImages.length > 0
-                            ? 'bg-brand-orange hover:bg-orange-600 text-white shadow-orange-900/20'
-                            : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                            }`}
-                    >
-                        GET MY PRICE
-                    </Button>
+                                {!isReady && currentCount > 0
+                                    ? `Upload ${remaining} more photo${remaining > 1 ? 's' : ''}`
+                                    : 'CALCULATE PRICE'
+                                }
+                            </Button>
+                        );
+                    })()}
                 </div>
+
             </div>
         </div>
     );
 
-    // VIEW 2: The Receipt (Dark Navy)
+    // VIEW 2: The Receipt (Minimalist Dark)
     const renderReceipt = () => (
-        <div className="max-w-2xl mx-auto animate-in fade-in zoom-in duration-500">
-            <Button variant="ghost" onClick={() => setView('calculator')} className="text-slate-400 hover:text-slate-900 font-bold px-0 mb-8">
+        <div className="max-w-lg mx-auto animate-in fade-in zoom-in duration-500">
+            <Button variant="ghost" onClick={() => setView('calculator')} className="text-slate-400 hover:text-slate-900 font-bold px-0 mb-6">
                 ← Back to Upload
             </Button>
 
-            <div className="bg-slate-900 text-white rounded-[2rem] shadow-2xl overflow-hidden relative border border-slate-800">
-                {/* Background Pattern */}
-                <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
+            <div className="bg-slate-900 rounded-xl p-8 shadow-2xl border border-slate-800 relative overflow-hidden">
+                {/* Subtle Glow Effect */}
+                <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/10 blur-[50px] rounded-full pointing-events-none"></div>
 
-                <div className="relative z-10 p-12 text-center">
-                    <p className="text-brand-orange font-bold tracking-widest uppercase text-sm mb-2">Estimated Quote</p>
-                    <h2 className="text-7xl font-extrabold text-white mb-6 tracking-tight">
-                        {quoteState ? `$${quoteState.min} - $${quoteState.max}` : `$${priceDetails.totalPrice}`}
-                    </h2>
-
-                    <div className="inline-flex items-center gap-4 bg-slate-800 px-6 py-3 rounded-full border border-slate-700 mb-10">
-                        <div className="flex flex-col items-center border-r border-slate-600 pr-4">
-                            <span className="text-xs text-slate-400 font-bold uppercase">Volume</span>
-                            <span className="text-xl font-bold">{volumeYards} yds³</span>
-                        </div>
-                        <div className="flex flex-col items-center">
-                            <span className="text-xs text-slate-400 font-bold uppercase">Load Size</span>
-                            <span className="text-xl font-bold text-brand-orange">{priceDetails.tierName}</span>
-                        </div>
-                    </div>
-
-                    <div className="text-left bg-transparent rounded-xl p-6 mb-10 border border-slate-700">
-                        <div className="flex justify-between mb-4 pb-4 border-b border-slate-700">
-                            <span className="text-slate-400">Estimate Range</span>
-                            <span className="font-bold">
-                                {quoteState ? `$${quoteState.min} - $${quoteState.max}` : `$${priceDetails.totalPrice}`}
-                            </span>
-                        </div>
-                        <div className="flex justify-between text-brand-orange">
-                            <span className="font-bold">Total Estimate</span>
-                            <span className="font-bold text-2xl">
-                                {quoteState ? `$${quoteState.max}` : `$${priceDetails.totalPrice}`}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div className="mt-8">
-                        <Button
-                            onClick={() => setView('scheduler')}
-                            className="w-full bg-brand-orange hover:bg-orange-600 text-white h-16 rounded-xl text-xl font-bold shadow-lg shadow-orange-900/40"
-                        >
-                            <ArrowRight className="mr-2" /> BOOK THIS ESTIMATE
-                        </Button>
-                    </div>
-                    <p className="text-slate-500 text-sm mt-6">*Final price confirmed on-site.</p>
+                {/* Header */}
+                <div className="flex items-center gap-2 mb-6 border-b border-slate-800 pb-4">
+                    <Receipt size={16} className="text-slate-500" />
+                    <span className="text-xs font-bold tracking-widest text-slate-500 uppercase">Price Estimate</span>
                 </div>
 
-                {/* Decorative Perf Edge at bottom (CSS Trick or SVG) - keeping simple for now */}
+                {/* The Range (Hero) */}
+                <div className="mb-2">
+                    <p className="text-sm text-slate-400 mb-1 font-medium">{quoteHistory.length > 0 ? 'Grand Total (All Piles)' : 'Estimated Range'}</p>
+                    <h2 className="text-5xl font-extrabold text-orange-500 tracking-tight">
+                        {quoteState ? `$${grandTotal.min} - $${grandTotal.max}` : `$${priceDetails.totalPrice}`}
+                    </h2>
+                    {quoteHistory.length > 0 && (
+                        <p className="text-slate-500 text-sm mt-2">
+                            Includes current pile (${quoteState?.min}-${quoteState?.max}) + {quoteHistory.length} previous pile(s).
+                        </p>
+                    )}
+                </div>
+
+                {/* Footer Disclaimer */}
+                <div className="bg-slate-800/50 rounded-lg p-4 mt-8 border border-white/5">
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                        *Final pricing is confirmed onsite before we start. If you don't like the price, we leave at no cost.
+                    </p>
+                </div>
+
+                {/* Heavy Material Surcharge Alert */}
+                {quoteState?.heavySurcharge && quoteState.heavySurcharge > 0 && (
+                    <div className="bg-amber-900/30 border border-amber-700/50 rounded-lg p-4 mt-4">
+                        <p className="text-amber-200 text-sm">
+                            ⚠️ Heavy Material Surcharge: +${quoteState.heavySurcharge} included in price
+                        </p>
+                    </div>
+                )}
+
+                {/* Action */}
+                <div className="mt-6 space-y-3">
+                    <Button
+                        onClick={() => setIsModalOpen(true)}
+                        className="w-full bg-orange-500 hover:bg-orange-600 text-white h-14 rounded-xl text-lg font-bold shadow-lg shadow-orange-900/30 transition-all"
+                    >
+                        BOOK THIS ESTIMATE
+                    </Button>
+                    <Button
+                        onClick={handleAddPile}
+                        variant="outline"
+                        className="w-full border-2 border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white h-14 rounded-xl text-lg font-bold transition-all"
+                    >
+                        ➕ Add Another Pile
+                    </Button>
+                </div>
             </div>
         </div>
     );
@@ -499,7 +611,7 @@ export default function BookPage() {
             </div>
 
             <div className="text-center mt-12 pb-8">
-                <p className="text-slate-400 text-sm">Need to make changes? Call us at <span className="text-slate-600 font-bold">(555) 123-4567</span></p>
+                <p className="text-slate-400 text-sm">Need to make changes? Call us at <a href="tel:8327936566" className="hover:text-slate-900"><span className="text-slate-600 font-bold">(832) 793-6566</span></a></p>
             </div>
         </div>
     );
@@ -514,6 +626,13 @@ export default function BookPage() {
                 {view === 'receipt' && renderReceipt()}
                 {view === 'scheduler' && renderScheduler()}
                 {view === 'success' && renderSuccess()}
+
+                <BookingModal
+                    isOpen={isModalOpen}
+                    onClose={() => setIsModalOpen(false)}
+                    quoteRange={`$${grandTotal.min} - $${grandTotal.max}`}
+                    junkDetails={`Total Volume: ${grandTotal.volume.toFixed(1)} cu. yards (${grandTotal.count} Piles)`}
+                />
             </main>
 
             <Footer />

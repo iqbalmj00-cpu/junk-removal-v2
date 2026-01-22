@@ -37,10 +37,10 @@ export default function Home() {
                     </Button>
                   </Link>
 
-                  <Link href="/contact" passHref>
+                  <Link href="tel:8327936566" passHref>
                     {/* Visual Impact Update: White Outline Button */}
-                    <Button className="bg-transparent border-2 border-slate-600 text-white hover:bg-white hover:text-slate-900 hover:border-white px-10 py-6 rounded-full text-xl font-bold w-full sm:w-auto transition-all duration-300 flex items-center justify-center gap-3">
-                      <Phone className="text-brand-orange" size={24} /> (555) 123-4567
+                    <Button className="bg-transparent border-2 border-white text-white hover:bg-white hover:text-slate-900 px-10 py-6 rounded-full text-xl font-bold w-full sm:w-auto transition-all duration-300 flex items-center justify-center gap-3">
+                      <Phone className="text-brand-orange" size={24} /> (832) 793-6566
                     </Button>
                   </Link>
                 </div>
@@ -54,9 +54,9 @@ export default function Home() {
               {/* Right Column: Image */}
               <div className="relative h-full min-h-[500px] lg:min-h-full bg-slate-800 w-full">
                 <img
-                  src="https://placehold.co/800x800/png?text=Truck+And+Team"
+                  src="/images/hero-truck.png"
                   alt="CleanSweep Team and Truck"
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover rounded-2xl shadow-2xl"
                 />
               </div>
             </div>
