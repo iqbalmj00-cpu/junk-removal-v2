@@ -1582,7 +1582,7 @@ Return JSON array ONLY. No explanation."""
             print(f"🔮 Calling Gemma 3 27B for {len(items)} ambiguous items...")
             
             output = replicate.run(
-                "google-deepmind/gemma-3-27b-it",
+                "google-deepmind/gemma-3-27b-it:c0f0aebe8e578c15a7531e08a62cf01206f5870e9d0a67804b8152822db58c54",
                 input={
                     "prompt": prompt,
                     "image": f"data:image/jpeg;base64,{image_b64}",
@@ -1644,7 +1644,7 @@ Return JSON array ONLY. No explanation."""
             
             print(f"🔍 Calling GPT-5.2 audit for {len(detections)} items...")
             
-            response = self.openai_client.chat.completions.create(
+            response = await self.openai_client.chat.completions.create(
                 model="gpt-5.2-2025-12-11",
                 messages=[
                     {"role": "system", "content": GPT5_AUDIT_PROMPT},
