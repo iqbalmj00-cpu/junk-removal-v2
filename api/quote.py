@@ -313,13 +313,14 @@ try:
                 bbox = det.get("bbox", [])
                 if len(bbox) == 4:
                     validation = self.validate_anchor(label, bbox)
-                    if validation.get("is_valid"):
+                    # Check for valid anchor (validate_anchor returns None for non-anchors)
+                    if validation and validation.get("aspect_valid"):
                         return {
                             "found": True,
                             "anchor_type": validation["anchor_name"],
                             "anchor_height_px": bbox[3] - bbox[1],
                             "anchor_height_in": validation["size_inches"],
-                            "trust": validation["trust_level"],
+                            "trust": validation["trust"],
                             "bbox": bbox,
                         }
             return {"found": False}
