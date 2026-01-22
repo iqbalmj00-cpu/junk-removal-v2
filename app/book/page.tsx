@@ -173,7 +173,8 @@ export default function BookPage() {
                 body: JSON.stringify({
                     images: compressedBase64s,
                     metadata: metadata,
-                    heavyMaterialLevel: heavyMaterialLevel
+                    heavyMaterialLevel: heavyMaterialLevel,
+                    mode: jobType  // Route to single item or pile engine
                 }),
             });
 

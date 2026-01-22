@@ -135,6 +135,84 @@ try:
     
     # Depth Pro model on Replicate
     DEPTH_PRO_MODEL = "garg-aayush/ml-depth-pro"
+    
+    # ==================== SINGLE ITEM ENGINE ====================
+    # Smart Triage: Route items to fast lookup (Tier 1) or measurement (Tier 2)
+    
+    # Pricing constants (unified with Pile tool)
+    MIN_LOAD_PRICE = 95
+    RATE_PER_YARD = 55.0
+    
+    # TIER 1: Price-stable items - NO measurement needed
+    # These items have consistent sizes, so catalog lookup is sufficient
+    TIER_1_CATALOG = {
+        # Appliances (standardized sizes)
+        "washing machine": 0.6, "dryer": 0.6, "dishwasher": 0.5, "stove": 0.6,
+        "microwave": 0.1, "water heater": 0.8, "oven": 0.6,
+        # Bedding (defaulting to larger size for margin protection)
+        "mattress": 0.9, "box spring": 0.9, "bed": 1.0, "bed frame": 0.5,
+        # Exercise equipment
+        "treadmill": 1.2, "elliptical": 1.0, "exercise bike": 0.5,
+        # Small items
+        "tire": 0.2, "bicycle": 0.3, "grill": 0.5, "bbq": 0.5,
+        "bag": 0.1, "box": 0.15, "trash bag": 0.05,
+        # Office
+        "office chair": 0.2, "filing cabinet": 0.4,
+    }
+    
+    # TIER 2: Variable items - REQUIRES measurement via Depth Pro
+    # Format: "axis" = dimension to measure (h=height, w=width)
+    # "bins" = [(max_inches, variant_name, volume_yards), ...]
+    TIER_2_ROUTING = {
+        "refrigerator": {
+            "axis": "h",  # Measure HEIGHT for fridges
+            "bins": [(36, "MINI", 0.3), (60, "APT_SIZE", 0.8), (999, "STANDARD", 1.2)]
+        },
+        "fridge": {
+            "axis": "h",
+            "bins": [(36, "MINI", 0.3), (60, "APT_SIZE", 0.8), (999, "STANDARD", 1.2)]
+        },
+        "sofa": {
+            "axis": "w",  # Measure WIDTH for sofas
+            "bins": [(65, "LOVESEAT", 1.0), (88, "STANDARD", 1.5), (999, "SECTIONAL", 2.5)]
+        },
+        "couch": {
+            "axis": "w",
+            "bins": [(65, "LOVESEAT", 1.0), (88, "STANDARD", 1.5), (999, "SECTIONAL", 2.5)]
+        },
+        "television": {
+            "axis": "w",
+            "bins": [(45, "MEDIUM", 0.2), (999, "LARGE", 0.4)]
+        },
+        "tv": {
+            "axis": "w",
+            "bins": [(45, "MEDIUM", 0.2), (999, "LARGE", 0.4)]
+        },
+        "dresser": {
+            "axis": "w",
+            "bins": [(40, "SMALL", 0.5), (60, "MEDIUM", 0.8), (999, "LARGE", 1.2)]
+        },
+        "cabinet": {
+            "axis": "h",
+            "bins": [(48, "SHORT", 0.5), (72, "STANDARD", 0.8), (999, "TALL", 1.2)]
+        },
+        "wardrobe": {
+            "axis": "h",
+            "bins": [(60, "SHORT", 0.8), (999, "TALL", 1.5)]
+        },
+        "table": {
+            "axis": "w",
+            "bins": [(48, "SMALL", 0.3), (72, "MEDIUM", 0.5), (999, "LARGE", 0.8)]
+        },
+        "desk": {
+            "axis": "w",
+            "bins": [(48, "SMALL", 0.4), (60, "MEDIUM", 0.6), (999, "LARGE", 0.8)]
+        },
+    }
+    
+    # HIGH RISK: Items requiring GPT-4o audit for surcharges
+    HIGH_RISK_KEYWORDS = ["piano", "safe", "hot tub", "spa", "pool table", 
+                          "sleeper", "cast iron", "gun safe", "aquarium"]
 
     class VisionWorker:
         """Handles vision tasks using Florence-2, Depth Pro, and camera intrinsics."""
@@ -1548,6 +1626,291 @@ class PricingEngine:
                 "message": str(e),
                 "vision_error": VISION_ERROR
             }
+    
+    # ==================== SINGLE ITEM ENGINE ====================
+    
+    def _normalize_label(self, label: str) -> str:
+        """Normalize Florence labels to match catalog keys."""
+        label = label.lower().strip()
+        # Common synonyms
+        synonyms = {
+            "sofa bed": "sofa",
+            "couch sofa": "couch",
+            "refrigerator freezer": "refrigerator",
+            "washer dryer": "washing machine",
+            "clothes dryer": "dryer",
+            "washing machine": "washing machine",
+        }
+        for phrase, replacement in synonyms.items():
+            if phrase in label:
+                return replacement
+        return label
+    
+    def _select_primary_item(self, detections: list, image_width: int, image_height: int) -> dict:
+        """Select the detection closest to center with largest area."""
+        if not detections:
+            return None
+        
+        center_x, center_y = image_width / 2, image_height / 2
+        best_score = -1
+        best_det = None
+        
+        for det in detections:
+            bbox = det.get("bbox", [])
+            if len(bbox) != 4:
+                continue
+            
+            # Calculate area
+            area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            
+            # Calculate distance to center
+            det_cx = (bbox[0] + bbox[2]) / 2
+            det_cy = (bbox[1] + bbox[3]) / 2
+            dist = ((det_cx - center_x) ** 2 + (det_cy - center_y) ** 2) ** 0.5
+            
+            # Score: larger area + closer to center = higher score
+            # Normalize distance (invert so closer = higher)
+            max_dist = (center_x ** 2 + center_y ** 2) ** 0.5
+            dist_score = 1 - (dist / max_dist) if max_dist > 0 else 0
+            
+            score = area * (0.5 + 0.5 * dist_score)  # Weight area more
+            
+            if score > best_score:
+                best_score = score
+                best_det = det
+        
+        return best_det
+    
+    def _measure_item_dimension(self, bbox: list, depth_map, focal_px: float, 
+                                 axis: str, image_width: int) -> float:
+        """Measure item height or width in inches using Depth Pro."""
+        import numpy as np
+        
+        if depth_map is None or focal_px is None:
+            return 0.0
+        
+        # Get center point depth (robust sampling with 10x10 patch)
+        cx = int((bbox[0] + bbox[2]) / 2)
+        cy = int((bbox[1] + bbox[3]) / 2)
+        
+        h, w = depth_map.shape[:2]
+        # Clamp to bounds
+        x1 = max(0, cx - 5)
+        x2 = min(w, cx + 5)
+        y1 = max(0, cy - 5)
+        y2 = min(h, cy + 5)
+        
+        try:
+            dist_m = float(np.median(depth_map[y1:y2, x1:x2]))
+        except:
+            dist_m = 2.5  # Default fallback
+        
+        if dist_m <= 0.1:
+            dist_m = 2.5
+        
+        # Calculate scale
+        px_per_m = focal_px / dist_m
+        
+        # Select axis dimension
+        if axis == 'h':
+            px_dim = bbox[3] - bbox[1]  # Height
+        else:
+            px_dim = bbox[2] - bbox[0]  # Width
+        
+        # Convert to real inches
+        real_inches = (px_dim / px_per_m) * 39.37
+        
+        print(f"📏 Measured {axis.upper()}: {real_inches:.1f}\" (dist={dist_m:.2f}m, focal={focal_px:.0f})")
+        return real_inches
+    
+    def _bin_lookup(self, real_dim: float, bins: list) -> tuple:
+        """Find matching (variant_name, volume) from bins."""
+        for limit, name, vol in bins:
+            if real_dim <= limit:
+                return name, vol
+        # Fallback to last bin
+        return bins[-1][1], bins[-1][2]
+    
+    def _measure_unknown_item(self, bbox: list, depth_map, focal_px: float, image_width: int) -> float:
+        """Measure full bbox volume for unknown items."""
+        import numpy as np
+        
+        # Get both dimensions
+        width_in = self._measure_item_dimension(bbox, depth_map, focal_px, 'w', image_width)
+        height_in = self._measure_item_dimension(bbox, depth_map, focal_px, 'h', image_width)
+        
+        # Estimate depth as 60% of width
+        depth_in = width_in * 0.6
+        
+        # Calculate volume in cubic yards (46656 cu in per cubic yard)
+        vol_yards = (width_in * height_in * depth_in) / 46656.0
+        
+        # Clamp to reasonable range
+        vol_yards = max(0.1, min(vol_yards, 5.0))
+        
+        print(f"📦 Unknown item volume: {vol_yards:.2f} yd³ ({width_in:.0f}×{height_in:.0f}×{depth_in:.0f}\")")
+        return vol_yards
+    
+    def _finalize_single_item_quote(self, volume: float, item_name: str, surcharges: list) -> dict:
+        """Build final response with synthesized dimensions."""
+        # Calculate volume price (unified rate)
+        vol_price = max(MIN_LOAD_PRICE, volume * RATE_PER_YARD)
+        
+        # Add surcharges (protected from min load)
+        surcharge_total = sum(s.get('amount', 0) for s in surcharges)
+        final_price = vol_price + surcharge_total
+        
+        # Synthesize cube dimensions for frontend compatibility
+        cube_side = (volume * 46656) ** (1/3) if volume > 0 else 12
+        
+        print(f"💰 Single Item Quote: {item_name} → ${final_price:.0f} ({volume:.2f} yd³)")
+        
+        return {
+            "status": "SUCCESS",
+            "min_price": int(final_price),
+            "max_price": int(final_price),  # Fixed price for single items
+            "price": round(final_price, 2),
+            "volume_yards": round(volume, 2),
+            "item_detected": item_name,
+            "heavy_surcharge": int(surcharge_total),
+            "surcharges": surcharges,
+            "vision_enhanced": True,
+            "packed_dimensions": {
+                "l": round(cube_side, 1),
+                "w": round(cube_side, 1),
+                "h": round(cube_side, 1)
+            }
+        }
+    
+    async def process_single_item(self, image_b64: str) -> dict:
+        """
+        Main entry point for Single Item quotes.
+        Uses Smart Triage: fast catalog lookup OR measurement.
+        """
+        import numpy as np
+        
+        print("🎯 SINGLE ITEM ENGINE ACTIVATED")
+        
+        try:
+            # Initialize vision worker
+            if not VISION_ENABLED:
+                raise ValueError(f"Vision not available: {VISION_ERROR}")
+            
+            vision_worker = VisionWorker()
+            
+            # 1. Run Florence-2 detection
+            print("🔍 Phase 1: Florence-2 Detection...")
+            florence_result = vision_worker.run_florence_detection(image_b64)
+            detections = florence_result.get("detections", [])
+            
+            if not detections:
+                print("⚠️ No items detected, using fallback")
+                return self._finalize_single_item_quote(0.5, "Unknown Item", [])
+            
+            # Get image dimensions
+            img_bytes = base64.b64decode(image_b64)
+            img = Image.open(io.BytesIO(img_bytes))
+            image_width, image_height = img.size
+            
+            # Initialize surcharges list
+            active_surcharges = []
+            
+            # 2. Handle multi-item detection (sum Tier 1 volumes)
+            if len(detections) > 1:
+                print(f"📦 Multiple items detected ({len(detections)}), summing volumes")
+                total_vol = 0.0
+                item_names = []
+                for det in detections:
+                    label = self._normalize_label(det.get("label", "unknown"))
+                    # Use Tier 1 catalog with conservative 0.2 fallback for unknowns
+                    vol = TIER_1_CATALOG.get(label, 0.2)
+                    total_vol += vol
+                    item_names.append(label)
+                
+                return self._finalize_single_item_quote(
+                    total_vol, 
+                    f"Set: {', '.join(item_names[:3])}{'...' if len(item_names) > 3 else ''}", 
+                    active_surcharges
+                )
+            
+            # 3. Single item processing
+            primary = self._select_primary_item(detections, image_width, image_height)
+            if not primary:
+                return self._finalize_single_item_quote(0.5, "Unknown Item", [])
+            
+            raw_label = primary.get("label", "unknown")
+            label = self._normalize_label(raw_label)
+            bbox = primary.get("bbox", [0, 0, 100, 100])
+            
+            print(f"🏷️ Primary item: '{label}' (raw: '{raw_label}')")
+            
+            # 4. Check for high-risk items → GPT audit
+            for keyword in HIGH_RISK_KEYWORDS:
+                if keyword in label.lower():
+                    print(f"⚠️ High-risk item detected: {keyword}")
+                    active_surcharges.append({
+                        "name": f"Heavy Lift Fee ({label})",
+                        "amount": 50.0
+                    })
+                    break
+            
+            # 5. PATH A: Tier 1 catalog (instant lookup)
+            if label in TIER_1_CATALOG:
+                print(f"⚡ Path A: Tier 1 catalog hit for '{label}'")
+                return self._finalize_single_item_quote(
+                    TIER_1_CATALOG[label], 
+                    label.title(), 
+                    active_surcharges
+                )
+            
+            # 6. PATH B: Tier 2 or Unknown (run Depth Pro)
+            print(f"📐 Path B: Running Depth Pro for measurement...")
+            
+            # Run Depth Pro
+            depth_result = vision_worker.run_depth_pro(image_b64)
+            depth_map = depth_result.get("depth_map") if depth_result.get("success") else None
+            focal_px = depth_result.get("focal_px")
+            
+            # Fallback focal if not provided
+            if not focal_px:
+                focal_px = image_width * 0.7
+                print(f"📷 Using fallback focal: {focal_px:.0f}px")
+            
+            if label in TIER_2_ROUTING:
+                # Known variable item → axis-aware measurement
+                routing = TIER_2_ROUTING[label]
+                axis = routing["axis"]
+                bins = routing["bins"]
+                
+                real_dim = self._measure_item_dimension(bbox, depth_map, focal_px, axis, image_width)
+                variant, volume = self._bin_lookup(real_dim, bins)
+                
+                print(f"📊 Tier 2 result: {label} ({variant}) = {volume} yd³")
+                return self._finalize_single_item_quote(
+                    volume, 
+                    f"{label.title()} ({variant})", 
+                    active_surcharges
+                )
+            else:
+                # Unknown item → measure full bbox
+                print(f"❓ Unknown item '{label}', measuring bbox volume")
+                volume = self._measure_unknown_item(bbox, depth_map, focal_px, image_width)
+                return self._finalize_single_item_quote(
+                    volume, 
+                    f"Measured {label.title()}", 
+                    active_surcharges
+                )
+                
+        except Exception as e:
+            print(f"❌ SINGLE ITEM ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            return {
+                "status": "VISION_ERROR",
+                "message": str(e),
+                "min_price": 95,
+                "max_price": 95
+            }
 
 # --- Serverless Handler ---
 engine = PricingEngine()
@@ -1574,17 +1937,23 @@ class handler(BaseHTTPRequestHandler):
         data = json.loads(body)
         images_b64 = data.get('images', [])
         heavy_level = data.get('heavyMaterialLevel', 'none')
+        mode = data.get('mode', 'pile')  # Default to pile for backward compatibility
 
         try:
              # Prepare inputs
             base64_imgs = [img.split(",")[1] if "," in img else img for img in images_b64]
             
-            # 3. Run Vision-Only Mode
+            # 3. Check Vision Pipeline
             if not VISION_ENABLED:
                 raise ValueError(f"Vision Pipeline not available: {VISION_ERROR}")
             
-            print("� Vision Mode Active (Florence-2 + Depth-Anything-V2)")
-            result = asyncio.run(engine.process_quote_with_vision(base64_imgs, heavy_level))
+            # 4. Route based on mode
+            if mode == 'single':
+                print("🎯 Single Item Mode Active")
+                result = asyncio.run(engine.process_single_item(base64_imgs[0]))
+            else:
+                print("📦 Pile Mode Active (Florence-2 + Depth-Anything-V2)")
+                result = asyncio.run(engine.process_quote_with_vision(base64_imgs, heavy_level))
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
