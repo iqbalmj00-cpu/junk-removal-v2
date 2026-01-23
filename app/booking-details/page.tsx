@@ -167,9 +167,26 @@ function BookingDetailsContent() {
                                 <div className="bg-gray-50 rounded-xl p-5 border border-gray-100">
                                     <p className="text-gray-700 mb-4">
                                         Does your junk contain any{' '}
-                                        <a href="#" className="text-blue-600 underline hover:text-blue-800">
-                                            hazardous materials?
-                                        </a>
+                                        <span className="relative inline-block group">
+                                            <span className="text-blue-600 underline hover:text-blue-800 cursor-help">
+                                                hazardous materials?
+                                            </span>
+                                            {/* Hover Tooltip */}
+                                            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 p-3 bg-gray-900 text-white text-sm rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
+                                                <span className="font-semibold block mb-2 text-orange-400">Hazardous Materials Include:</span>
+                                                <ul className="space-y-1 text-gray-200">
+                                                    <li>• Paint & solvents</li>
+                                                    <li>• Batteries (car/lithium)</li>
+                                                    <li>• Chemicals & pesticides</li>
+                                                    <li>• Propane tanks</li>
+                                                    <li>• Motor oil & fluids</li>
+                                                    <li>• Fluorescent bulbs</li>
+                                                    <li>• Medical waste</li>
+                                                </ul>
+                                                {/* Arrow */}
+                                                <span className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-l-transparent border-r-transparent border-t-gray-900"></span>
+                                            </span>
+                                        </span>
                                     </p>
                                     <div className="grid grid-cols-2 gap-3">
                                         <button
