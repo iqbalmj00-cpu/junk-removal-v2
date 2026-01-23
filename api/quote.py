@@ -455,6 +455,35 @@ try:
         "taillight", "license plate", "tire"  # Parts of cars
     ]
     
+    # ==================== OPEN-VOCABULARY DETECTION (Pattern 73) ====================
+    # Tiered prompts for GroundingDINO (Progressive Discovery)
+    GROUNDING_DINO_PROMPTS = {
+        # Tier 1: Broad categories (always run)
+        "tier1": "furniture . appliance . mattress . electronics . debris pile . boxes . bags",
+        
+        # Tier 2: Specific high-value items (run if Tier 1 finds <5 items)
+        "tier2": "pallet . wooden pallet . CRT television . flat screen TV . shelving unit . "
+                 "refrigerator . washer . dryer . couch . sofa . dresser . desk . table . "
+                 "tires . construction debris . drywall . concrete . scrap metal",
+        
+        # Tier 3: Edge cases (run if Tier 2 still finds <3 items)
+        "tier3": "hot tub . spa . exercise equipment . treadmill . elliptical . piano . "
+                 "pool table . trampoline . swing set . shed components . fence panels"
+    }
+    
+    # GroundingDINO model identifier (Replicate)
+    GROUNDING_DINO_MODEL = "adirik/grounding-dino:efd10a8ddc57ea28773327e881ce95e6e2c9caf9efd10a8ddc57ea28773327e8"
+    
+    # Confidence threshold for GroundingDINO detections
+    GROUNDING_DINO_CONFIDENCE = 0.35
+    
+    # Label priority: open-vocab labels take precedence over Florence generic labels
+    OPEN_VOCAB_PRIORITY_LABELS = [
+        "pallet", "wooden pallet", "crt television", "flat screen tv", 
+        "shelving unit", "construction debris", "scrap metal", "hot tub",
+        "exercise equipment", "treadmill", "piano", "pool table"
+    ]
+    
     # GPT-5.2 Audit System Prompt
     GPT5_AUDIT_PROMPT = """You are an audit model for a junk-removal instant-quote pipeline. Your job is to validate detections and classifications from upstream models and catch missed items. You do not compute prices. You do not write code. You output valid JSON only matching the schema.
 
@@ -965,6 +994,154 @@ Now run the audit using the provided inputs. Output JSON only."""
                 print(f"❌ Florence-2 Error: {e}")
                 return {"detections": [], "error": str(e)}
         
+        def run_grounding_dino(self, image_base64: str, tier: str = "tier1") -> list:
+            """Run GroundingDINO open-vocabulary detection with tiered prompting."""
+            try:
+                prompt = GROUNDING_DINO_PROMPTS.get(tier, GROUNDING_DINO_PROMPTS["tier1"])
+                print(f"🎯 GroundingDINO ({tier}): '{prompt[:50]}...'")
+                
+                img_file = self._base64_to_file(image_base64)
+                
+                output = replicate.run(
+                    GROUNDING_DINO_MODEL,
+                    input={
+                        "image": img_file,
+                        "query": prompt,
+                        "box_threshold": GROUNDING_DINO_CONFIDENCE,
+                        "text_threshold": GROUNDING_DINO_CONFIDENCE
+                    }
+                )
+                
+                # Parse GroundingDINO output format
+                detections = []
+                if output:
+                    # GroundingDINO returns list of detections directly
+                    if isinstance(output, list):
+                        for det in output:
+                            detections.append({
+                                "label": det.get("label", "unknown"),
+                                "bbox": det.get("box", [0, 0, 0, 0]),
+                                "confidence": det.get("score", 0.0),
+                                "source": "grounding_dino",
+                                "tier": tier
+                            })
+                    elif isinstance(output, dict) and "detections" in output:
+                        for det in output["detections"]:
+                            detections.append({
+                                "label": det.get("label", "unknown"),
+                                "bbox": det.get("box", [0, 0, 0, 0]),
+                                "confidence": det.get("score", 0.0),
+                                "source": "grounding_dino",
+                                "tier": tier
+                            })
+                
+                print(f"   ✓ GroundingDINO found {len(detections)} items")
+                return detections
+                
+            except Exception as e:
+                print(f"⚠️ GroundingDINO failed: {e}")
+                return []
+        
+        def run_tiered_detection(self, image_base64: str) -> list:
+            """Run tiered GroundingDINO detection with progressive refinement."""
+            all_detections = []
+            
+            # Tier 1: Broad categories
+            tier1_results = self.run_grounding_dino(image_base64, "tier1")
+            all_detections.extend(tier1_results)
+            
+            # Tier 2: Specific items (if Tier 1 sparse)
+            if len(tier1_results) < 5:
+                print("   📈 Tier 1 sparse, running Tier 2...")
+                import time
+                time.sleep(12)  # Rate limit mitigation
+                tier2_results = self.run_grounding_dino(image_base64, "tier2")
+                all_detections.extend(tier2_results)
+                
+                # Tier 3: Edge cases (if still sparse)
+                if len(tier1_results) + len(tier2_results) < 3:
+                    print("   📈 Tier 2 sparse, running Tier 3...")
+                    time.sleep(12)
+                    tier3_results = self.run_grounding_dino(image_base64, "tier3")
+                    all_detections.extend(tier3_results)
+            
+            return all_detections
+        
+        def merge_detections(self, florence_dets: list, gdino_dets: list) -> list:
+            """Merge Florence-2 and GroundingDINO detections, prioritizing open-vocab labels."""
+            merged = []
+            used_gdino_indices = set()
+            
+            for f_det in florence_dets:
+                f_bbox = f_det.get("bbox", [0, 0, 0, 0])
+                f_label = f_det["label"].lower()
+                best_match = None
+                best_iou = 0.0
+                
+                # Find overlapping GroundingDINO detection
+                for i, g_det in enumerate(gdino_dets):
+                    if i in used_gdino_indices:
+                        continue
+                    g_bbox = g_det.get("bbox", [0, 0, 0, 0])
+                    iou = self._calculate_iou(f_bbox, g_bbox)
+                    
+                    if iou > 0.5 and iou > best_iou:
+                        best_match = (i, g_det)
+                        best_iou = iou
+                
+                if best_match:
+                    i, g_det = best_match
+                    used_gdino_indices.add(i)
+                    g_label = g_det["label"].lower()
+                    
+                    # Priority: use open-vocab label if it's more specific
+                    if g_label in OPEN_VOCAB_PRIORITY_LABELS or f_label in AMBIGUOUS_LABELS:
+                        merged.append({
+                            "label": g_det["label"],
+                            "bbox": g_det["bbox"],
+                            "confidence": g_det["confidence"],
+                            "source": "grounding_dino",
+                            "original_florence_label": f_det["label"]
+                        })
+                    else:
+                        # Keep Florence label but note the match
+                        merged.append({
+                            **f_det,
+                            "source": "florence",
+                            "gdino_agreement": g_label
+                        })
+                else:
+                    # No match - keep Florence detection
+                    merged.append({**f_det, "source": "florence"})
+            
+            # Add unmatched GroundingDINO detections (new discoveries)
+            for i, g_det in enumerate(gdino_dets):
+                if i not in used_gdino_indices:
+                    merged.append({
+                        **g_det,
+                        "source": "grounding_dino_new"
+                    })
+                    print(f"   🆕 GroundingDINO discovered: {g_det['label']}")
+            
+            return merged
+        
+        def _calculate_iou(self, box1: list, box2: list) -> float:
+            """Calculate Intersection over Union for two bounding boxes."""
+            x1 = max(box1[0], box2[0])
+            y1 = max(box1[1], box2[1])
+            x2 = min(box1[2], box2[2])
+            y2 = min(box1[3], box2[3])
+            
+            if x2 <= x1 or y2 <= y1:
+                return 0.0
+            
+            intersection = (x2 - x1) * (y2 - y1)
+            area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+            area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+            union = area1 + area2 - intersection
+            
+            return intersection / union if union > 0 else 0.0
+        
         def _parse_florence_output(self, raw_output) -> dict:
             """Parse Florence-2 output with anchor validation."""
             result = {"detections": [], "anchor_found": False, "anchor_scale_inches": None, "anchor_trust": None, "validated_anchors": []}
@@ -1273,9 +1450,32 @@ Now run the audit using the provided inputs. Output JSON only."""
                     # Fall through to legacy
             
             # Legacy path
-            print("🚀 Starting Vision Pipeline (Legacy)...")
+            print("🚀 Starting Vision Pipeline (Legacy + GroundingDINO)...")
+            
             # Run Florence detection
-            detections = self.run_florence_detection(image_base64)
+            florence_result = self.run_florence_detection(image_base64)
+            florence_dets = florence_result.get("detections", [])
+            print(f"   Florence-2: {len(florence_dets)} items")
+            
+            # Rate limit delay before GroundingDINO
+            import time
+            time.sleep(12)
+            
+            # Run GroundingDINO with tiered prompting
+            gdino_dets = self.run_tiered_detection(image_base64)
+            print(f"   GroundingDINO: {len(gdino_dets)} items")
+            
+            # Merge detections, prioritizing open-vocab labels
+            merged_detections = self.merge_detections(florence_dets, gdino_dets)
+            print(f"   Merged: {len(merged_detections)} unique items")
+            
+            # Rebuild detections dict with merged results
+            detections = {
+                **florence_result,
+                "detections": merged_detections,
+                "florence_count": len(florence_dets),
+                "gdino_count": len(gdino_dets)
+            }
             
             depth_result = self.run_depth_estimation(image_base64)
             depth_url = depth_result.get("depth_map_url") if depth_result.get("success") else None
@@ -1286,7 +1486,7 @@ Now run the audit using the provided inputs. Output JSON only."""
                 depth_stats = self.extract_depth_statistics(depth_url)
             
             visual_bridge = self.create_visual_bridge(image_base64, detections, depth_url)
-            print(f"✅ Vision Complete: {len(detections.get('detections', []))} objects")
+            print(f"✅ Vision Complete: {len(merged_detections)} objects (F:{len(florence_dets)} + G:{len(gdino_dets)})")
             return {
                 "detections": detections,
                 "visual_bridge_image": visual_bridge,
@@ -1405,13 +1605,13 @@ except Exception as e:
 
 # ==================== END VISION WORKER ====================
 
-# Heavy Material Surcharge Tiers
+# Heavy Material Surcharge Tiers (DISABLED - user inputs on booking-details page)
 HEAVY_SURCHARGES = {
     "none": 0,
     "some": 0,
-    "mixed": 50,
-    "mostly": 100,
-    "all": 200
+    "mixed": 0,
+    "mostly": 0,
+    "all": 0
 }
 
 class PricingEngine:
