@@ -62,7 +62,7 @@ function BookingDetailsContent() {
             ...(hasBags && { bagContents })
         });
 
-        router.push(`/scheduling?${params.toString()}`);
+        router.push(`/book?view=scheduler&${params.toString()}`);
     };
 
     return (

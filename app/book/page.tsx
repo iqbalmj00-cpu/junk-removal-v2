@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useRef, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
@@ -32,8 +32,10 @@ interface BookingData {
     instructions: string;
 }
 
-export default function BookPage() {
-    const [view, setView] = useState<ViewState>('calculator');
+function BookPageContent() {
+    const searchParams = useSearchParams();
+    const initialView = (searchParams.get('view') as ViewState) || 'calculator';
+    const [view, setView] = useState<ViewState>(initialView);
     const [bookingData, setBookingData] = useState<BookingData>({
         selectedImages: [],
         estimatedVolumeCuFt: 0,
@@ -643,5 +645,14 @@ export default function BookPage() {
 
             <Footer />
         </div>
+    );
+}
+
+// Default export with Suspense boundary for useSearchParams
+export default function BookPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin h-8 w-8 border-4 border-orange-500 border-t-transparent rounded-full"></div></div>}>
+            <BookPageContent />
+        </Suspense>
     );
 }
