@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
@@ -52,6 +53,7 @@ export default function BookPage() {
     const [heavyMaterialLevel, setHeavyMaterialLevel] = useState<string>('none');
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const router = useRouter();
 
     // --- State for Backend Quote ---
     const [quoteState, setQuoteState] = useState<{ min: number; max: number; volume: number; heavySurcharge?: number } | null>(null);
@@ -312,29 +314,7 @@ export default function BookPage() {
                             </div>
                         </div>
                     )}
-
-                    {/* Heavy Material Dropdown - Only show for Pile / Cleanout */}
-                    {jobType === 'pile' && (
-                        <div className="mt-4">
-                            <label className="text-sm font-bold text-slate-700 mb-2 block">
-                                Does your pile contain heavy materials?
-                            </label>
-                            <select
-                                value={heavyMaterialLevel}
-                                onChange={(e) => setHeavyMaterialLevel(e.target.value)}
-                                className="w-full h-12 px-4 rounded-xl border border-gray-300 bg-white text-gray-900 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
-                            >
-                                <option value="none">No heavy materials (furniture, bags, boxes)</option>
-                                <option value="some">Some (~25%) - A few bricks or small debris</option>
-                                <option value="mixed">Mixed (~50%) - Half construction debris</option>
-                                <option value="mostly">Mostly Heavy (~75%) - Majority concrete/dirt</option>
-                                <option value="all">All Heavy (100%) - Full debris load</option>
-                            </select>
-                            <p className="text-xs text-slate-400 mt-1">
-                                Heavy: concrete, bricks, dirt, roofing, stone, gravel
-                            </p>
-                        </div>
-                    )}
+                    {/* Heavy Materials moved to booking-details page */}
                 </div>
                 {/* --- END NEW ALERT BOX --- */}
 
@@ -466,7 +446,16 @@ export default function BookPage() {
                 {/* Action */}
                 <div className="mt-6 space-y-3">
                     <Button
-                        onClick={() => setIsModalOpen(true)}
+                        onClick={() => {
+                            // Navigate to booking-details page with quote data
+                            const params = new URLSearchParams({
+                                min: String(grandTotal.min),
+                                max: String(grandTotal.max),
+                                volume: String(grandTotal.volume.toFixed(1)),
+                                items: '' // Detected items would come from API response
+                            });
+                            router.push(`/booking-details?${params.toString()}`);
+                        }}
                         className="w-full bg-orange-500 hover:bg-orange-600 text-white h-14 rounded-xl text-lg font-bold shadow-lg shadow-orange-900/30 transition-all"
                     >
                         BOOK THIS ESTIMATE
