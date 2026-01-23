@@ -1508,7 +1508,29 @@ Now run the audit using the provided inputs. Output JSON only."""
             intrinsics = self.get_camera_intrinsics(image_bytes, resolution)
             
             # Run Florence detection
-            detections = self.run_florence_detection(image_b64)
+            florence_result = self.run_florence_detection(image_b64)
+            florence_dets = florence_result.get("detections", [])
+            print(f"   Florence-2: {len(florence_dets)} items")
+            
+            # Rate limit delay before GroundingDINO
+            import time
+            time.sleep(12)
+            
+            # Run GroundingDINO with tiered prompting
+            gdino_dets = self.run_tiered_detection(image_b64)
+            print(f"   GroundingDINO: {len(gdino_dets)} items")
+            
+            # Merge detections, prioritizing open-vocab labels
+            merged_detections = self.merge_detections(florence_dets, gdino_dets)
+            print(f"   Merged: {len(merged_detections)} unique items")
+            
+            # Rebuild detections dict with merged results
+            detections = {
+                **florence_result,
+                "detections": merged_detections,
+                "florence_count": len(florence_dets),
+                "gdino_count": len(gdino_dets)
+            }
             
             # Phase 2: Get scale (metric or anchor fallback)
             scale = self.get_scale(image_bytes, image_b64, intrinsics, 
