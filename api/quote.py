@@ -690,6 +690,63 @@ try:
     # Set of valid canonical labels (for is_valid_label check)
     VALID_CANONICAL_LABELS = set(CANONICAL_LABEL_MAP.values())
     
+    # ==================== PILE VS ITEM ARCHITECTURE ====================
+    # Detection types: single_item, stack, pile
+    DETECTION_TYPES = {
+        "single_item": {"description": "Individual discrete item", "count_range": (1, 2)},
+        "stack": {"description": "3-10 items stacked/grouped", "count_range": (3, 10)},
+        "pile": {"description": "Bulk/unstructured pile", "count_range": (10, 999)},
+    }
+    
+    # Classification thresholds
+    PILE_BBOX_RATIO_THRESHOLD = 0.15  # If bbox > 15% of image, likely pile
+    PILE_RESIDUAL_THRESHOLD = 0.30   # If residual > 30%, activate pile estimator
+    STACK_COUNT_THRESHOLD = 3        # 3+ same label = stack
+    
+    # Meta-label pile families (catch-all buckets)
+    PILE_FAMILIES = {
+        "boxes_bags_stack": {"base_vol": 0.5, "stack_mult": 2.5, "density": 0.6},
+        "mixed_household_pile": {"base_vol": 1.0, "stack_mult": 3.0, "density": 0.5},
+        "demo_debris_pile": {"base_vol": 2.0, "stack_mult": 4.0, "density": 0.7},
+        "yard_waste_pile": {"base_vol": 1.5, "stack_mult": 3.5, "density": 0.4},
+        "wood_boards_pile": {"base_vol": 1.5, "stack_mult": 3.0, "density": 0.65},
+        "scrap_metal_pile": {"base_vol": 1.0, "stack_mult": 2.5, "density": 0.8},
+    }
+    
+    # Stack modifiers by label type (multiplier for stacked items)
+    STACK_MODIFIERS = {
+        "wood_pallet": 1.8,      # Pallets stack efficiently
+        "cable_spool_wood": 1.5, # Spools stack somewhat
+        "boxes": 2.0,            # Boxes stack very efficiently
+        "bags": 1.3,             # Bags don't stack well
+        "tires": 1.6,            # Tires stack in columns
+        "mattress": 1.2,         # Mattresses don't stack well
+        "default": 1.5,          # Default stack modifier
+    }
+    
+    # Density modifiers by pile type (compaction factor)
+    DENSITY_MODIFIERS = {
+        "demo_debris_pile": 1.3,   # Heavy, compacts more
+        "yard_waste_pile": 0.7,    # Light, fluffy
+        "scrap_metal_pile": 1.4,   # Very heavy
+        "wood_boards_pile": 1.0,   # Medium
+        "mixed_household_pile": 0.8, # Variable
+        "boxes_bags_stack": 0.6,   # Light
+        "default": 1.0,
+    }
+    
+    # Heavy materials strict list (Fix 5B)
+    HEAVY_MATERIALS = {
+        "concrete", "brick", "bricks", "dirt", "soil", "gravel", "rocks", "stone",
+        "asphalt", "tile", "ceramic", "cast iron", "lead", "sand", "roofing"
+    }
+    
+    # NOT heavy materials (explicitly exclude)
+    NOT_HEAVY_MATERIALS = {
+        "wooden spool", "cable spool", "wood", "pallet", "lumber", "drywall",
+        "boxes", "bags", "mattress", "furniture", "electronics"
+    }
+    
     GPT5_AUDIT_PROMPT = """You are an audit model for a junk-removal instant-quote pipeline. Your job is to validate detections and classifications from upstream models and catch missed items. You do not compute prices. You do not write code. You output valid JSON only matching the schema.
 
 Inputs you will receive:
@@ -1379,6 +1436,138 @@ Now run the audit using the provided inputs. Output JSON only."""
                 print(f"   📝 {raw_label} → {canonical_label} ({size_class}) = {det['volume_yards']} yd³")
             
             return detections
+        
+        def classify_detection_type(self, detections: list, image_area: float) -> list:
+            """Classify each detection as single_item, stack, or pile."""
+            # Count labels across detections
+            label_counts = {}
+            for det in detections:
+                label = det.get("canonical_label", det.get("label", "")).lower()
+                label_counts[label] = label_counts.get(label, 0) + 1
+            
+            for det in detections:
+                label = det.get("canonical_label", det.get("label", "")).lower()
+                bbox = det.get("bbox", [0, 0, 0, 0])
+                confidence = det.get("confidence", 0.5)
+                
+                # Calculate bbox area ratio
+                bbox_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) if len(bbox) >= 4 else 0
+                bbox_ratio = bbox_area / image_area if image_area > 0 else 0
+                
+                # Classification rules
+                detection_type = "single_item"
+                
+                # Rule 1: Large bbox = pile
+                if bbox_ratio >= PILE_BBOX_RATIO_THRESHOLD:
+                    detection_type = "pile"
+                    print(f"   📦 {label}: pile (bbox {bbox_ratio:.1%} of image)")
+                
+                # Rule 2: Multiple same labels = stack
+                elif label_counts.get(label, 0) >= STACK_COUNT_THRESHOLD:
+                    detection_type = "stack"
+                    print(f"   📦 {label}: stack ({label_counts[label]} instances)")
+                
+                # Rule 3: Check if label is a known pile family
+                elif any(pile_name in label for pile_name in PILE_FAMILIES.keys()):
+                    detection_type = "pile"
+                    print(f"   📦 {label}: pile (pile family)")
+                
+                det["detection_type"] = detection_type
+                det["label_count"] = label_counts.get(label, 1)
+            
+            return detections
+        
+        def calculate_modifier_volume(self, det: dict) -> float:
+            """Calculate volume using base × modifiers (not static)."""
+            canonical_label = det.get("canonical_label", det.get("label", ""))
+            detection_type = det.get("detection_type", "single_item")
+            size_class = det.get("size_class", "medium")
+            base_volume = det.get("volume_yards", 0.5)
+            
+            # Get stack modifier
+            stack_mod = 1.0
+            if detection_type in ["stack", "pile"]:
+                stack_mod = STACK_MODIFIERS.get(canonical_label, STACK_MODIFIERS.get("default", 1.5))
+            
+            # Get density modifier for piles
+            density_mod = 1.0
+            if detection_type == "pile":
+                density_mod = DENSITY_MODIFIERS.get(canonical_label, DENSITY_MODIFIERS.get("default", 1.0))
+            
+            # Calculate final volume
+            final_volume = base_volume * stack_mod * density_mod
+            
+            # Store modifiers for debug
+            det["stack_modifier"] = stack_mod
+            det["density_modifier"] = density_mod
+            det["volume_yards_modified"] = round(final_volume, 2)
+            
+            if detection_type != "single_item":
+                print(f"   🔢 {canonical_label}: {base_volume:.2f} × stack({stack_mod}) × density({density_mod}) = {final_volume:.2f} yd³")
+            
+            return final_volume
+        
+        def estimate_pile_remainder(self, detections: list, image_width: int, image_height: int, 
+                                     depth_stats: dict = None) -> dict:
+            """Estimate residual volume for undetected pile portions."""
+            image_area = image_width * image_height
+            
+            # Calculate total detected bbox area
+            total_bbox_area = 0
+            for det in detections:
+                bbox = det.get("bbox", [0, 0, 0, 0])
+                if bbox and len(bbox) >= 4:
+                    total_bbox_area += (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            
+            detected_coverage = total_bbox_area / image_area if image_area > 0 else 0
+            residual_coverage = max(0, 1.0 - detected_coverage)
+            
+            # Check if pile remainder needs to be calculated
+            if residual_coverage < PILE_RESIDUAL_THRESHOLD:
+                return {"remainder_volume_yards": 0, "activated": False}
+            
+            # Estimate pile footprint (conservative: 40% of residual actually has stuff)
+            pile_footprint_ratio = residual_coverage * 0.4
+            
+            # Convert to approximate square feet (assume image covers ~100-200 sqft area)
+            estimated_sqft = pile_footprint_ratio * 150  # Conservative estimate
+            
+            # Estimate height from depth or use default (3ft)
+            estimated_height_ft = 3.0
+            if depth_stats:
+                depth_range = depth_stats.get("max", 1.0) - depth_stats.get("min", 0.0)
+                if depth_range > 0.2:
+                    estimated_height_ft = min(depth_range * 6, 5.0)  # Scale, cap at 5ft
+            
+            # Volume in cubic yards
+            remainder_cuft = estimated_sqft * estimated_height_ft
+            remainder_yards = remainder_cuft / 27
+            
+            print(f"   📊 Pile Remainder: residual={residual_coverage:.1%}, footprint={estimated_sqft:.0f}sqft, height={estimated_height_ft:.1f}ft → {remainder_yards:.1f} yd³")
+            
+            return {
+                "remainder_volume_yards": round(remainder_yards, 2),
+                "activated": True,
+                "residual_coverage": residual_coverage,
+                "estimated_sqft": estimated_sqft,
+                "estimated_height_ft": estimated_height_ft
+            }
+        
+        def is_heavy_material(self, label: str, add_on_flags: list = None) -> bool:
+            """Fix 5B: Strict check for heavy materials."""
+            label_lower = label.lower()
+            
+            # Explicit exclude
+            for not_heavy in NOT_HEAVY_MATERIALS:
+                if not_heavy in label_lower:
+                    return False
+            
+            # Explicit include
+            for heavy in HEAVY_MATERIALS:
+                if heavy in label_lower:
+                    return True
+            
+            return False
         
         def detect_scene_type(self, detections: list) -> str:
             """FIX 2: Detect if scene is outdoor/construction or indoor/residential."""
@@ -2805,9 +2994,49 @@ Return JSON array ONLY. No explanation."""
             catalog_items = valid_items
             catalog_volume["items"] = catalog_items
             
-            # Recalculate catalog volume with canonical volumes
-            total_canonical_volume = sum(item.get("volume_yards", 0.5) for item in catalog_items)
-            print(f"   📊 Canonical catalog volume: {total_canonical_volume:.2f} yd³")
+            # 2a.6 Classify detections as single_item, stack, or pile
+            print("📦 Classifying detection types...")
+            # Get image dimensions from first vision result
+            img_width = 1024  # Default
+            img_height = 768
+            for r in all_vision_results:
+                if r.get("detections", {}).get("detections"):
+                    first_det = r["detections"]["detections"][0]
+                    bbox = first_det.get("bbox", [0, 0, 1024, 768])
+                    img_width = max(img_width, int(bbox[2]) if len(bbox) > 2 else 1024)
+                    img_height = max(img_height, int(bbox[3]) if len(bbox) > 3 else 768)
+                    break
+            image_area = img_width * img_height
+            catalog_items = vision_worker.classify_detection_type(catalog_items, image_area)
+            
+            # 2a.7 Apply modifier-based volumes (stack × density)
+            print("🔢 Applying volume modifiers...")
+            for item in catalog_items:
+                modified_vol = vision_worker.calculate_modifier_volume(item)
+                item["volume_yards"] = modified_vol  # Use modified volume
+            
+            # 2a.8 Calculate pile remainder (if residual is high)
+            print("📊 Checking pile remainder...")
+            depth_stats = None
+            for r in all_vision_results:
+                if r.get("depth_stats"):
+                    depth_stats = r["depth_stats"]
+                    break
+            pile_remainder = vision_worker.estimate_pile_remainder(catalog_items, img_width, img_height, depth_stats)
+            
+            # Recalculate total with modifier volumes + remainder
+            total_modified_volume = sum(item.get("volume_yards", 0.5) for item in catalog_items)
+            remainder_vol = pile_remainder.get("remainder_volume_yards", 0)
+            total_with_remainder = total_modified_volume + remainder_vol
+            
+            print(f"   📊 Total volume: items={total_modified_volume:.2f} + remainder={remainder_vol:.2f} = {total_with_remainder:.2f} yd³")
+            
+            # Store finalized volumes (Fix 5A: make read-only)
+            for item in catalog_items:
+                item["volume_finalized"] = True  # Mark as finalized
+            catalog_volume["items"] = catalog_items
+            catalog_volume["pile_remainder"] = pile_remainder
+            catalog_volume["total_volume_yards"] = total_with_remainder
             
             # 2b. GPT-5.2 Audit (replaces Gemini)
             # Build initial classifications list for audit
