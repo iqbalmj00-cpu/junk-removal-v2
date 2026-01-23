@@ -459,16 +459,33 @@ try:
     # Tiered prompts for GroundingDINO (Progressive Discovery)
     GROUNDING_DINO_PROMPTS = {
         # Tier 1: Broad categories (always run)
-        "tier1": "furniture . appliance . mattress . electronics . debris pile . boxes . bags",
-        
+        # Includes yard waste, wood pile, construction materials for non-household scenes
+        "tier1": (
+            "furniture . appliance . mattress . electronics . "
+            "debris pile . construction debris . construction materials . "
+            "wood pile . boxes . bags . yard waste"
+        ),
+
         # Tier 2: Specific high-value items (run if Tier 1 finds <5 items)
-        "tier2": "pallet . wooden pallet . CRT television . flat screen TV . shelving unit . "
-                 "refrigerator . washer . dryer . couch . sofa . dresser . desk . table . "
-                 "tires . construction debris . drywall . concrete . scrap metal",
-        
+        # Includes cable spools, lumber, plywood, scrap wood, pallet stacks
+        "tier2": (
+            "pallet . wooden pallet . shipping pallet . pallet stack . stack of pallets . "
+            "cable spool . cable reel . wire spool . wooden spool . industrial spool . "
+            "lumber stack . stack of wood boards . wood planks . plywood sheet . sheet wood . wood panel . "
+            "scrap wood . broken pallets . wood debris . "
+            "CRT television . flat screen TV . shelving unit . "
+            "refrigerator . washer . dryer . couch . sofa . dresser . desk . table . "
+            "tires . scrap metal . metal pipe . "
+            "drywall . concrete . bricks"
+        ),
+
         # Tier 3: Edge cases (run if Tier 2 still finds <3 items)
-        "tier3": "hot tub . spa . exercise equipment . treadmill . elliptical . piano . "
-                 "pool table . trampoline . swing set . shed components . fence panels"
+        # Includes crates and large reels for industrial sites
+        "tier3": (
+            "hot tub . spa . exercise equipment . treadmill . elliptical . piano . "
+            "pool table . trampoline . swing set . shed components . fence panels . "
+            "wood crate . shipping crate . large cable reel"
+        )
     }
     
     # GroundingDINO model identifier (Replicate)
@@ -479,9 +496,13 @@ try:
     
     # Label priority: open-vocab labels take precedence over Florence generic labels
     OPEN_VOCAB_PRIORITY_LABELS = [
-        "pallet", "wooden pallet", "crt television", "flat screen tv", 
-        "shelving unit", "construction debris", "scrap metal", "hot tub",
-        "exercise equipment", "treadmill", "piano", "pool table"
+        "pallet", "wooden pallet", "shipping pallet", "pallet stack", "stack of pallets",
+        "cable spool", "cable reel", "wire spool", "wooden spool", "industrial spool",
+        "lumber stack", "wood planks", "plywood sheet", "scrap wood", "wood debris",
+        "crt television", "flat screen tv", "shelving unit", 
+        "construction debris", "construction materials", "scrap metal", "metal pipe",
+        "hot tub", "exercise equipment", "treadmill", "piano", "pool table",
+        "wood crate", "shipping crate", "large cable reel"
     ]
     
     # GPT-5.2 Audit System Prompt
