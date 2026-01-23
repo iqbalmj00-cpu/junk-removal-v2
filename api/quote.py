@@ -505,6 +505,66 @@ try:
         "wood crate", "shipping crate", "large cable reel"
     ]
     
+    # ==================== FIX 1: VALID LABEL DICTIONARY ====================
+    # Canonical labels that are allowed (used for similarity matching and filtering)
+    VALID_LABELS = {
+        # Furniture
+        "couch", "sofa", "chair", "table", "desk", "dresser", "bed", "mattress", "bookshelf",
+        "shelving unit", "cabinet", "nightstand", "ottoman", "recliner", "futon",
+        # Appliances
+        "refrigerator", "washer", "dryer", "dishwasher", "microwave", "stove", "oven",
+        "air conditioner", "water heater", "freezer", "appliance",
+        # Electronics
+        "television", "tv", "crt television", "flat screen tv", "computer", "monitor", "printer",
+        # Outdoor/Yard
+        "yard waste", "wood pile", "debris pile", "construction debris", "construction materials",
+        "fence panels", "shed components", "trampoline", "swing set", "lawn mower",
+        # Industrial/Commercial
+        "pallet", "wooden pallet", "shipping pallet", "pallet stack", "stack of pallets",
+        "cable spool", "cable reel", "wire spool", "wooden spool", "industrial spool",
+        "cable spool wood", "cable spool mixed", "cable spool metal",
+        "lumber stack", "wood planks", "plywood sheet", "scrap wood", "wood debris",
+        "wood crate", "shipping crate", "large cable reel",
+        "scrap metal", "metal pipe", "drywall", "concrete", "bricks",
+        # Misc
+        "boxes", "bags", "tires", "hot tub", "spa", "exercise equipment", "treadmill",
+        "elliptical", "piano", "pool table", "wheel", "box", "bag", "tire",
+        "broken pallets", "sheet wood", "wood panel"
+    }
+    
+    # ==================== FIX 2: SCENE-TYPE GATE ====================
+    # Indoor-only categories to suppress in outdoor/construction scenes
+    INDOOR_ONLY_CATEGORIES = [
+        "appliance", "dresser", "desk", "nightstand", "bookshelf", "ottoman",
+        "cabinet", "recliner", "dishwasher", "microwave", "computer", "printer",
+        "bed", "futon"
+    ]
+    
+    # Outdoor/construction scene indicators (from detected labels)
+    OUTDOOR_SCENE_INDICATORS = [
+        "pallet", "wooden pallet", "wood pile", "lumber", "construction debris",
+        "yard waste", "fence", "shed", "concrete", "bricks", "drywall",
+        "cable spool", "cable reel", "scrap metal", "metal pipe"
+    ]
+    
+    # Minimum bbox area ratio (relative to image) to keep indoor category in outdoor scene
+    INDOOR_CATEGORY_MIN_BBOX_RATIO = 0.05  # 5% of image area
+    INDOOR_CATEGORY_MIN_CONFIDENCE = 0.6
+    
+    # ==================== FIX 3: SPOOL CATEGORY MAPPING ====================
+    # Explicit spool categories with volumes (in cubic yards)
+    SPOOL_CATEGORIES = {
+        "cable spool wood": {"volume": 0.8, "category": "misc", "multiplier": 1.0},
+        "cable spool mixed": {"volume": 1.0, "category": "misc", "multiplier": 1.1},
+        "cable spool metal": {"volume": 1.2, "category": "scrap_metal", "multiplier": 1.2},
+        "wooden spool": {"volume": 0.8, "category": "misc", "multiplier": 1.0},
+        "industrial spool": {"volume": 1.5, "category": "misc", "multiplier": 1.1},
+        "cable spool": {"volume": 0.8, "category": "misc", "multiplier": 1.0},  # Default to wood
+        "cable reel": {"volume": 0.8, "category": "misc", "multiplier": 1.0},
+        "wire spool": {"volume": 0.6, "category": "misc", "multiplier": 1.0},
+        "large cable reel": {"volume": 2.0, "category": "misc", "multiplier": 1.1},
+    }
+    
     # GPT-5.2 Audit System Prompt
     GPT5_AUDIT_PROMPT = """You are an audit model for a junk-removal instant-quote pipeline. Your job is to validate detections and classifications from upstream models and catch missed items. You do not compute prices. You do not write code. You output valid JSON only matching the schema.
 
@@ -1088,10 +1148,88 @@ Now run the audit using the provided inputs. Output JSON only."""
             
             return all_detections
         
+        def is_valid_label(self, label: str) -> bool:
+            """FIX 1: Filter out tokenization garbage and invalid labels."""
+            if not label:
+                return False
+            label_lower = label.lower().strip()
+            
+            # Filter subword tokens (## prefix from BERT tokenization)
+            if "##" in label_lower:
+                print(f"   ⛔ Filtered garbage token: {label}")
+                return False
+            
+            # Filter too short labels
+            if len(label_lower) < 4:
+                print(f"   ⛔ Filtered short label: {label}")
+                return False
+            
+            # Check if label is in valid dictionary or is a substring match
+            if label_lower in VALID_LABELS:
+                return True
+            
+            # Check for partial matches (e.g., "wooden pallet" contains "pallet")
+            for valid in VALID_LABELS:
+                if valid in label_lower or label_lower in valid:
+                    return True
+            
+            print(f"   ⚠️ Unknown label, allowing with caution: {label}")
+            return True  # Allow unknown labels but log them
+        
+        def detect_scene_type(self, detections: list) -> str:
+            """FIX 2: Detect if scene is outdoor/construction or indoor/residential."""
+            outdoor_count = 0
+            indoor_count = 0
+            
+            for det in detections:
+                label = det.get("label", "").lower()
+                for indicator in OUTDOOR_SCENE_INDICATORS:
+                    if indicator in label:
+                        outdoor_count += 1
+                        break
+                for indoor_cat in INDOOR_ONLY_CATEGORIES:
+                    if indoor_cat in label:
+                        indoor_count += 1
+                        break
+            
+            if outdoor_count >= 2 or (outdoor_count > 0 and indoor_count == 0):
+                return "outdoor"
+            elif indoor_count >= 2:
+                return "indoor"
+            return "mixed"
+        
+        def should_suppress_indoor_category(self, label: str, confidence: float, bbox: list, image_area: float, scene_type: str) -> bool:
+            """FIX 2: Determine if indoor category should be suppressed in outdoor scene."""
+            if scene_type != "outdoor":
+                return False
+            
+            label_lower = label.lower()
+            is_indoor_category = any(cat in label_lower for cat in INDOOR_ONLY_CATEGORIES)
+            
+            if not is_indoor_category:
+                return False
+            
+            # Calculate bbox area ratio
+            if bbox and len(bbox) >= 4 and image_area > 0:
+                bbox_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+                bbox_ratio = bbox_area / image_area
+                
+                # Allow if large enough and high confidence
+                if bbox_ratio >= INDOOR_CATEGORY_MIN_BBOX_RATIO and confidence >= INDOOR_CATEGORY_MIN_CONFIDENCE:
+                    return False
+            
+            print(f"   ⛔ Suppressing indoor category in outdoor scene: {label}")
+            return True
+        
         def merge_detections(self, florence_dets: list, gdino_dets: list) -> list:
             """Merge Florence-2 and GroundingDINO detections, prioritizing open-vocab labels."""
             merged = []
             used_gdino_indices = set()
+            
+            # FIX 1: Pre-filter invalid labels from both detection lists
+            florence_dets = [d for d in florence_dets if self.is_valid_label(d.get("label", ""))]
+            gdino_dets = [d for d in gdino_dets if self.is_valid_label(d.get("label", ""))]
+            print(f"   After label filter: Florence={len(florence_dets)}, DINO={len(gdino_dets)}")
             
             for f_det in florence_dets:
                 f_bbox = f_det.get("bbox", [0, 0, 0, 0])
@@ -1162,6 +1300,59 @@ Now run the audit using the provided inputs. Output JSON only."""
             union = area1 + area2 - intersection
             
             return intersection / union if union > 0 else 0.0
+        
+        def estimate_residual_volume(self, detections: list, image_width: int, image_height: int, 
+                                      item_coverage_ratio: float, depth_stats: dict = None) -> dict:
+            """FIX 4: Estimate residual pile volume when item coverage is low."""
+            image_area = image_width * image_height
+            
+            # Calculate total bbox coverage
+            total_bbox_area = 0
+            for det in detections:
+                bbox = det.get("bbox", [0, 0, 0, 0])
+                if bbox and len(bbox) >= 4:
+                    bbox_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+                    total_bbox_area += bbox_area
+            
+            detected_coverage = total_bbox_area / image_area if image_area > 0 else 0
+            residual_coverage = max(0, item_coverage_ratio - detected_coverage)
+            
+            # Estimate pile footprint (assume pile fills ~60% of unexplained area)
+            estimated_footprint_sqft = (residual_coverage * 0.6) * 100  # Rough conversion
+            
+            # Estimate height from depth stats or use default
+            estimated_height_ft = 3.0  # Default 3 feet
+            if depth_stats:
+                # Use depth variance to estimate pile height
+                depth_range = depth_stats.get("max", 1.0) - depth_stats.get("min", 0.0)
+                if depth_range > 0.3:
+                    estimated_height_ft = min(depth_range * 8, 6.0)  # Scale and cap at 6ft
+            
+            # Calculate residual volume in cubic yards (27 cubic feet per yard)
+            residual_volume_cuft = estimated_footprint_sqft * estimated_height_ft
+            residual_volume_yards = residual_volume_cuft / 27
+            
+            print(f"   📊 Residual Estimator: coverage={residual_coverage:.1%}, footprint={estimated_footprint_sqft:.0f}sqft, height={estimated_height_ft:.1f}ft → {residual_volume_yards:.1f} yd³")
+            
+            return {
+                "residual_volume_yards": round(residual_volume_yards, 2),
+                "detected_coverage": detected_coverage,
+                "residual_coverage": residual_coverage,
+                "estimated_footprint_sqft": estimated_footprint_sqft,
+                "estimated_height_ft": estimated_height_ft
+            }
+        
+        def reconcile_volumes(self, catalog_volume: float, residual_estimate: dict) -> float:
+            """FIX 4: Reconcile catalog sum with residual estimate."""
+            residual_vol = residual_estimate.get("residual_volume_yards", 0)
+            
+            if residual_vol > catalog_volume * 0.5:  # Residual is significant
+                # Use weighted blend: 60% max, 40% catalog
+                final = 0.6 * max(catalog_volume, residual_vol) + 0.4 * catalog_volume
+                print(f"   📊 Volume reconciled: catalog={catalog_volume:.1f}, residual={residual_vol:.1f} → final={final:.1f}")
+                return round(final, 2)
+            
+            return catalog_volume
         
         def _parse_florence_output(self, raw_output) -> dict:
             """Parse Florence-2 output with anchor validation."""
@@ -1924,7 +2115,25 @@ Return JSON array ONLY. No explanation."""
                 result_text = result_text.split("```")[1].split("```")[0]
             
             result = json.loads(result_text.strip())
-            print(f"🔮 Gemini classifications: {result}")
+            
+            # FIX 5: Validate response has expected number of items
+            if isinstance(result, list):
+                if len(result) < len(items):
+                    print(f"   ⚠️ FIX 5: Gemini returned {len(result)}/{len(items)} items - filling missing with static mapping")
+                    # Fill missing items with static fallback
+                    result_labels = {r.get("item", "").lower() for r in result}
+                    for item in items:
+                        if item.get("label", "").lower() not in result_labels:
+                            result.append({
+                                "item": item.get("label", "unknown"),
+                                "category": ITEM_TO_CATEGORY.get(item.get("label", "").lower(), "misc"),
+                                "add_on_flags": [],
+                                "confidence": 0.3,
+                                "source": "fallback"
+                            })
+                            print(f"      Added fallback for missing: {item.get('label')}")
+            
+            print(f"🔮 Gemini classifications: {len(result)} items validated")
             return result
             
         except Exception as e:
