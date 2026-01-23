@@ -2481,7 +2481,13 @@ Return JSON array ONLY. No explanation."""
                     "gemma_categories": gemma_categories,
                     "gemma_add_ons": gemma_add_ons,
                     "gpt5_risk_level": risk_level,
-                    "missed_vol": missed_vol
+                    "missed_vol": missed_vol,
+                    # Phase 4: GroundingDINO metrics
+                    "florence_count": detections.get("florence_count", 0),
+                    "gdino_count": detections.get("gdino_count", 0),
+                    "new_discoveries": len([d for d in detections.get("detections", []) if d.get("source") == "grounding_dino_new"]),
+                    "priority_overrides": len([d for d in detections.get("detections", []) if d.get("source") == "grounding_dino" and d.get("original_florence_label")]),
+                    "gdino_tiers_used": list(set(d.get("tier", "unknown") for d in detections.get("detections", []) if d.get("source", "").startswith("grounding")))
                 }
             }
             
