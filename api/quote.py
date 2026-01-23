@@ -472,7 +472,7 @@ try:
     }
     
     # GroundingDINO model identifier (Replicate)
-    GROUNDING_DINO_MODEL = "adirik/grounding-dino:efd10a8ddc57ea28773327e881ce95e6e2c9caf9efd10a8ddc57ea28773327e8"
+    GROUNDING_DINO_MODEL = "adirik/grounding-dino:efd10a8ddc57ea28773327e881ce95e20cc1d734c589f7dd01d2036921ed78aa"
     
     # Confidence threshold for GroundingDINO detections
     GROUNDING_DINO_CONFIDENCE = 0.35
