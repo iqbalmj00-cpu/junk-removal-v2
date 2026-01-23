@@ -1,16 +1,33 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
-import { Truck, ChevronDown, Lock, AlertTriangle } from 'lucide-react';
+import { Truck, ChevronDown, Lock, AlertTriangle, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 
-export default function BookingDetailsPage() {
+// Loading fallback for Suspense
+function BookingDetailsLoading() {
+    return (
+        <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
+            <Navbar />
+            <main className="flex-grow pt-32 pb-20 px-4">
+                <div className="max-w-xl mx-auto flex items-center justify-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+                </div>
+            </main>
+            <Footer />
+        </div>
+    );
+}
+
+// Inner component that uses useSearchParams
+function BookingDetailsContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
+
 
     // Parse data from URL params
     const minPrice = searchParams.get('min') || '0';
@@ -159,8 +176,8 @@ export default function BookingDetailsPage() {
                                             type="button"
                                             onClick={() => setHazardCheck('safe')}
                                             className={`h-12 rounded-xl border-2 font-medium transition-all ${hazardCheck === 'safe'
-                                                    ? 'border-green-500 bg-green-50 text-green-700'
-                                                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                                                ? 'border-green-500 bg-green-50 text-green-700'
+                                                : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
                                                 }`}
                                         >
                                             No, it's safe
@@ -169,8 +186,8 @@ export default function BookingDetailsPage() {
                                             type="button"
                                             onClick={() => setHazardCheck('hazard')}
                                             className={`h-12 rounded-xl border-2 font-medium transition-all ${hazardCheck === 'hazard'
-                                                    ? 'border-orange-500 bg-orange-50 text-orange-700'
-                                                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                                                ? 'border-orange-500 bg-orange-50 text-orange-700'
+                                                : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
                                                 }`}
                                         >
                                             Yes, it does
@@ -202,8 +219,8 @@ export default function BookingDetailsPage() {
                                 onClick={handleContinue}
                                 disabled={!isFormValid}
                                 className={`w-full h-14 text-lg font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 ${isFormValid
-                                        ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-orange-200'
-                                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                    ? 'bg-orange-500 hover:bg-orange-600 text-white shadow-orange-200'
+                                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
                                     }`}
                             >
                                 CONTINUE TO SCHEDULING
@@ -234,5 +251,14 @@ export default function BookingDetailsPage() {
 
             <Footer />
         </div>
+    );
+}
+
+// Default export with Suspense boundary
+export default function BookingDetailsPage() {
+    return (
+        <Suspense fallback={<BookingDetailsLoading />}>
+            <BookingDetailsContent />
+        </Suspense>
     );
 }
