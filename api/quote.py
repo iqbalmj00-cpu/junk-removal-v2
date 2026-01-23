@@ -565,7 +565,131 @@ try:
         "large cable reel": {"volume": 2.0, "category": "misc", "multiplier": 1.1},
     }
     
-    # GPT-5.2 Audit System Prompt
+    # ==================== CANONICAL LABEL SYSTEM (Recommendations 1-3) ====================
+    # Maps detector labels → canonical keys (only canonical drives volume_yards)
+    CANONICAL_LABEL_MAP = {
+        # Spools → cable_spool_wood (unless clearly metal)
+        "wooden spool": "cable_spool_wood",
+        "industrial spool": "cable_spool_wood",
+        "cable spool": "cable_spool_wood",
+        "wire spool": "cable_spool_wood",
+        "cable reel": "cable_spool_wood",
+        "wooden spool industrial": "cable_spool_wood",
+        "wooden spool industrial spool": "cable_spool_wood",
+        "large cable reel": "cable_spool_wood",
+        "cable spool wood": "cable_spool_wood",
+        "cable spool mixed": "cable_spool_mixed",
+        "cable spool metal": "cable_spool_metal",
+        
+        # Pallets → wood_pallet_single or wood_pallet_stack (size determines)
+        "wooden pallet": "wood_pallet",
+        "wood pallets": "wood_pallet",
+        "pallet": "wood_pallet",
+        "shipping pallet": "wood_pallet",
+        "pallet stack": "wood_pallet_stack",
+        "stack of pallets": "wood_pallet_stack",
+        "broken pallets": "wood_pallet",
+        "wood pallets pile": "wood_pallet_stack",
+        
+        # Wood piles → wood_boards_stack or scrap_wood_pile
+        "wood pile": "wood_boards_stack",
+        "lumber stack": "wood_boards_stack",
+        "wood planks": "wood_boards_stack",
+        "wood boards": "wood_boards_stack",
+        "boards pile": "wood_boards_stack",
+        "stack of wood boards": "wood_boards_stack",
+        "scrap wood": "scrap_wood_pile",
+        "wood debris": "scrap_wood_pile",
+        "plywood sheet": "plywood_sheets",
+        "sheet wood": "plywood_sheets",
+        "wood panel": "plywood_sheets",
+        
+        # Debris → mixed_debris
+        "debris pile": "mixed_debris",
+        "debris": "mixed_debris",
+        "construction debris": "mixed_debris",
+        "mixed construction debris": "mixed_debris",
+        "pile of mixed debris": "mixed_debris",
+        "construction materials": "mixed_debris",
+        
+        # Tires
+        "tires": "tires",
+        "tire": "tires",
+        "wheel": "tires",  # Will be overridden by Gemini if it's actually a spool
+        
+        # Pass-through for known items (keeps original)
+        "couch": "couch", "sofa": "sofa", "mattress": "mattress",
+        "refrigerator": "refrigerator", "washer": "washer", "dryer": "dryer",
+        "television": "television", "tv": "television",
+        "crt television": "crt_television", "flat screen tv": "flat_screen_tv",
+        "hot tub": "hot_tub", "spa": "hot_tub",
+        "boxes": "boxes", "bags": "bags", "box": "boxes", "bag": "bags",
+        "yard waste": "yard_waste",
+    }
+    
+    # Volume catalog: (canonical_label, size_class) → default yd³
+    CANONICAL_VOLUME_CATALOG = {
+        # A) cable_spool_wood
+        ("cable_spool_wood", "small"): 0.75,
+        ("cable_spool_wood", "medium"): 1.40,
+        ("cable_spool_wood", "large"): 2.40,
+        ("cable_spool_wood", "xl"): 3.75,
+        
+        # cable_spool_mixed (10% heavier)
+        ("cable_spool_mixed", "small"): 0.85,
+        ("cable_spool_mixed", "medium"): 1.55,
+        ("cable_spool_mixed", "large"): 2.65,
+        
+        # cable_spool_metal (20% heavier)
+        ("cable_spool_metal", "small"): 0.90,
+        ("cable_spool_metal", "medium"): 1.70,
+        ("cable_spool_metal", "large"): 2.90,
+        
+        # B) wood_pallet_single
+        ("wood_pallet", "small"): 0.35,
+        ("wood_pallet", "medium"): 0.45,
+        ("wood_pallet", "large"): 0.55,  # Oversized single pallet
+        
+        # C) wood_pallet_stack
+        ("wood_pallet_stack", "small"): 1.00,  # 2-3 pallets
+        ("wood_pallet_stack", "medium"): 1.50,  # 3-5 pallets
+        ("wood_pallet_stack", "large"): 2.75,  # 6-10 pallets
+        ("wood_pallet_stack", "xl"): 3.75,  # Big messy stack
+        
+        # D) wood_boards_stack
+        ("wood_boards_stack", "small"): 0.85,
+        ("wood_boards_stack", "medium"): 1.75,
+        ("wood_boards_stack", "large"): 2.50,
+        
+        # E) plywood_sheets
+        ("plywood_sheets", "small"): 0.75,
+        ("plywood_sheets", "medium"): 1.50,
+        ("plywood_sheets", "large"): 2.75,
+        
+        # F) scrap_wood_pile
+        ("scrap_wood_pile", "small"): 1.00,
+        ("scrap_wood_pile", "medium"): 2.25,
+        ("scrap_wood_pile", "large"): 4.50,
+        
+        # G) mixed_debris
+        ("mixed_debris", "small"): 1.00,
+        ("mixed_debris", "medium"): 2.75,
+        ("mixed_debris", "large"): 6.00,
+        
+        # H) tires
+        ("tires", "small"): 0.35,  # 1 tire
+        ("tires", "medium"): 0.85,  # 2-3 tires
+        ("tires", "large"): 1.50,  # 4+ tires
+        
+        # Yard waste
+        ("yard_waste", "small"): 0.50,
+        ("yard_waste", "medium"): 1.50,
+        ("yard_waste", "large"): 3.00,
+    }
+    
+    # Set of valid canonical labels (for is_valid_label check)
+    VALID_CANONICAL_LABELS = set(CANONICAL_LABEL_MAP.values())
+    
     GPT5_AUDIT_PROMPT = """You are an audit model for a junk-removal instant-quote pipeline. Your job is to validate detections and classifications from upstream models and catch missed items. You do not compute prices. You do not write code. You output valid JSON only matching the schema.
 
 Inputs you will receive:
@@ -1175,6 +1299,86 @@ Now run the audit using the provided inputs. Output JSON only."""
             
             print(f"   ⚠️ Unknown label, allowing with caution: {label}")
             return True  # Allow unknown labels but log them
+        
+        def normalize_to_canonical(self, label: str) -> str:
+            """Normalize detector label to canonical key."""
+            label_lower = label.lower().strip()
+            
+            # Direct lookup in canonical map
+            if label_lower in CANONICAL_LABEL_MAP:
+                return CANONICAL_LABEL_MAP[label_lower]
+            
+            # Check for substring matches
+            for raw, canonical in CANONICAL_LABEL_MAP.items():
+                if raw in label_lower or label_lower in raw:
+                    return canonical
+            
+            # Fallback: return as-is (will use default volume)
+            return label_lower.replace(" ", "_")
+        
+        def get_canonical_volume(self, canonical_label: str, size_class: str) -> float:
+            """Get volume from canonical catalog, with fallbacks."""
+            # Try exact match
+            key = (canonical_label, size_class)
+            if key in CANONICAL_VOLUME_CATALOG:
+                return CANONICAL_VOLUME_CATALOG[key]
+            
+            # Try with medium as fallback
+            if (canonical_label, "medium") in CANONICAL_VOLUME_CATALOG:
+                return CANONICAL_VOLUME_CATALOG[(canonical_label, "medium")]
+            
+            # Try with small as fallback
+            if (canonical_label, "small") in CANONICAL_VOLUME_CATALOG:
+                return CANONICAL_VOLUME_CATALOG[(canonical_label, "small")]
+            
+            # Ultimate fallback based on size class
+            fallbacks = {"small": 0.25, "medium": 0.75, "large": 1.5, "xl": 3.0}
+            print(f"   ⚠️ No catalog entry for ({canonical_label}, {size_class}), using fallback")
+            return fallbacks.get(size_class, 0.5)
+        
+        def apply_canonical_labels(self, detections: list, gemini_classifications: list = None) -> list:
+            """Apply canonical label system to detections (Recommendation 4)."""
+            gemini_map = {}
+            if gemini_classifications:
+                for gc in gemini_classifications:
+                    item_label = gc.get("item", "").lower()
+                    gemini_map[item_label] = gc
+            
+            for det in detections:
+                raw_label = det.get("label", "")
+                det["raw_label"] = raw_label
+                
+                # Priority: Gemini's corrected_label > detector label
+                gemini_info = gemini_map.get(raw_label.lower(), {})
+                corrected_label = gemini_info.get("corrected_label", raw_label)
+                det["corrected_label"] = corrected_label
+                
+                # Normalize to canonical
+                canonical_label = self.normalize_to_canonical(corrected_label)
+                det["canonical_label"] = canonical_label
+                det["label"] = canonical_label  # Overwrite for consistency
+                
+                # Validate canonical label
+                det["is_valid_label"] = (
+                    canonical_label in VALID_CANONICAL_LABELS or
+                    not ("##" in raw_label) and len(raw_label) >= 4
+                )
+                
+                # Get size class (from existing or default)
+                size_class = det.get("size_class", "medium")
+                
+                # Apply canonical volume
+                det["volume_yards"] = self.get_canonical_volume(canonical_label, size_class)
+                
+                # Add Gemini fields if present
+                if gemini_info:
+                    det["category"] = gemini_info.get("category", "misc")
+                    det["add_on_flags"] = gemini_info.get("add_on_flags", [])
+                    det["gemini_confidence"] = gemini_info.get("confidence", 0.5)
+                
+                print(f"   📝 {raw_label} → {canonical_label} ({size_class}) = {det['volume_yards']} yd³")
+            
+            return detections
         
         def detect_scene_type(self, detections: list) -> str:
             """FIX 2: Detect if scene is outdoor/construction or indoor/residential."""
@@ -2583,9 +2787,30 @@ Return JSON array ONLY. No explanation."""
                         gemma_add_ons.extend(cls["add_on_flags"])
                         print(f"➕ Gemini detected add-ons for {label}: {cls['add_on_flags']}")
             
+            # 2a.5 Apply Canonical Label System (Recommendation 4)
+            # This normalizes all labels and applies proper volumes from catalog
+            print("📝 Applying canonical label system...")
+            catalog_items = catalog_volume.get("items", [])
+            gemini_classifications_list = [
+                {"item": label, "category": cat, "corrected_label": label, "add_on_flags": gemma_add_ons}
+                for label, cat in gemma_categories.items()
+            ]
+            catalog_items = vision_worker.apply_canonical_labels(catalog_items, gemini_classifications_list)
+            
+            # Filter out invalid labels before audit
+            valid_items = [item for item in catalog_items if item.get("is_valid_label", True)]
+            invalid_count = len(catalog_items) - len(valid_items)
+            if invalid_count > 0:
+                print(f"   ⛔ Filtered {invalid_count} invalid labels before audit")
+            catalog_items = valid_items
+            catalog_volume["items"] = catalog_items
+            
+            # Recalculate catalog volume with canonical volumes
+            total_canonical_volume = sum(item.get("volume_yards", 0.5) for item in catalog_items)
+            print(f"   📊 Canonical catalog volume: {total_canonical_volume:.2f} yd³")
+            
             # 2b. GPT-5.2 Audit (replaces Gemini)
             # Build initial classifications list for audit
-            catalog_items = catalog_volume.get("items", [])
             initial_classifications = [
                 {"category": gemma_categories.get(item.get("label", "").lower()) or 
                             ITEM_TO_CATEGORY.get(item.get("label", "").lower(), "furniture"),
