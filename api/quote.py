@@ -348,6 +348,17 @@ try:
         """Get fallback volume with range using substring matching."""
         label_lower = label.lower()
         
+        # v2.5: Check STABLE_CATALOG_VOLUMES FIRST (highest priority)
+        if label_lower in STABLE_CATALOG_VOLUMES:
+            vol = STABLE_CATALOG_VOLUMES[label_lower]
+            print(f"📏 v2.5 STABLE: {label_lower} → {vol} yd³")
+            return {"vol": vol, "range": (vol * 0.8, vol * 1.2), "category": "stable_v2.5", "used_stable": True}
+        
+        # v2.5: Check for banned labels - return 0 volume
+        if label_lower in BANNED_LABELS:
+            print(f"⛔ v2.5: Banned label {label_lower} → 0 yd³")
+            return {"vol": 0, "range": (0, 0), "category": "banned", "is_banned": True}
+        
         # Check sublabel keywords first
         for keyword, data in SUBLABEL_KEYWORDS.items():
             if keyword in label_lower:
@@ -2118,6 +2129,16 @@ Now run the audit using the provided inputs. Output JSON only."""
         
         def get_canonical_volume(self, canonical_label: str, size_class: str) -> float:
             """Get volume from canonical catalog, with fallbacks."""
+            label_lower = canonical_label.lower()
+            
+            # v2.5: Check STABLE_CATALOG_VOLUMES FIRST (highest priority)
+            if label_lower in STABLE_CATALOG_VOLUMES:
+                return STABLE_CATALOG_VOLUMES[label_lower]
+            
+            # v2.5: Banned labels get 0 volume
+            if label_lower in BANNED_LABELS:
+                return 0.0
+            
             # Small scrap exception - intentionally keep tiny
             SMALL_SCRAP_LABELS = {"loose_scrap", "plastic_pieces", "tiny_debris", "small_trash"}
             if canonical_label in SMALL_SCRAP_LABELS:
