@@ -4243,37 +4243,55 @@ Return JSON array ONLY. No explanation."""
                     depth_stats = r["depth_stats"]
                     break
             
-            # v2.8.1: Filter bboxes to billable-only (exclude skip/ban/background)
-            billable_bboxes = []
-            for d in fused_detection_bboxes:
-                label = (d.get("label") or "").strip().lower()
-                normalized = canonicalize_synonym(label) or label
-                
-                # Exclude if in skip/ban/background sets
-                if normalized in gemini_skip_labels:
-                    continue
-                if normalized in BANNED_LABELS:
-                    continue
-                if label in BACKGROUND_LABELS or normalized in BACKGROUND_LABELS:
-                    continue
-                
-                billable_bboxes.append(d)
+            # v2.8.2: OPTION A - Coverage from FINALIZED billable items (not all_detections)
+            # This restores v2.7.1 calibrated behavior: fewer items → lower coverage → higher remainder
             
-            print(f"📐 v2.8.1: {len(billable_bboxes)}/{len(fused_detection_bboxes)} bboxes billable")
-            coverage = vision_worker.calculate_union_coverage(billable_bboxes, img_width, img_height)
-            print(f"📐 v2.8.1: Coverage from {len(billable_bboxes)} billable bboxes: {coverage:.1%}")
+            # Step 1: Attach bboxes to finalized catalog_items from all_detections
+            bbox_lookup = {}
+            for det in all_detections:
+                label = (det.get("label") or "").strip().lower()
+                if det.get("bbox") and label not in bbox_lookup:
+                    bbox_lookup[label] = det["bbox"]
             
-            # v2.8.1: Coverage sanity check - if 0% but billable bboxes exist, recalculate
-            if coverage == 0 and len(billable_bboxes) > 0:
+            for item in catalog_items:
+                if not item.get("bbox"):
+                    label = (item.get("label") or "").strip().lower()
+                    canonical = item.get("canonical_label", "").lower()
+                    # Try to find bbox by label or canonical_label
+                    item["bbox"] = bbox_lookup.get(label) or bbox_lookup.get(canonical)
+            
+            # Step 2: Build billable items from FINALIZED catalog_items
+            billable_items = []
+            for item in catalog_items:
+                if item.get("priced") == False:
+                    continue
+                if not item.get("is_junk", True):
+                    continue
+                if item.get("is_background"):
+                    continue
+                if not item.get("bbox"):
+                    continue
+                # Exclude low-impact items from coverage (they don't represent pile space)
+                canonical = item.get("canonical_label", "").lower()
+                if canonical in LOW_IMPACT_LABELS:
+                    continue
+                billable_items.append(item)
+            
+            print(f"📐 v2.8.2: {len(billable_items)}/{len(catalog_items)} finalized items billable for coverage")
+            coverage = vision_worker.calculate_union_coverage(billable_items, img_width, img_height)
+            print(f"📐 v2.8.2: Coverage from {len(billable_items)} finalized billable items: {coverage:.1%}")
+            
+            # v2.8.2: Coverage sanity check
+            if coverage == 0 and len(billable_items) > 0:
                 total_bbox_area = sum(
                     (b[2] - b[0]) * (b[3] - b[1]) 
-                    for item in billable_bboxes 
+                    for item in billable_items 
                     for b in [item.get("bbox", [0,0,0,0])]
                     if b and len(b) >= 4
                 )
                 image_area = img_width * img_height
                 coverage = min(1.0, total_bbox_area / image_area) if image_area > 0 else 0
-                print(f"⚠️ v2.8.1: Coverage was 0% with {len(billable_bboxes)} bboxes, recalculated to {coverage:.1%}")
+                print(f"⚠️ v2.8.2: Coverage was 0%, recalculated to {coverage:.1%}")
             
             residual = max(0, 1.0 - coverage)
             
