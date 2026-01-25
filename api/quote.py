@@ -522,15 +522,19 @@ try:
     # ==================== VOLUME HOTFIX v2.2 ====================
     
     # Fix 2: Synonym canonicalization (deploy before clustering)
+    # v2.5: REMOVED wheel → tires (causes double-count)
     SYNONYM_MAP = {
         # Debris
         "debris pile": "mixed_debris",
         "debris": "mixed_debris",
-        # Spools
+        "trash": "mixed_debris",
+        "garbage": "mixed_debris",
+        "junk pile": "mixed_debris",
+        # Spools - v2.5: only if confirmed, otherwise background
         "wooden spool": "cable_spool_wood",
         "industrial spool": "cable_spool_wood",
-        # Tires
-        "wheel": "tires",  # May need Gemini confirmation
+        # Tires - v2.5: REMOVED wheel→tires (motorcycle wheels aren't tire piles)
+        # "wheel": "tires",  # REMOVED - causes double-count
         "tire": "tires",
         # Crates
         "wood crate": "wood_crate",
@@ -538,12 +542,61 @@ try:
         # Bags
         "plastic bag": "bags",
         "bag": "bags",
-        # Garbage labels
+        # Garbage labels - v2.5: stack is banned
         "applian": "unknown_medium",
         "stuff": "unknown_medium",
         "object": "unknown_medium",
         "item": "unknown_medium",
+        "stack": "banned_label",  # v2.5: never price directly
+        "wooden": "banned_label",  # v2.5: garbage token
     }
+    
+    # ==================== v2.5: STABLE CATALOG VOLUMES ====================
+    # These are fixed volumes that should never use fallback
+    STABLE_CATALOG_VOLUMES = {
+        # Appliances - accurate volumes
+        "washer": 0.7,
+        "dryer": 0.7,
+        "washer_dryer": 1.4,
+        "refrigerator": 1.5,
+        "fridge": 1.5,
+        "dishwasher": 0.5,
+        "oven": 0.6,
+        "stove": 0.6,
+        "microwave": 0.15,
+        # Tires - small amounts
+        "tires": 0.35,  # v2.5: default is 2-4 tires, not "tire pile"
+        # Furniture
+        "couch": 3.0,
+        "sofa": 3.0,
+        "loveseat": 2.0,
+        "mattress": 1.5,
+        "box_spring": 1.0,
+        "dresser": 1.5,
+        "desk": 1.0,
+        "table": 0.8,
+        "chair": 0.3,
+        # Small misc - v2.5: conservative
+        "bags": 0.1,
+        "boxes": 0.1,
+        "wood_crate": 0.3,
+        # Unknown - v2.5: conservative fallbacks
+        "unknown_large": 0.5,  # v2.5: was 2.0, now conservative
+        "unknown_medium": 0.3,
+        "unknown_small": 0.1,
+    }
+    
+    # v2.5: DEFAULT BACKGROUND LABELS (skip when Gemini underdelivers)
+    DEFAULT_BACKGROUND_LABELS = {
+        "industrial spool", "cable_spool_wood",
+        "fence panels", "fence_panels",
+        "stack", "wood_pallet_stack",
+        "metal pipe", "metal_pipe",
+        "wooden", "banned_label",
+    }
+    
+    # v2.5: BANNED LABELS (never get volume)
+    BANNED_LABELS = {"stack", "wooden", "banned_label", "object", "stuff", "item"}
     
     def canonicalize_synonym(label: str, gemini_correction: str = None) -> str:
         """Aggressive synonym canonicalization."""
@@ -842,29 +895,51 @@ try:
             print(f"🚫 v2.4: Removed {skipped} detections by normalized label")
         return result
     
-    def finalize_detections(detections: list, skip_ids: set = None, skip_labels: set = None) -> list:
+    def finalize_detections(detections: list, skip_ids: set = None, skip_labels: set = None, gemini_underdelivered: bool = False) -> list:
         """
-        Finalize detection list BEFORE any volume math.
-        Order: normalize → skip → debris bucket → gating → unique/count rules
+        v2.5: Finalize detection list BEFORE any volume math.
+        Order: normalize → banned filter → skip → debris bucket → gating → unique/count rules → volume assign
         """
-        print("🔒 v2.4: Finalizing detection list...")
+        print("🔒 v2.5: Finalizing detection list...")
         
         # Step 1: Normalize all labels (set normalized_label field)
         detections = normalize_detection_labels(detections)
         
-        # Step 2: Apply skip (by ID if available, else by normalized label)
+        # Step 2: v2.5 - Filter banned labels (stack, wooden, etc.)
+        before_ban = len(detections)
+        detections = [det for det in detections 
+                      if det.get("normalized_label", det.get("label", "")).lower() not in BANNED_LABELS]
+        banned_count = before_ban - len(detections)
+        if banned_count > 0:
+            print(f"⛔ v2.5: Removed {banned_count} banned labels")
+        
+        # Step 3: v2.5 - Apply default skip list when Gemini underdelivers
+        effective_skip = skip_labels.copy() if skip_labels else set()
+        if gemini_underdelivered:
+            effective_skip.update(DEFAULT_BACKGROUND_LABELS)
+            print(f"⚠️ v2.5: Gemini underdelivered, applying default skip list")
+        
+        # Step 4: Apply skip (by ID if available, else by normalized label)
         if skip_ids:
             detections = apply_skip_by_id(detections, skip_ids)
-        elif skip_labels:
-            detections = apply_skip_by_normalized_label(detections, skip_labels)
+        elif effective_skip:
+            detections = apply_skip_by_normalized_label(detections, effective_skip)
         
-        # Step 3: Collapse debris to single bucket
+        # Step 5: Collapse debris to single bucket
         detections = collapse_debris_to_bucket(detections)
         
-        # Step 4: Gate high-impact labels
+        # Step 6: Gate high-impact labels (hot_tub, piano, etc.)
         detections = gate_high_impact_labels(detections)
         
-        # Step 5: Merge duplicate UNIQUE labels
+        # Step 7: v2.5 - Apply STABLE_CATALOG_VOLUMES to all items
+        for det in detections:
+            label = det.get("normalized_label", det.get("label", "")).lower()
+            if label in STABLE_CATALOG_VOLUMES:
+                det["volume_yards"] = STABLE_CATALOG_VOLUMES[label]
+                det["volume_source"] = "stable_catalog_v2.5"
+                print(f"📏 v2.5: {label} → {STABLE_CATALOG_VOLUMES[label]} yd³ (stable)")
+        
+        # Step 8: Merge duplicate UNIQUE labels
         from collections import Counter
         label_counts = Counter(det.get("normalized_label", det.get("label", "")).lower() for det in detections)
         merged = 0
@@ -877,12 +952,12 @@ try:
                 detections = [d for d in detections if d.get("normalized_label", d.get("label", "")).lower() != label]
                 detections.append(keep)
                 merged += label_counts[label] - 1
-                print(f"🔀 v2.4: Merged {label_counts[label]} × {label} → 1")
+                print(f"🔀 v2.5: Merged {label_counts[label]} × {label} → 1")
         
         if merged > 0:
-            print(f"🔀 v2.4: Total merged: {merged} duplicate unique labels")
+            print(f"🔀 v2.5: Total merged: {merged} duplicate unique labels")
         
-        print(f"🔒 v2.4: Finalized {len(detections)} detections")
+        print(f"🔒 v2.5: Finalized {len(detections)} detections")
         return detections
     
     # ==================== BILLABLE VOLUME MULTIPLIERS ====================
@@ -3909,6 +3984,7 @@ Return JSON array ONLY. No explanation."""
             gemma_categories = {}  # label -> category override
             gemma_add_ons = []     # add-on flags from Gemma
             gemini_skip_labels = set()  # v2.3: Labels marked as background by Gemini
+            gemini_underdelivered = False  # v2.5: Track if Gemini returned fewer items than expected
             
             all_detections = detections.get("detections", [])
             ambiguous_items = [d for d in all_detections 
@@ -3918,6 +3994,12 @@ Return JSON array ONLY. No explanation."""
             if ambiguous_items and visual_bridge:
                 print(f"🔮 {len(ambiguous_items)} ambiguous items found, calling Gemini Vision...")
                 classifications = await self.classify_with_gemma(visual_bridge, ambiguous_items)
+                
+                # v2.5: Detect if Gemini underdelivered (returned fewer than 50% of items)
+                fallback_items = [c for c in classifications if c.get("source") == "fallback"]
+                if len(fallback_items) >= len(ambiguous_items) * 0.5:
+                    gemini_underdelivered = True
+                    print(f"⚠️ v2.5: Gemini underdelivered ({len(fallback_items)}/{len(ambiguous_items)} fallback)")
                 
                 # Store Gemini classifications for volume calculation
                 gemma_sizes = {}  # label -> size bucket
@@ -3967,13 +4049,13 @@ Return JSON array ONLY. No explanation."""
             ]
             catalog_items = vision_worker.apply_canonical_labels(catalog_items, gemini_classifications_list)
             
-            # ==================== v2.4: DETECTION FINALIZATION ====================
+            # ==================== v2.5: DETECTION FINALIZATION ====================
             # PIPELINE INVARIANT: No volume math until detection list is finalized
-            # This replaces fragmented v2.3 code with unified call
             catalog_items = finalize_detections(
                 catalog_items, 
                 skip_ids=None,  # TODO: wire detection IDs from Gemini
-                skip_labels=gemini_skip_labels
+                skip_labels=gemini_skip_labels,
+                gemini_underdelivered=gemini_underdelivered  # v2.5: apply default skip if underdelivered
             )
             
             # Filter out invalid labels before audit
@@ -4045,12 +4127,27 @@ Return JSON array ONLY. No explanation."""
             mode = vision_worker.detect_scene_mode(catalog_items, depth_stats, coverage)
             print(f"   🎯 Scene mode: {mode}, coverage={coverage:.1%}, residual={residual:.1%}")
             
+            # v2.5: Check for debris bucket - mutual exclusion with remainder
+            debris_bucket_vol = sum(
+                item.get("volume_yards", 0) for item in catalog_items 
+                if item.get("is_bucket") or item.get("normalized_label", item.get("label", "")).lower() == "mixed_debris"
+            )
+            
             if vision_worker.should_activate_remainder(mode, residual, catalog_items, anchor_present, depth_stats):
                 pile_remainder = vision_worker.estimate_pile_remainder_v31(catalog_items, img_width, img_height, total_item_vol, depth_stats)
                 
                 # v2.3 FIX: Cap remainder volume
                 raw_remainder = pile_remainder.get("remainder_yards", 0)
                 capped_remainder = cap_remainder_volume(raw_remainder, total_item_vol)
+                
+                # v2.5: Debris-remainder mutual exclusion
+                if debris_bucket_vol > 1.5:
+                    # Sharply reduce remainder when debris is already counted
+                    reduced_remainder = min(capped_remainder, 1.0)  # Cap at 1.0 yd³ max
+                    if reduced_remainder != capped_remainder:
+                        print(f"⚠️ v2.5: Debris bucket={debris_bucket_vol:.2f} yd³, reducing remainder {capped_remainder:.2f} → {reduced_remainder:.2f}")
+                        capped_remainder = reduced_remainder
+                
                 if capped_remainder != raw_remainder:
                     pile_remainder["remainder_yards"] = capped_remainder
                     pile_remainder["raw_remainder_yards"] = raw_remainder
