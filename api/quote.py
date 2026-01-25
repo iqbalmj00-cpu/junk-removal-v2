@@ -690,6 +690,36 @@ try:
     # Set of valid canonical labels (for is_valid_label check)
     VALID_CANONICAL_LABELS = set(CANONICAL_LABEL_MAP.values())
     
+    # ==================== VOLUME STAGE MACHINE (v3.1) ====================
+    VOLUME_STAGES = {"raw": 0, "canonical": 1, "clustered": 2, "final": 3}
+    
+    # Union coverage grid (memory-safe)
+    UNION_GRID_SIZE = 512
+    RESIDUAL_ACTIVATION_THRESHOLD = 0.30  # Only activate remainder if > 30%
+    
+    # DBSCAN clustering config
+    DBSCAN_EPS_RATIO = 0.08  # 8% of image diagonal
+    DBSCAN_EPS_MAX = 400     # Cap to prevent mega-clusters
+    
+    # Packing groups (by physical stacking behavior)
+    PACKING_GROUPS = {
+        "stackable": 0.80,     # Pallets, boxes, lumber
+        "nestable": 0.85,      # Tires, spools, buckets
+        "compressible": 0.70,  # Bags, yard waste
+        "loose": 1.20,         # Debris, scrap (more air gaps)
+        "rigid": 1.00,         # Furniture, appliances
+    }
+    
+    LABEL_TO_PACKING_GROUP = {
+        "wood_pallet": "stackable", "wood_pallet_stack": "stackable",
+        "boxes": "stackable", "wood_boards_stack": "stackable",
+        "cable_spool_wood": "nestable", "tires": "nestable",
+        "bags": "compressible", "yard_waste": "compressible",
+        "mixed_debris": "loose", "scrap_wood_pile": "loose", "demo_debris_pile": "loose",
+    }
+    
+    STACK_LABEL_BONUS = 0.9  # Labels ending in _stack get 10% tighter packing
+    
     # ==================== PILE VS ITEM ARCHITECTURE ====================
     # Detection types: single_item, stack, pile
     DETECTION_TYPES = {
@@ -1375,6 +1405,11 @@ Now run the audit using the provided inputs. Output JSON only."""
         
         def get_canonical_volume(self, canonical_label: str, size_class: str) -> float:
             """Get volume from canonical catalog, with fallbacks."""
+            # Small scrap exception - intentionally keep tiny
+            SMALL_SCRAP_LABELS = {"loose_scrap", "plastic_pieces", "tiny_debris", "small_trash"}
+            if canonical_label in SMALL_SCRAP_LABELS:
+                return 0.15
+            
             # Try exact match
             key = (canonical_label, size_class)
             if key in CANONICAL_VOLUME_CATALOG:
@@ -1388,10 +1423,10 @@ Now run the audit using the provided inputs. Output JSON only."""
             if (canonical_label, "small") in CANONICAL_VOLUME_CATALOG:
                 return CANONICAL_VOLUME_CATALOG[(canonical_label, "small")]
             
-            # Ultimate fallback based on size class
-            fallbacks = {"small": 0.25, "medium": 0.75, "large": 1.5, "xl": 3.0}
-            print(f"   ⚠️ No catalog entry for ({canonical_label}, {size_class}), using fallback")
-            return fallbacks.get(size_class, 0.5)
+            # Ultimate fallback based on size class (updated values)
+            fallbacks = {"small": 0.35, "medium": 0.75, "large": 1.50, "xl": 3.00}
+            print(f"   ⚠️ No catalog entry for ({canonical_label}, {size_class}), using fallback {fallbacks.get(size_class, 0.75)}")
+            return fallbacks.get(size_class, 0.75)  # Default 0.75, not 0.05
         
         def apply_canonical_labels(self, detections: list, gemini_classifications: list = None) -> list:
             """Apply canonical label system to detections (Recommendation 4)."""
@@ -1553,6 +1588,129 @@ Now run the audit using the provided inputs. Output JSON only."""
                 "estimated_height_ft": estimated_height_ft
             }
         
+        def spatial_cluster_detections(self, detections: list, img_w: int, img_h: int) -> list:
+            """DBSCAN spatial clustering with diagonal-based eps."""
+            import math
+            try:
+                from sklearn.cluster import DBSCAN
+                import numpy as np
+            except ImportError:
+                print("   ⚠️ sklearn not available, skipping DBSCAN")
+                for det in detections:
+                    det["spatial_cluster_id"] = 0
+                    det["cluster_size"] = 1
+                return detections
+            
+            # Diagonal-based eps
+            diagonal = math.sqrt(img_w**2 + img_h**2)
+            eps = min(diagonal * DBSCAN_EPS_RATIO, DBSCAN_EPS_MAX)
+            
+            # Group by canonical label first
+            label_groups = {}
+            for det in detections:
+                label = det.get("canonical_label", det.get("label", ""))
+                label_groups.setdefault(label, []).append(det)
+            
+            for label, items in label_groups.items():
+                if len(items) == 1:
+                    items[0]["spatial_cluster_id"] = 0
+                    items[0]["cluster_size"] = 1
+                    continue
+                
+                # Extract centroids
+                centroids = []
+                for item in items:
+                    bbox = self.normalize_bbox_v31(item.get("bbox"), img_w, img_h)
+                    cx = (bbox[0] + bbox[2]) / 2
+                    cy = (bbox[1] + bbox[3]) / 2
+                    centroids.append([cx, cy])
+                
+                # DBSCAN clustering
+                X = np.array(centroids)
+                clustering = DBSCAN(eps=eps, min_samples=1).fit(X)
+                
+                for i, item in enumerate(items):
+                    item["spatial_cluster_id"] = int(clustering.labels_[i])
+            
+            return detections
+        
+        def calculate_cluster_volumes_v31(self, detections: list, img_w: int, img_h: int) -> list:
+            """Calculate cluster volumes with DBSCAN and packing groups."""
+            detections = self.spatial_cluster_detections(detections, img_w, img_h)
+            
+            # Group by (label, spatial_cluster_id)
+            clusters = {}
+            for det in detections:
+                key = (det.get("canonical_label"), det.get("spatial_cluster_id", 0))
+                clusters.setdefault(key, []).append(det)
+            
+            for (label, cluster_id), items in clusters.items():
+                n = len(items)
+                sum_base = sum(d.get("volume_yards", 0.75) for d in items)
+                
+                # Get packing factor from group
+                group = LABEL_TO_PACKING_GROUP.get(label, "rigid")
+                packing = PACKING_GROUPS.get(group, 1.0)
+                
+                # Stack-type override for _stack labels
+                if label and (label.endswith("_stack") or any(d.get("pile_type") == "stack" for d in items)):
+                    packing *= STACK_LABEL_BONUS
+                
+                # Only apply packing to 2+ items
+                if n == 1:
+                    packing = 1.0
+                
+                cluster_vol = round(sum_base * packing, 2)
+                
+                # First item holds cluster data
+                items[0]["cluster_volume"] = cluster_vol
+                items[0]["cluster_size"] = n
+                items[0]["packing_group"] = group
+                items[0]["packing_factor"] = packing
+                
+                # Mark other items as cluster members
+                for item in items[1:]:
+                    item["in_cluster"] = f"{label}_{cluster_id}"
+                    item["volume_yards"] = 0
+                
+                # Set volume stage
+                for item in items:
+                    item["volume_stage"] = VOLUME_STAGES["clustered"]
+                    item["volume_stage_name"] = "clustered"
+                
+                if n > 1:
+                    print(f"   📦 {label}[{cluster_id}]: {n}× × pack({packing:.2f}) = {cluster_vol:.2f} yd³")
+            
+            return detections
+        
+        def estimate_pile_remainder_v31(self, detections: list, img_w: int, img_h: int, 
+                                         total_item_vol: float, depth_stats: dict = None) -> dict:
+            """v3.1 remainder with union coverage and % threshold."""
+            covered = self.calculate_union_coverage(detections, img_w, img_h)
+            residual_pct = max(0, 1.0 - covered)
+            
+            # Only activate if residual > 30%
+            if residual_pct < RESIDUAL_ACTIVATION_THRESHOLD:
+                print(f"   📊 Residual {residual_pct:.1%} < {RESIDUAL_ACTIVATION_THRESHOLD:.0%}, skipping remainder")
+                return {"remainder_yards": 0, "activated": False, "residual_pct": residual_pct}
+            
+            footprint = residual_pct * 0.4 * 150
+            height = 3.0
+            if depth_stats:
+                depth_range = depth_stats.get("range", depth_stats.get("max", 1.0) - depth_stats.get("min", 0.0))
+                if depth_range > 0.2:
+                    height = min(depth_range * 6, 5.0)
+            
+            remainder = (footprint * height) / 27
+            
+            # Two-part cap
+            max_remainder = max(total_item_vol * 0.5, 2.0)
+            remainder = min(remainder, max_remainder)
+            
+            print(f"   📊 Pile Remainder v3.1: coverage={covered:.1%}, residual={residual_pct:.1%}, remainder={remainder:.2f} yd³")
+            
+            return {"remainder_yards": round(remainder, 2), "activated": True, "residual_pct": residual_pct}
+        
         def is_heavy_material(self, label: str, add_on_flags: list = None) -> bool:
             """Fix 5B: Strict check for heavy materials."""
             label_lower = label.lower()
@@ -1568,6 +1726,84 @@ Now run the audit using the provided inputs. Output JSON only."""
                     return True
             
             return False
+        
+        def create_audit_item(self, label: str, category: str, volume: float, bbox: list) -> dict:
+            """Create fresh audit item - no inherited cluster state."""
+            return {
+                "canonical_label": label,
+                "label": label,
+                "category": category,
+                "volume_yards": volume,
+                "bbox": bbox,
+                "volume_stage": VOLUME_STAGES["raw"],
+                "volume_stage_name": "raw",
+                "in_cluster": None,
+                "cluster_volume": None,
+                "spatial_cluster_id": None,
+                "needs_volume_recompute": True,
+                "source": "audit_added"
+            }
+        
+        def normalize_bbox_v31(self, bbox: list, img_w: int, img_h: int) -> list:
+            """Normalize bbox with robust coordinate detection."""
+            if not bbox or len(bbox) < 4:
+                return [0, 0, 0, 0]
+            x1, y1, x2, y2 = bbox
+            
+            # Invalid bbox check
+            if x2 <= x1 or y2 <= y1:
+                return [0, 0, 0, 0]
+            
+            # Detect coordinate space
+            if x2 > 1.5 or y2 > 1.5:
+                # Pixels - clamp to image bounds
+                return [max(0, x1), max(0, y1), min(img_w, x2), min(img_h, y2)]
+            else:
+                # Normalized - convert to pixels
+                return [x1 * img_w, y1 * img_h, x2 * img_w, y2 * img_h]
+        
+        def calculate_union_coverage(self, detections: list, img_w: int, img_h: int) -> float:
+            """Calculate union coverage on 512×512 grid (memory-safe)."""
+            import numpy as np
+            grid = np.zeros((UNION_GRID_SIZE, UNION_GRID_SIZE), dtype=bool)
+            scale_x = UNION_GRID_SIZE / img_w
+            scale_y = UNION_GRID_SIZE / img_h
+            
+            for det in detections:
+                bbox = self.normalize_bbox_v31(det.get("bbox"), img_w, img_h)
+                x1, y1, x2, y2 = bbox
+                
+                gx1 = max(0, int(x1 * scale_x))
+                gy1 = max(0, int(y1 * scale_y))
+                gx2 = min(UNION_GRID_SIZE, int(x2 * scale_x))
+                gy2 = min(UNION_GRID_SIZE, int(y2 * scale_y))
+                
+                # Ensure at least 1 pixel for tiny boxes
+                gx2 = max(gx2, gx1 + 1)
+                gy2 = max(gy2, gy1 + 1)
+                
+                grid[gy1:gy2, gx1:gx2] = True
+            
+            coverage = np.sum(grid) / (UNION_GRID_SIZE ** 2)
+            return coverage
+        
+        def recompute_if_needed(self, detections: list, img_w: int, img_h: int, depth_stats: dict = None):
+            """Rerun canonical → cluster → remainder if any detection needs recompute."""
+            needs_recompute = any(d.get("needs_volume_recompute") for d in detections)
+            if not needs_recompute:
+                return detections, None
+            
+            print("   🔄 Rerunning: canonical → cluster → remainder")
+            detections = self.apply_canonical_labels(detections)
+            detections = self.calculate_cluster_volumes_v31(detections, img_w, img_h)
+            
+            total_item_vol = sum(d.get("cluster_volume", 0) or d.get("volume_yards", 0) for d in detections if not d.get("in_cluster"))
+            remainder = self.estimate_pile_remainder_v31(detections, img_w, img_h, total_item_vol, depth_stats)
+            
+            for d in detections:
+                d["needs_volume_recompute"] = False
+            
+            return detections, remainder
         
         def detect_scene_type(self, detections: list) -> str:
             """FIX 2: Detect if scene is outdoor/construction or indoor/residential."""
@@ -2994,10 +3230,10 @@ Return JSON array ONLY. No explanation."""
             catalog_items = valid_items
             catalog_volume["items"] = catalog_items
             
-            # 2a.6 Classify detections as single_item, stack, or pile
-            print("📦 Classifying detection types...")
-            # Get image dimensions from first vision result
-            img_width = 1024  # Default
+            # 2a.6 DBSCAN Spatial Clustering + Packing Groups (v3.1)
+            print("📦 Running DBSCAN spatial clustering (v3.1)...")
+            # Get image dimensions
+            img_width = 1024
             img_height = 768
             for r in all_vision_results:
                 if r.get("detections", {}).get("detections"):
@@ -3006,34 +3242,35 @@ Return JSON array ONLY. No explanation."""
                     img_width = max(img_width, int(bbox[2]) if len(bbox) > 2 else 1024)
                     img_height = max(img_height, int(bbox[3]) if len(bbox) > 3 else 768)
                     break
-            image_area = img_width * img_height
-            catalog_items = vision_worker.classify_detection_type(catalog_items, image_area)
             
-            # 2a.7 Apply modifier-based volumes (stack × density)
-            print("🔢 Applying volume modifiers...")
-            for item in catalog_items:
-                modified_vol = vision_worker.calculate_modifier_volume(item)
-                item["volume_yards"] = modified_vol  # Use modified volume
+            # Apply v31 cluster volumes with DBSCAN
+            catalog_items = vision_worker.calculate_cluster_volumes_v31(catalog_items, img_width, img_height)
             
-            # 2a.8 Calculate pile remainder (if residual is high)
-            print("📊 Checking pile remainder...")
+            # 2a.7 Calculate pile remainder with union coverage (v3.1)
+            print("📊 Calculating pile remainder with union coverage (v3.1)...")
             depth_stats = None
             for r in all_vision_results:
                 if r.get("depth_stats"):
                     depth_stats = r["depth_stats"]
                     break
-            pile_remainder = vision_worker.estimate_pile_remainder(catalog_items, img_width, img_height, depth_stats)
             
-            # Recalculate total with modifier volumes + remainder
-            total_modified_volume = sum(item.get("volume_yards", 0.5) for item in catalog_items)
-            remainder_vol = pile_remainder.get("remainder_volume_yards", 0)
-            total_with_remainder = total_modified_volume + remainder_vol
+            # Sum cluster volumes (not in_cluster items)
+            total_item_vol = sum(
+                item.get("cluster_volume", 0) or item.get("volume_yards", 0.75)
+                for item in catalog_items if not item.get("in_cluster")
+            )
+            pile_remainder = vision_worker.estimate_pile_remainder_v31(catalog_items, img_width, img_height, total_item_vol, depth_stats)
             
-            print(f"   📊 Total volume: items={total_modified_volume:.2f} + remainder={remainder_vol:.2f} = {total_with_remainder:.2f} yd³")
+            # Final total
+            remainder_vol = pile_remainder.get("remainder_yards", 0)
+            total_with_remainder = total_item_vol + remainder_vol
             
-            # Store finalized volumes (Fix 5A: make read-only)
+            print(f"   📊 Total volume (v3.1): items={total_item_vol:.2f} + remainder={remainder_vol:.2f} = {total_with_remainder:.2f} yd³")
+            
+            # Lock volumes at final stage
             for item in catalog_items:
-                item["volume_finalized"] = True  # Mark as finalized
+                item["volume_stage"] = VOLUME_STAGES["final"]
+                item["volume_stage_name"] = "final"
             catalog_volume["items"] = catalog_items
             catalog_volume["pile_remainder"] = pile_remainder
             catalog_volume["total_volume_yards"] = total_with_remainder
