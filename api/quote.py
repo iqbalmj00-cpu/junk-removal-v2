@@ -3745,6 +3745,7 @@ Return JSON array ONLY. No explanation."""
             # 2a. Classify ambiguous items with Gemma 3 27B
             gemma_categories = {}  # label -> category override
             gemma_add_ons = []     # add-on flags from Gemma
+            gemini_skip_labels = set()  # v2.3: Labels marked as background by Gemini
             
             all_detections = detections.get("detections", [])
             ambiguous_items = [d for d in all_detections 
@@ -3763,6 +3764,8 @@ Return JSON array ONLY. No explanation."""
                     # Skip if Gemini says this isn't junk (background object)
                     if cls.get("is_junk") == False:
                         print(f"🚫 Gemini identified {label} as background object, skipping")
+                        # v2.3: Mark label for skip (propagate to catalog_items later)
+                        gemini_skip_labels.add(label)
                         continue
                     
                     # Store category
@@ -3785,11 +3788,59 @@ Return JSON array ONLY. No explanation."""
             # This normalizes all labels and applies proper volumes from catalog
             print("📝 Applying canonical label system...")
             catalog_items = catalog_volume.get("items", [])
+            
+            # v2.3 FIX: Apply synonym canonicalization BEFORE volume lookup
+            for item in catalog_items:
+                original_label = item.get("label", "")
+                canonical = canonicalize_synonym(original_label.lower())
+                if canonical != original_label.lower():
+                    item["original_label"] = original_label
+                    item["label"] = canonical
+                    print(f"🔀 Synonym: {original_label} → {canonical}")
+            
             gemini_classifications_list = [
                 {"item": label, "category": cat, "corrected_label": label, "add_on_flags": gemma_add_ons}
                 for label, cat in gemma_categories.items()
             ]
             catalog_items = vision_worker.apply_canonical_labels(catalog_items, gemini_classifications_list)
+            
+            # v2.3 RULE 1: Filter out Gemini-skipped items (background objects)
+            pre_skip_count = len(catalog_items)
+            catalog_items = [item for item in catalog_items 
+                            if item.get("label", "").lower() not in gemini_skip_labels 
+                            and not item.get("is_background", False)]
+            skip_count = pre_skip_count - len(catalog_items)
+            if skip_count > 0:
+                print(f"🚫 v2.3: Removed {skip_count} background items from volume calculation")
+            
+            # v2.3 RULE 3: Merge duplicate UNIQUE labels before packing
+            from collections import Counter
+            label_counts = Counter(item.get("canonical_label", item.get("label", "")).lower() for item in catalog_items)
+            merged_count = 0
+            for label in UNIQUE_LABELS:
+                if label_counts.get(label, 0) > 1:
+                    # Keep only the largest bbox instance
+                    instances = [i for i in catalog_items if i.get("canonical_label", i.get("label", "")).lower() == label]
+                    keep = max(instances, key=lambda x: x.get("bbox_area", 0) or 
+                              ((x.get("bbox", [0,0,0,0])[2] - x.get("bbox", [0,0,0,0])[0]) * 
+                               (x.get("bbox", [0,0,0,0])[3] - x.get("bbox", [0,0,0,0])[1])))
+                    catalog_items = [i for i in catalog_items if i.get("canonical_label", i.get("label", "")).lower() != label]
+                    catalog_items.append(keep)
+                    merged_count += label_counts[label] - 1
+                    print(f"🔀 v2.3: Merged {label_counts[label]} × {label} into 1 (keeping largest bbox)")
+            
+            # Special case: mixed_debris should always be merged to 1
+            debris_count = label_counts.get("mixed_debris", 0)
+            if debris_count > 1:
+                debris_instances = [i for i in catalog_items if i.get("canonical_label", i.get("label", "")).lower() == "mixed_debris"]
+                keep_debris = max(debris_instances, key=lambda x: x.get("volume_yards", 0))
+                catalog_items = [i for i in catalog_items if i.get("canonical_label", i.get("label", "")).lower() != "mixed_debris"]
+                catalog_items.append(keep_debris)
+                merged_count += debris_count - 1
+                print(f"🗑️ v2.3: Merged {debris_count} × mixed_debris into 1")
+            
+            if merged_count > 0:
+                print(f"🔀 v2.3: Total merged: {merged_count} duplicate unique items")
             
             # Filter out invalid labels before audit
             valid_items = [item for item in catalog_items if item.get("is_valid_label", True)]
@@ -3833,6 +3884,20 @@ Return JSON array ONLY. No explanation."""
             # Phase 6: Union coverage (junk only)
             junk_items = [item for item in catalog_items if item.get("is_junk", True) and not item.get("is_background")]
             coverage = vision_worker.calculate_union_coverage(junk_items, img_width, img_height)
+            
+            # v2.3 RULE 2: Coverage sanity check - if 0% but valid bboxes exist, recalculate
+            valid_bboxes = [item for item in catalog_items if item.get("bbox") or item.get("bbox_pixels")]
+            if coverage == 0 and len(valid_bboxes) > 0:
+                # Force recalculate from bbox areas
+                total_bbox_area = sum(
+                    (b[2] - b[0]) * (b[3] - b[1]) 
+                    for item in valid_bboxes 
+                    for b in [item.get("bbox", item.get("bbox_pixels", [0,0,0,0]))]
+                )
+                image_area = img_width * img_height
+                coverage = min(1.0, total_bbox_area / image_area) if image_area > 0 else 0
+                print(f"⚠️ v2.3: Coverage was 0% with {len(valid_bboxes)} bboxes, recalculated to {coverage:.1%}")
+            
             residual = max(0, 1.0 - coverage)
             
             # Sum cluster volumes
@@ -3848,6 +3913,13 @@ Return JSON array ONLY. No explanation."""
             
             if vision_worker.should_activate_remainder(mode, residual, catalog_items, anchor_present, depth_stats):
                 pile_remainder = vision_worker.estimate_pile_remainder_v31(catalog_items, img_width, img_height, total_item_vol, depth_stats)
+                
+                # v2.3 FIX: Cap remainder volume
+                raw_remainder = pile_remainder.get("remainder_yards", 0)
+                capped_remainder = cap_remainder_volume(raw_remainder, total_item_vol)
+                if capped_remainder != raw_remainder:
+                    pile_remainder["remainder_yards"] = capped_remainder
+                    pile_remainder["raw_remainder_yards"] = raw_remainder
             else:
                 pile_remainder = {"remainder_yards": 0, "activated": False, "residual_pct": residual}
                 print(f"   📊 Remainder skipped (mode={mode}, residual={residual:.1%})")
