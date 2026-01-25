@@ -243,17 +243,79 @@ try:
     # ==================== TIERED PRICING ====================
     # Industry-aligned volume buckets - MIN 1 yd³, MAX 18 yd³
     VOLUME_TIERS = [
-        {"max_cuft": 27,   "price": 95,  "label": "Min Load"},       # 1 yd³
-        {"max_cuft": 60,   "price": 99,  "label": "1/8 Load"},       # ~2.2 yd³
-        {"max_cuft": 80,   "price": 129, "label": "1/6 Load"},       # ~3.0 yd³
-        {"max_cuft": 120,  "price": 149, "label": "1/4 Load"},       # ~4.4 yd³
-        {"max_cuft": 180,  "price": 199, "label": "3/8 Load"},       # ~6.7 yd³
-        {"max_cuft": 240,  "price": 299, "label": "Half Load"},      # ~8.9 yd³
-        {"max_cuft": 300,  "price": 349, "label": "5/8 Load"},       # ~11 yd³
-        {"max_cuft": 360,  "price": 399, "label": "3/4 Load"},       # ~13 yd³
-        {"max_cuft": 420,  "price": 479, "label": "7/8 Load"},       # ~16 yd³
-        {"max_cuft": 486,  "price": 599, "label": "Full Load"},      # 18 yd³ MAX
+        {"max_cuft": 27,   "price": 95,  "label": "Dispatch Minimum"},  # 1 yd³
+        {"max_cuft": 60,   "price": 99,  "label": "1/8 Load"},          # ~2.2 yd³
+        {"max_cuft": 80,   "price": 129, "label": "1/6 Load"},          # ~3.0 yd³
+        {"max_cuft": 120,  "price": 149, "label": "1/4 Load"},          # ~4.4 yd³
+        {"max_cuft": 180,  "price": 199, "label": "3/8 Load"},          # ~6.7 yd³
+        {"max_cuft": 240,  "price": 299, "label": "Half Load"},         # ~8.9 yd³
+        {"max_cuft": 300,  "price": 349, "label": "5/8 Load"},          # ~11 yd³
+        {"max_cuft": 360,  "price": 399, "label": "3/4 Load"},          # ~13 yd³
+        {"max_cuft": 420,  "price": 479, "label": "7/8 Load"},          # ~16 yd³
+        {"max_cuft": 486,  "price": 599, "label": "Full Load"},         # 18 yd³ MAX
     ]
+    
+    # ==================== PRICING v2.0 ====================
+    # Hard range caps (tight UX)
+    RANGE_CAPS = {250: 50, 400: 75, 999: 100}
+    PRICE_FLOOR = 95  # Dispatch Minimum
+    
+    # Disposal candidates (flags only, not priced by tool)
+    DISPOSAL_CANDIDATES = ["mattress", "refrigerator", "freezer", "ac_unit", "tv", "monitor", "tire", "box_spring"]
+    
+    # Trust sentence for output
+    TRUST_NOTE = "Add-ons may apply based on your selections (stairs, long carry, mattress/tires/TV, freon)."
+    
+    def get_range_cap(base_price: float) -> int:
+        """Get dollar cap for range based on price level."""
+        for threshold, cap in RANGE_CAPS.items():
+            if base_price <= threshold:
+                return cap
+        return 100
+    
+    def choose_tier_v2(volume_yards: float, delta_yards: float = 0.3) -> tuple:
+        """Choose tier from volume (not price). Returns (tier_id, tier_dict)."""
+        cuft = volume_yards * 27
+        for tier_id, tier in enumerate(VOLUME_TIERS):
+            if cuft <= tier["max_cuft"]:
+                return tier_id, tier
+        return len(VOLUME_TIERS) - 1, VOLUME_TIERS[-1]
+    
+    def calc_volume_delta_v2(billable: float, anchor_trust: str, fallback_rate: float, size_conf: float) -> float:
+        """Proportional delta (scales with load size)."""
+        base = max(0.2, 0.15 * billable)  # Proportional floor
+        if anchor_trust == "LOW": base += 0.3
+        if fallback_rate > 0.20: base += 0.2
+        if size_conf < 0.7: base += 0.2
+        return min(base, 1.0)  # Max ±1 yd³
+    
+    def apply_cap_v2(tier_id: int, base_price: int, raw_min: float, raw_max: float) -> tuple:
+        """Apply tier-aware cap with midpoint boundary clamping."""
+        cap = get_range_cap(base_price)
+        capped_min = max(raw_min, base_price - cap/2, PRICE_FLOOR)
+        capped_max = min(raw_max, base_price + cap/2)
+        
+        # Clamp to midpoint between tier prices
+        if tier_id > 0:
+            lower_price = VOLUME_TIERS[tier_id - 1]["price"]
+            boundary = (base_price + lower_price) / 2
+            capped_min = max(capped_min, boundary)
+        if tier_id < len(VOLUME_TIERS) - 1:
+            upper_price = VOLUME_TIERS[tier_id + 1]["price"]
+            boundary = (base_price + upper_price) / 2
+            capped_max = min(capped_max, boundary)
+        
+        return int(capped_min), int(capped_max)
+    
+    def detect_disposal_flags(items: list) -> dict:
+        """Detect disposal candidates as flags (not priced)."""
+        flags = {}
+        for item in items:
+            label = item.get("canonical_label", item.get("label", "")).lower()
+            for candidate in DISPOSAL_CANDIDATES:
+                if candidate in label:
+                    flags[f"{candidate}_detected"] = True
+        return flags
     
     def round_to_half(value: float) -> float:
         """Round to nearest 0.5."""
@@ -3574,22 +3636,32 @@ Return JSON array ONLY. No explanation."""
                     add_on_surcharge += ADD_ON_FEES[flag]
                     print(f"➕ Add-on fee: {flag} = +${ADD_ON_FEES[flag]}")
             
-            # 5. Pricing Math (TIERED PRICING)
-            final_vol = round_to_half(final_vol)  # Round to nearest 0.5
+            # 5. Pricing Math v2.0 (TIERED + TIGHT RANGES)
+            final_vol = round_to_half(final_vol)  # Round to nearest 0.5 (display only)
             
-            # Get tier price (replaces flat rate)
-            tier_price, tier_label = get_tier_price(final_vol)
-            vol_price = tier_price
-            print(f"💰 Tier: {tier_label} → ${tier_price} (for {final_vol} yd³)")
+            # Calculate uncertainty delta (proportional)
+            anchor_trust = "LOW" if not detections.get("anchor_found") else "MEDIUM"
+            fallback_rate = sum(1 for item in catalog_items if item.get("used_fallback", False)) / max(len(catalog_items), 1)
+            size_conf = confidence.get("confidence", 0.85)
+            delta = calc_volume_delta_v2(final_vol, anchor_trust, fallback_rate, size_conf)
             
-            # Apply uncertainty band from GPT-5.2 (if available) or fallback
-            gpt_uncertainty = audit_result.get("uncertainty_band", {})
-            risk_level = gpt_uncertainty.get("risk_level", "medium")
-            band_map = {"low": 0.10, "medium": 0.20, "high": 0.35}
-            band = band_map.get(risk_level, uncertainty_result.get("uncertainty", confidence.get("band", 0.20)))
+            # Choose tier from volume (not price)
+            tier_id, tier = choose_tier_v2(final_vol, delta)
+            base_price = tier["price"]
+            tier_label = tier["label"]
+            print(f"💰 Tier v2.0: {tier_label} → ${base_price} (for {final_vol} yd³, delta=±{delta:.2f})")
             
-            min_vol_price = max(95, round(vol_price * (1 - band)))  # Floor at Min Load ($95)
-            max_vol_price = round(vol_price * (1 + band))
+            # Map volume bounds to price range
+            vol_low = max(0, final_vol - delta)
+            vol_high = final_vol + delta
+            _, tier_low = choose_tier_v2(vol_low)
+            _, tier_high = choose_tier_v2(vol_high)
+            raw_min = tier_low["price"]
+            raw_max = tier_high["price"]
+            
+            # Apply tier-aware cap with midpoint boundary
+            min_vol_price, max_vol_price = apply_cap_v2(tier_id, base_price, raw_min, raw_max)
+            print(f"   📊 Range capped: ${min_vol_price}–${max_vol_price} (cap=${get_range_cap(base_price)})")
             
             # Add fixed surcharges AFTER (protected from discounting)
             total_surcharge = heavy_surcharge + add_on_surcharge
@@ -3603,14 +3675,20 @@ Return JSON array ONLY. No explanation."""
             min_price = round_pretty(min_price)
             max_price = round_pretty(max_price)
             
+            # Detect disposal flags (not priced by tool)
+            disposal_flags = detect_disposal_flags(catalog_items)
+            
             return {
                 "status": "SUCCESS",
                 "volume_yards": final_vol,
                 "min_price": min_price,
                 "max_price": max_price,
-                "price": round(vol_price + total_surcharge, 2),
+                "price": round(base_price + total_surcharge, 2),
+                "tier_label": tier_label,
                 "heavy_surcharge": total_surcharge,  # Combined heavy + add-ons
                 "add_on_surcharge": add_on_surcharge,
+                "disposal_flags": disposal_flags,
+                "trust_note": TRUST_NOTE,
                 "vision_enhanced": True,
                 "anchor_found": detections.get("anchor_found", False),
                 "anchor_scale_inches": detections.get("anchor_scale_inches"),
@@ -3625,8 +3703,11 @@ Return JSON array ONLY. No explanation."""
                     "heavy_level": heavy_level,
                     "gemma_categories": gemma_categories,
                     "gemma_add_ons": gemma_add_ons,
-                    "gpt5_risk_level": risk_level,
+                    "gpt5_risk_level": audit_result.get("uncertainty_band", {}).get("risk_level", "medium"),
                     "missed_vol": missed_vol,
+                    "v2_delta": delta,
+                    "v2_tier_id": tier_id,
+                    "v2_range_cap": get_range_cap(base_price),
                     # Phase 4: GroundingDINO metrics
                     "florence_count": detections.get("florence_count", 0),
                     "gdino_count": detections.get("gdino_count", 0),
