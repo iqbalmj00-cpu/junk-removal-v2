@@ -560,6 +560,9 @@ try:
         "item": "unknown_medium",
         "stack": "banned_label",  # v2.5: never price directly
         "wooden": "banned_label",  # v2.5: garbage token
+        # v2.7: Metal → scrap_metal (not cable_spool_metal)
+        "metal": "scrap_metal",
+        "metal pipe": "scrap_metal",
     }
     
     # ==================== v2.5: STABLE CATALOG VOLUMES ====================
@@ -591,6 +594,9 @@ try:
         "bags": 0.1,
         "boxes": 0.1,
         "wood_crate": 0.3,
+        # v2.7: New conservative labels
+        "wheel_unspecified": 0.15,  # v2.7: single wheel/rim, not tire stack
+        "scrap_metal": 0.25,  # v2.7: small scrap pile
         # Unknown - v2.5: conservative fallbacks
         "unknown_large": 0.5,  # v2.5: was 2.0, now conservative
         "unknown_medium": 0.3,
@@ -821,16 +827,17 @@ try:
                     # Trusted: use correct high-impact volume
                     det["volume_yards"] = HIGH_IMPACT_VOLUMES.get(label, 3.0)
                     det["gated"] = "APPROVED"
+                    det["priced"] = True  # v2.7: Explicitly mark as priced
                     print(f"✅ v2.4: {label} approved (2-model, conf={confidence:.2f})")
                 else:
-                    # Downgrade to unknown_large
+                    # v2.7: Drop/zero instead of downgrade
                     det["original_label"] = label
                     det["normalized_label"] = "unknown_large"
                     det["label"] = "unknown_large"
-                    det["volume_yards"] = 2.0  # Capped
-                    det["gated"] = "DOWNGRADED"
+                    det["priced"] = False  # v2.7: Exclude from billing
+                    det["gated"] = "DROPPED_PENDING_CONFIRMATION"
                     det["needs_user_confirmation"] = True
-                    print(f"⚠️ v2.4: {label} → unknown_large (low conf or single-model)")
+                    print(f"⚠️ v2.7: {label} → DROPPED (low conf or single-model)")
             
             result.append(det)
         return result
@@ -942,13 +949,11 @@ try:
         # Step 6: Gate high-impact labels (hot_tub, piano, etc.)
         detections = gate_high_impact_labels(detections)
         
-        # Step 7: v2.5 - Apply STABLE_CATALOG_VOLUMES to all items
-        for det in detections:
-            label = det.get("normalized_label", det.get("label", "")).lower()
-            if label in STABLE_CATALOG_VOLUMES:
-                det["volume_yards"] = STABLE_CATALOG_VOLUMES[label]
-                det["volume_source"] = "stable_catalog_v2.5"
-                print(f"📏 v2.5: {label} → {STABLE_CATALOG_VOLUMES[label]} yd³ (stable)")
+        # Step 7: v2.7 - REMOVED STABLE_CATALOG assignment (now in apply_canonical_labels only)
+        # Log priced=False count for verification
+        gated_count = sum(1 for d in detections if d.get("priced") == False)
+        if gated_count > 0:
+            print(f"🔒 v2.7: {gated_count} items gated (priced=False)")
         
         # Step 8: Merge duplicate UNIQUE labels
         from collections import Counter
@@ -1032,7 +1037,7 @@ try:
         
         # Tires/Metal (1.2×)
         "tire": "tires_metal", "tires": "tires_metal", 
-        "scrap metal": "tires_metal", "metal": "tires_metal",
+        "scrap metal": "tires_metal", "metal": "tires_metal",  # Note: SYNONYM_MAP maps to scrap_metal for detection labels
         
         # Bulky outdoor (1.4×)
         "hot tub": "bulky_outdoor", "spa": "bulky_outdoor",
@@ -1319,7 +1324,7 @@ try:
         # Tires
         "tires": "tires",
         "tire": "tires",
-        "wheel": "tires",  # Will be overridden by Gemini if it's actually a spool
+        "wheel": "wheel_unspecified",  # v2.7: Conservative default, GPT category=tires overrides
         
         # Pass-through for known items (keeps original)
         "couch": "couch", "sofa": "sofa", "mattress": "mattress",
@@ -2187,6 +2192,15 @@ Now run the audit using the provided inputs. Output JSON only."""
                 det["canonical_label"] = canonical_label
                 det["label"] = canonical_label  # Overwrite for consistency
                 
+                # v2.7: Override to tires if GPT category says so
+                cat = gemini_info.get("category", "")
+                if cat == "tires" or (corrected_label and "tire" in corrected_label.lower()):
+                    canonical_label = "tires"
+                    det["canonical_label"] = "tires"
+                    det["normalized_label"] = "tires"
+                    det["label"] = "tires"
+                    print(f"🔄 v2.7: {raw_label} → tires (GPT override)")
+                
                 # Validate canonical label
                 det["is_valid_label"] = (
                     canonical_label in VALID_CANONICAL_LABELS or
@@ -2196,16 +2210,26 @@ Now run the audit using the provided inputs. Output JSON only."""
                 # Get size class (from existing or default)
                 size_class = det.get("size_class", "medium")
                 
-                # Apply canonical volume
-                det["volume_yards"] = self.get_canonical_volume(canonical_label, size_class)
+                # v2.7: Short-circuit if priced=False (gated item)
+                if det.get("priced") == False:
+                    det["volume_yards"] = 0.0
+                    det["volume_source"] = "gated_zero"
+                    print(f"⏭️ v2.7: {canonical_label} → 0.0 yd³ (priced=False)")
+                else:
+                    # Apply canonical volume
+                    det["volume_yards"] = self.get_canonical_volume(canonical_label, size_class)
+                    # v2.7: Set volume_source for debugging
+                    if canonical_label.lower() in STABLE_CATALOG_VOLUMES:
+                        det["volume_source"] = "stable_catalog"
+                    else:
+                        det["volume_source"] = "catalog_lookup"
+                    print(f"   📝 {raw_label} → {canonical_label} ({size_class}) = {det['volume_yards']} yd³")
                 
                 # Add Gemini fields if present
                 if gemini_info:
                     det["category"] = gemini_info.get("category", "misc")
                     det["add_on_flags"] = gemini_info.get("add_on_flags", [])
                     det["gemini_confidence"] = gemini_info.get("confidence", 0.5)
-                
-                print(f"   📝 {raw_label} → {canonical_label} ({size_class}) = {det['volume_yards']} yd³")
             
             return detections
         
@@ -4041,18 +4065,30 @@ Return JSON array ONLY. No explanation."""
                 
                 # Store Gemini classifications for volume calculation
                 gemma_sizes = {}  # label -> size bucket
+                gpt_corrected_map = {}  # v2.7: normalized_key -> corrected_label (for tire override)
+                
                 for cls in classifications:
-                    label = cls.get("item", "").lower()
+                    raw_label = (cls.get("item") or "").strip().lower()
+                    corrected_label = (cls.get("corrected_label") or raw_label).strip().lower()
+                    
+                    # v2.7: Normalize with safe fallback
+                    norm_raw = canonicalize_synonym(raw_label) or raw_label
+                    norm_corr = canonicalize_synonym(corrected_label) or corrected_label
+                    
+                    # v2.7: Build corrected map for tire override
+                    gpt_corrected_map[raw_label] = corrected_label
+                    gpt_corrected_map[norm_raw] = corrected_label
                     
                     # Skip if Gemini says this isn't junk (background object)
                     if cls.get("is_junk") == False:
-                        print(f"🚫 Gemini identified {label} as background object, skipping")
-                        # v2.3: Mark label for skip (propagate to catalog_items later)
-                        gemini_skip_labels.add(label)
+                        # v2.7: Add ALL variants to skip set
+                        gemini_skip_labels.update({raw_label, corrected_label, norm_raw, norm_corr})
+                        print(f"🚫 v2.7 Skip: raw={raw_label}, corr={corrected_label}, norm_raw={norm_raw}, norm_corr={norm_corr}")
                         continue
                     
-                    # Store category
-                    gemma_categories[label] = cls.get("category", "furniture")
+                    # Store category (keyed by all variants for lookup)
+                    gemma_categories[raw_label] = cls.get("category", "furniture")
+                    gemma_categories[norm_raw] = cls.get("category", "furniture")
                     
                     # Store size for volume lookup
                     if cls.get("size"):
