@@ -3506,7 +3506,7 @@ class PricingEngine:
     # NOTE: GPT-4o removed - using only GPT-5.2 for auditing
     
     async def classify_with_gemma(self, image_b64: str, items: list) -> list:
-        """Use Google Gemini Vision to classify ambiguous items into pricing categories."""
+        """Use GPT-5-mini via Replicate to classify ambiguous items into pricing categories."""
         try:
             items_json = json.dumps([{"label": i.get("label", "unknown"), "bbox": i.get("bbox", [])} for i in items])
             
@@ -3541,51 +3541,37 @@ Categories:
 - misc: anything else (1.0×)
 
 Special instructions:
-1. For background objects (parked cars, trucks, buildings), set is_junk: false
+1. For background objects (parked cars, trucks, buildings, fences, industrial spools), set is_junk: false
 2. For TVs: distinguish CRT (boxy, deep) from flat screens - different categories!
 3. For piles: estimate what material it is (wood, concrete, mixed)
 4. Count pallets if stacked together (put count in corrected_label: "4 pallets")
+5. If unsure, mark is_junk: false to be safe
 
 Return JSON array ONLY. No explanation."""
 
-            print(f"🔮 Calling Google Gemini Vision for {len(items)} items...")
+            print(f"🤖 Calling GPT-5-mini via Replicate for {len(items)} items...")
             
-            # Use Google Gemini Vision API
-            response = self.google_client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=[
-                    types.Content(
-                        role="user",
-                        parts=[
-                            types.Part.from_bytes(
-                                data=base64.b64decode(image_b64),
-                                mime_type="image/jpeg"
-                            ),
-                            types.Part.from_text(text=prompt)
-                        ]
-                    )
-                ],
-                config=types.GenerateContentConfig(
-                    max_output_tokens=1000
-                )
+            # Use GPT-5-mini via Replicate
+            output = replicate.run(
+                "openai/gpt-5-mini",
+                input={
+                    "prompt": prompt,
+                    "image": f"data:image/jpeg;base64,{image_b64}",
+                    "max_tokens": 1500,
+                    "temperature": 0.2,
+                }
             )
             
-            # Debug: print raw response
-            result_text = response.text if response.text else ""
-            print(f"🔮 Gemini raw response length: {len(result_text)} chars")
+            # Handle streaming output from Replicate
+            if hasattr(output, '__iter__') and not isinstance(output, str):
+                result_text = "".join(output)
+            else:
+                result_text = str(output) if output else ""
+            
+            print(f"🤖 GPT-5-mini raw response length: {len(result_text)} chars")
             
             if not result_text:
-                # Try getting text from candidates
-                if hasattr(response, 'candidates') and response.candidates:
-                    for candidate in response.candidates:
-                        if hasattr(candidate, 'content') and candidate.content:
-                            for part in candidate.content.parts:
-                                if hasattr(part, 'text') and part.text:
-                                    result_text = part.text
-                                    break
-            
-            if not result_text:
-                raise ValueError("Empty response from Gemini")
+                raise ValueError("Empty response from GPT-5-mini")
             
             # Clean up any markdown formatting
             if "```json" in result_text:
@@ -3598,7 +3584,7 @@ Return JSON array ONLY. No explanation."""
             # FIX 5: Validate response has expected number of items
             if isinstance(result, list):
                 if len(result) < len(items):
-                    print(f"   ⚠️ FIX 5: Gemini returned {len(result)}/{len(items)} items - filling missing with static mapping")
+                    print(f"   ⚠️ FIX 5: GPT-5-mini returned {len(result)}/{len(items)} items - filling missing with static mapping")
                     # Fill missing items with static fallback
                     result_labels = {r.get("item", "").lower() for r in result}
                     for item in items:
@@ -3612,11 +3598,11 @@ Return JSON array ONLY. No explanation."""
                             })
                             print(f"      Added fallback for missing: {item.get('label')}")
             
-            print(f"🔮 Gemini classifications: {len(result)} items validated")
+            print(f"🤖 GPT-5-mini classifications: {len(result)} items validated")
             return result
             
         except Exception as e:
-            print(f"⚠️ Gemini classification failed: {e}, using static mapping")
+            print(f"⚠️ GPT-5-mini classification failed: {e}, using static mapping")
             # Fallback to static mapping
             return [
                 {"item": i.get("label", "unknown"), 
