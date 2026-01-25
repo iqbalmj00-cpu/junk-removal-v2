@@ -242,24 +242,84 @@ try:
     
     # ==================== TIERED PRICING ====================
     # Industry-aligned volume buckets - MIN 1 yd³, MAX 18 yd³
+    # ==================== v2.9 PRICING TIERS (20 yd³ truck) ====================
+    # Box-based pricing with step increments per 0.5 yd³
+    # 
+    # Box  Volume Range    Price Range       Step per 0.5 yd³
+    # A    0.0 – 2.0       $135 (minimum)    Flat
+    # B    2.5 – 5.0       $135 – $285       +$30
+    # C    5.5 – 7.5       $285 – $575       +$72.50
+    # D    8.0 – 10.0      $285 – $575       +$72.50
+    # E    10.5 – 12.5     $575 – $865       +$72.50
+    # F    13.0 – 15.0     $575 – $865       +$72.50
+    # G    15.5 – 17.5     $865 – $1,150     +$71.25
+    # H    18.0 – 19.5     $865 – $1,150     +$71.25
+    # I    20.0            $1,150 (max)      Flat
+    
+    PRICING_BOXES = {
+        "A": {"min_vol": 0.0,  "max_vol": 2.0,  "min_price": 135, "max_price": 135,  "step": 0},
+        "B": {"min_vol": 2.5,  "max_vol": 5.0,  "min_price": 135, "max_price": 285,  "step": 30},
+        "C": {"min_vol": 5.5,  "max_vol": 7.5,  "min_price": 285, "max_price": 575,  "step": 72.50},
+        "D": {"min_vol": 8.0,  "max_vol": 10.0, "min_price": 285, "max_price": 575,  "step": 72.50},
+        "E": {"min_vol": 10.5, "max_vol": 12.5, "min_price": 575, "max_price": 865,  "step": 72.50},
+        "F": {"min_vol": 13.0, "max_vol": 15.0, "min_price": 575, "max_price": 865,  "step": 72.50},
+        "G": {"min_vol": 15.5, "max_vol": 17.5, "min_price": 865, "max_price": 1150, "step": 71.25},
+        "H": {"min_vol": 18.0, "max_vol": 19.5, "min_price": 865, "max_price": 1150, "step": 71.25},
+        "I": {"min_vol": 20.0, "max_vol": 20.0, "min_price": 1150, "max_price": 1150, "step": 0},
+    }
+    
+    # Ordered list for lookup
+    PRICING_BOX_ORDER = ["A", "B", "C", "D", "E", "F", "G", "H", "I"]
+    
+    def calculate_price_v29(volume_yards: float) -> tuple:
+        """
+        v2.9: Calculate price using box-based step pricing.
+        Returns (base_price, min_price, max_price, box_label).
+        """
+        volume = round(volume_yards * 2) / 2  # Round to nearest 0.5
+        volume = max(0, min(20.0, volume))     # Clamp to 0-20 yd³
+        
+        # Find the matching box
+        box_label = "A"
+        for label in PRICING_BOX_ORDER:
+            box = PRICING_BOXES[label]
+            if volume <= box["max_vol"]:
+                box_label = label
+                break
+        else:
+            box_label = "I"  # Full load
+        
+        box = PRICING_BOXES[box_label]
+        
+        # Calculate price within box
+        if box["step"] == 0:
+            # Flat price (boxes A and I)
+            base_price = box["min_price"]
+        else:
+            # Step-based price
+            steps_into_box = int((volume - box["min_vol"]) / 0.5)
+            base_price = box["min_price"] + (steps_into_box * box["step"])
+            base_price = min(base_price, box["max_price"])
+        
+        # Range (±10%)
+        min_price = max(135, round(base_price * 0.95))
+        max_price = round(base_price * 1.05)
+        
+        return int(base_price), int(min_price), int(max_price), box_label
+    
+    # Legacy compatibility - keep VOLUME_TIERS for existing functions
     VOLUME_TIERS = [
-        {"max_cuft": 27,   "price": 95,  "label": "Dispatch Minimum"},  # 1 yd³
-        {"max_cuft": 60,   "price": 99,  "label": "1/8 Load"},          # ~2.2 yd³
-        {"max_cuft": 80,   "price": 129, "label": "1/6 Load"},          # ~3.0 yd³
-        {"max_cuft": 120,  "price": 149, "label": "1/4 Load"},          # ~4.4 yd³
-        {"max_cuft": 180,  "price": 199, "label": "3/8 Load"},          # ~6.7 yd³
-        {"max_cuft": 240,  "price": 299, "label": "Half Load"},         # ~8.9 yd³
-        {"max_cuft": 300,  "price": 349, "label": "5/8 Load"},          # ~11 yd³
-        {"max_cuft": 360,  "price": 399, "label": "3/4 Load"},          # ~13 yd³
-        {"max_cuft": 420,  "price": 479, "label": "7/8 Load"},          # ~16 yd³
-        {"max_cuft": 486,  "price": 599, "label": "Full Load"},         # 18 yd³ MAX
+        {"max_cuft": 54,   "price": 135,  "label": "Box A (Min)"},    # 2 yd³
+        {"max_cuft": 135,  "price": 285,  "label": "Box B"},          # 5 yd³
+        {"max_cuft": 202,  "price": 575,  "label": "Box C-D"},        # 7.5-10 yd³
+        {"max_cuft": 337,  "price": 865,  "label": "Box E-F"},        # 12.5-15 yd³
+        {"max_cuft": 527,  "price": 1150, "label": "Box G-H"},        # 17.5-19.5 yd³
+        {"max_cuft": 540,  "price": 1150, "label": "Box I (Full)"},   # 20 yd³
     ]
     
-    # ==================== PRICING v2.1 ====================
-    # Hard range caps (tight UX)
+    # ==================== PRICING v2.9 ====================
     RANGE_CAPS = {250: 50, 400: 75, 999: 100}
-    PRICE_FLOOR = 95  # Dispatch Minimum
-    MIN_SPREAD = 10   # Minimum range width
+    PRICE_FLOOR = 135  # Minimum price (Box A)
     
     # Disposal candidates (flags only, not priced by tool)
     DISPOSAL_CANDIDATES = ["mattress", "refrigerator", "freezer", "ac_unit", "tv", "monitor", "tire", "box_spring"]
@@ -4473,59 +4533,44 @@ Return JSON array ONLY. No explanation."""
                 add_on_flags[f"{flag}_possible"] = True
                 print(f"🏷️ Add-on flag: {flag}_possible (UI will price)")
             
-            # 5. Pricing Math v2.2 (TIERED + TIGHT RANGES + INVARIANTS + SANITY)
+            # 5. Pricing Math v2.9 (BOX-BASED STEP PRICING)
             final_vol = round_to_half(final_vol)  # Round to nearest 0.5 (display only)
             
-            # Choose tier from volume (not price)
-            tier_id, tier = choose_tier_v2(final_vol)
-            base_price = tier["price"]
-            tier_label = tier["label"]
+            # v2.9: Use new box-based step pricing
+            base_price, base_min, base_max, box_label = calculate_price_v29(final_vol)
+            tier_label = f"Box {box_label}"
             
-            # Calculate v2.1 uncertainty inputs
+            # Calculate v2.1 uncertainty inputs (for logging)
             anchor_trust = "LOW" if not detections.get("anchor_found") else "MEDIUM"
             fallback_items = [item for item in catalog_items if item.get("used_fallback", False)]
             fallback_count = len(fallback_items)
             fallback_ratio = fallback_count / max(len(catalog_items), 1)
             
-            # Sum fallback range widths for uncertainty
-            fallback_uncertainty = sum(
-                (item.get("range", (0, 0))[1] - item.get("range", (0, 0))[0])
-                for item in fallback_items
-            )
-            
-            size_conf = confidence.get("confidence", 0.85)
-            catalog_variance = 0  # TODO: Compute from size variants
+            # v2.9: Get tier_id for legacy compatibility
+            tier_id, tier = choose_tier_v2(final_vol)
             near_cliff = is_near_cliff(final_vol, tier_id)
             
-            # v2.1 delta with 1-tier crossing limit
-            delta = calc_volume_delta_v21(
-                final_vol, anchor_trust, fallback_uncertainty, 
-                size_conf, catalog_variance, near_cliff, tier_id
-            )
-            print(f"💰 Tier v2.1: {tier_label} → ${base_price} (for {final_vol} yd³, delta=±{delta:.2f})")
+            print(f"💰 v2.9: {tier_label} → ${base_price} (for {final_vol} yd³)")
+            print(f"   📊 Range: ${base_min}–${base_max}")
             
-            # Map volume bounds to price range
-            vol_low = max(0, final_vol - delta)
-            vol_high = final_vol + delta
-            _, tier_low = choose_tier_v2(vol_low)
-            _, tier_high = choose_tier_v2(vol_high)
-            raw_min = tier_low["price"]
-            raw_max = tier_high["price"]
-            
-            # Apply tier-aware cap
-            cap = get_range_cap(base_price)
-            base_min = max(raw_min, base_price - cap // 2, PRICE_FLOOR)
-            base_max = min(raw_max, base_price + cap // 2)
-            print(f"   📊 Range capped: ${base_min}–${base_max} (cap=${cap})")
-            
-            # Surcharges: only heavy_surcharge (add-ons are UI-only in v2.1)
+            # Surcharges: only heavy_surcharge (add-ons are UI-only)
             total_surcharge = heavy_surcharge
             
-            # v2.1 finalize with directional rounding and invariants
-            final_estimate, final_min, final_max = finalize_prices_v21(
-                base_price, base_min, base_max, total_surcharge, tier_id
-            )
-            print(f"   ✅ Final v2.1: ${final_min}–${final_max} (estimate=${final_estimate})")
+            # Apply surcharges
+            final_estimate = base_price + total_surcharge
+            final_min = base_min + total_surcharge
+            final_max = base_max + total_surcharge
+            
+            # Ensure floor
+            final_min = max(final_min, PRICE_FLOOR)
+            final_estimate = max(final_estimate, PRICE_FLOOR)
+            
+            # Pretty round
+            final_estimate = round_nearest(final_estimate)
+            final_min = round_down(final_min)
+            final_max = round_up(final_max)
+            
+            print(f"   ✅ Final v2.9: ${final_min}–${final_max} (estimate=${final_estimate})")
             
             # Detect flags (not priced by tool)
             disposal_flags = detect_disposal_flags(catalog_items)
