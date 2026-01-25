@@ -720,6 +720,26 @@ try:
     
     STACK_LABEL_BONUS = 0.9  # Labels ending in _stack get 10% tighter packing
     
+    # ==================== V3.3 ENHANCEMENTS ====================
+    # Cluster diameter guard
+    MAX_CLUSTER_DIAMETER_RATIO = 0.45  # If cluster > 45% of image, no packing
+    
+    # Scene mode detection
+    SCENE_MODE_THRESHOLDS = {
+        "pile_detection_count": 6,      # >= 6 detections = pile mode
+        "pile_coverage_threshold": 0.5, # < 50% coverage = pile mode
+        "pile_depth_range": 0.5,        # > 0.5 depth range = pile mode
+        "single_item_remainder": 0.60,  # Single-item mode: 60% residual threshold
+    }
+    
+    # Remainder multi-trigger config
+    REMAINDER_TRIGGERS = {
+        "residual_threshold_pile": 0.30,
+        "residual_threshold_single": 0.60,
+        "min_detections": 6,
+        "depth_range_threshold": 0.4
+    }
+    
     # ==================== PILE VS ITEM ARCHITECTURE ====================
     # Detection types: single_item, stack, pile
     DETECTION_TYPES = {
@@ -1787,23 +1807,184 @@ Now run the audit using the provided inputs. Output JSON only."""
             coverage = np.sum(grid) / (UNION_GRID_SIZE ** 2)
             return coverage
         
-        def recompute_if_needed(self, detections: list, img_w: int, img_h: int, depth_stats: dict = None):
-            """Rerun canonical → cluster → remainder if any detection needs recompute."""
-            needs_recompute = any(d.get("needs_volume_recompute") for d in detections)
-            if not needs_recompute:
-                return detections, None
+        # ==================== V3.3 FUNCTIONS ====================
+        
+        def normalize_all_bboxes(self, detections: list, img_w: int, img_h: int) -> list:
+            """Phase 1: Normalize ALL bboxes to pixels immediately after merge."""
+            for det in detections:
+                det["bbox_pixels"] = self.normalize_bbox_v31(det.get("bbox"), img_w, img_h)
+            return detections
+        
+        def detect_scene_mode(self, detections: list, depth_stats: dict, coverage: float) -> str:
+            """Phase 5: Detect if scene is pile or single_item mode."""
+            if len(detections) >= SCENE_MODE_THRESHOLDS["pile_detection_count"]:
+                return "pile"
+            if coverage < SCENE_MODE_THRESHOLDS["pile_coverage_threshold"]:
+                return "pile"
+            if depth_stats and depth_stats.get("range", 0) > SCENE_MODE_THRESHOLDS["pile_depth_range"]:
+                return "pile"
+            return "single_item"
+        
+        def validate_cluster_diameter(self, cluster_items: list, img_w: int, img_h: int):
+            """Phase 4: Check if cluster is too spread out for packing."""
+            import math
+            if not cluster_items:
+                return None
             
-            print("   🔄 Rerunning: canonical → cluster → remainder")
-            detections = self.apply_canonical_labels(detections)
-            detections = self.calculate_cluster_volumes_v31(detections, img_w, img_h)
+            # Get union of all bboxes in cluster
+            x1_min = min(d.get("bbox_pixels", [0,0,0,0])[0] for d in cluster_items)
+            y1_min = min(d.get("bbox_pixels", [0,0,0,0])[1] for d in cluster_items)
+            x2_max = max(d.get("bbox_pixels", [0,0,0,0])[2] for d in cluster_items)
+            y2_max = max(d.get("bbox_pixels", [0,0,0,0])[3] for d in cluster_items)
             
-            total_item_vol = sum(d.get("cluster_volume", 0) or d.get("volume_yards", 0) for d in detections if not d.get("in_cluster"))
-            remainder = self.estimate_pile_remainder_v31(detections, img_w, img_h, total_item_vol, depth_stats)
+            cluster_diag = math.sqrt((x2_max - x1_min)**2 + (y2_max - y1_min)**2)
+            img_diag = math.sqrt(img_w**2 + img_h**2)
             
-            for d in detections:
-                d["needs_volume_recompute"] = False
+            if cluster_diag > img_diag * MAX_CLUSTER_DIAMETER_RATIO:
+                print(f"   ⚠️ Cluster too spread ({cluster_diag:.0f} / {img_diag:.0f}), packing=1.0")
+                return 1.0  # No packing for spread-out items
+            return None
+        
+        def should_activate_remainder(self, mode: str, residual_pct: float, detections: list, 
+                                       anchor_present: bool, depth_stats: dict) -> bool:
+            """Phase 5: Mode-aware remainder trigger."""
+            if mode == "pile":
+                return (
+                    residual_pct > REMAINDER_TRIGGERS["residual_threshold_pile"] or
+                    len(detections) < REMAINDER_TRIGGERS["min_detections"] or
+                    not anchor_present or
+                    (depth_stats and depth_stats.get("range", 0) > REMAINDER_TRIGGERS["depth_range_threshold"])
+                )
+            else:  # single_item
+                return residual_pct > REMAINDER_TRIGGERS["residual_threshold_single"]
+        
+        def compute_pipeline_hash(self, detections: list, remainder: dict) -> str:
+            """Phase 8: SHA-256 hash with full signature."""
+            import hashlib
+            import json
+            
+            signature = {
+                "labels": sorted([d.get("canonical_label", "") for d in detections]),
+                "bboxes": [[int(b) for b in d.get("bbox_pixels", [0,0,0,0])] for d in detections],
+                "sizes": [d.get("size_class", "medium") for d in detections],
+                "clusters": [(d.get("canonical_label", ""), d.get("spatial_cluster_id", 0)) for d in detections],
+                "remainder": {
+                    "activated": remainder.get("activated", False),
+                    "yards": remainder.get("remainder_yards", 0)
+                }
+            }
+            return hashlib.sha256(json.dumps(signature, sort_keys=True).encode()).hexdigest()[:16]
+        
+        def finalize_volumes(self, detections: list, remainder: dict) -> str:
+            """Phase 8: Auto-lock with hash."""
+            pipeline_hash = self.compute_pipeline_hash(detections, remainder)
+            for det in detections:
+                det["volume_stage"] = VOLUME_STAGES["final"]
+                det["volume_stage_name"] = "final"
+                det["pipeline_hash"] = pipeline_hash
+            print(f"   🔒 Volumes locked, hash={pipeline_hash}")
+            return pipeline_hash
+        
+        def validate_and_heal(self, detections: list, remainder: dict, expected_hash: str,
+                               img_w: int, img_h: int, depth_stats: dict, anchor_present: bool):
+            """Phase 8: Self-heal on hash mismatch (no crash)."""
+            current_hash = self.compute_pipeline_hash(detections, remainder)
+            if current_hash != expected_hash:
+                print("   ⚠️ Pipeline drift detected, auto-healing...")
+                detections, remainder = self.recompute_full_pipeline(
+                    detections, img_w, img_h, depth_stats, anchor_present
+                )
+                self.finalize_volumes(detections, remainder)
+            return detections, remainder
+        
+        def recompute_full_pipeline(self, detections: list, img_w: int, img_h: int, 
+                                     depth_stats: dict = None, anchor_present: bool = False):
+            """Phase 7: Full recompute: canon → cluster → union → remainder."""
+            print("   🔄 Full recompute: canonical → cluster → union → remainder")
+            
+            # 1. Re-lookup volumes from base
+            for det in detections:
+                if det.get("needs_volume_recompute"):
+                    det["base_volume_yards"] = self.get_canonical_volume(
+                        det.get("canonical_label", ""), det.get("size_class", "medium")
+                    )
+                    det["volume_yards"] = det["base_volume_yards"]
+            
+            # 2. DBSCAN + packing
+            detections = self.calculate_cluster_volumes_v33(detections, img_w, img_h)
+            
+            # 3. Union coverage (junk only)
+            junk_items = [d for d in detections if d.get("is_junk", True) and not d.get("is_background")]
+            coverage = self.calculate_union_coverage(junk_items, img_w, img_h)
+            residual = max(0, 1.0 - coverage)
+            
+            # 4. Mode-aware remainder
+            mode = self.detect_scene_mode(detections, depth_stats, coverage)
+            total_item_vol = sum(
+                d.get("cluster_volume", 0) or d.get("volume_yards", 0.75)
+                for d in detections if not d.get("in_cluster")
+            )
+            
+            if self.should_activate_remainder(mode, residual, detections, anchor_present, depth_stats):
+                remainder = self.estimate_pile_remainder_v31(detections, img_w, img_h, total_item_vol, depth_stats)
+            else:
+                remainder = {"remainder_yards": 0, "activated": False, "residual_pct": residual}
+            
+            # 5. Clear flags
+            for det in detections:
+                det["needs_volume_recompute"] = False
             
             return detections, remainder
+        
+        def calculate_cluster_volumes_v33(self, detections: list, img_w: int, img_h: int) -> list:
+            """Phase 3-4: Cluster with base_volume + diameter guard."""
+            detections = self.spatial_cluster_detections(detections, img_w, img_h)
+            
+            clusters = {}
+            for det in detections:
+                key = (det.get("canonical_label"), det.get("spatial_cluster_id", 0))
+                clusters.setdefault(key, []).append(det)
+            
+            for (label, cluster_id), items in clusters.items():
+                n = len(items)
+                # Use base_volume_yards for cluster math
+                sum_base = sum(d.get("base_volume_yards", d.get("volume_yards", 0.75)) for d in items)
+                
+                group = LABEL_TO_PACKING_GROUP.get(label, "rigid")
+                packing = PACKING_GROUPS.get(group, 1.0)
+                
+                # Stack-type override
+                if label and (label.endswith("_stack") or any(d.get("pile_type") == "stack" for d in items)):
+                    packing *= STACK_LABEL_BONUS
+                
+                # Diameter guard
+                override = self.validate_cluster_diameter(items, img_w, img_h)
+                if override is not None:
+                    packing = override
+                
+                # Only apply packing to 2+ items
+                if n == 1:
+                    packing = 1.0
+                
+                cluster_vol = round(sum_base * packing, 2)
+                
+                items[0]["cluster_volume"] = cluster_vol
+                items[0]["cluster_size"] = n
+                items[0]["packing_factor"] = packing
+                
+                for item in items[1:]:
+                    item["in_cluster"] = f"{label}_{cluster_id}"
+                    item["volume_yards"] = 0  # For summation
+                    # base_volume_yards preserved
+                
+                for item in items:
+                    item["volume_stage"] = VOLUME_STAGES["clustered"]
+                    item["volume_stage_name"] = "clustered"
+                
+                if n > 1:
+                    print(f"   📦 {label}[{cluster_id}]: {n}× base={sum_base:.2f} × pack({packing:.2f}) = {cluster_vol:.2f} yd³")
+            
+            return detections
         
         def detect_scene_type(self, detections: list) -> str:
             """FIX 2: Detect if scene is outdoor/construction or indoor/residential."""
@@ -3230,8 +3411,8 @@ Return JSON array ONLY. No explanation."""
             catalog_items = valid_items
             catalog_volume["items"] = catalog_items
             
-            # 2a.6 DBSCAN Spatial Clustering + Packing Groups (v3.1)
-            print("📦 Running DBSCAN spatial clustering (v3.1)...")
+            # 2a.6 v3.3: Normalize bboxes + DBSCAN Spatial Clustering
+            print("📦 Running v3.3: bbox normalization + DBSCAN clustering...")
             # Get image dimensions
             img_width = 1024
             img_height = 768
@@ -3243,37 +3424,58 @@ Return JSON array ONLY. No explanation."""
                     img_height = max(img_height, int(bbox[3]) if len(bbox) > 3 else 768)
                     break
             
-            # Apply v31 cluster volumes with DBSCAN
-            catalog_items = vision_worker.calculate_cluster_volumes_v31(catalog_items, img_width, img_height)
+            # Phase 1: Normalize all bboxes first
+            catalog_items = vision_worker.normalize_all_bboxes(catalog_items, img_width, img_height)
             
-            # 2a.7 Calculate pile remainder with union coverage (v3.1)
-            print("📊 Calculating pile remainder with union coverage (v3.1)...")
+            # Phase 3: Store base_volume_yards (never zeroed)
+            for item in catalog_items:
+                item["base_volume_yards"] = item.get("volume_yards", 0.75)
+            
+            # Apply v3.3 cluster volumes with DBSCAN + diameter guard
+            catalog_items = vision_worker.calculate_cluster_volumes_v33(catalog_items, img_width, img_height)
+            
+            # 2a.7 v3.3: Mode-aware pile remainder
+            print("📊 Calculating pile remainder (v3.3 mode-aware)...")
             depth_stats = None
             for r in all_vision_results:
                 if r.get("depth_stats"):
                     depth_stats = r["depth_stats"]
                     break
             
-            # Sum cluster volumes (not in_cluster items)
+            # Phase 6: Union coverage (junk only)
+            junk_items = [item for item in catalog_items if item.get("is_junk", True) and not item.get("is_background")]
+            coverage = vision_worker.calculate_union_coverage(junk_items, img_width, img_height)
+            residual = max(0, 1.0 - coverage)
+            
+            # Sum cluster volumes
             total_item_vol = sum(
                 item.get("cluster_volume", 0) or item.get("volume_yards", 0.75)
                 for item in catalog_items if not item.get("in_cluster")
             )
-            pile_remainder = vision_worker.estimate_pile_remainder_v31(catalog_items, img_width, img_height, total_item_vol, depth_stats)
+            
+            # Phase 5: Mode-aware remainder trigger
+            anchor_present = any(item.get("is_anchor") for item in catalog_items)
+            mode = vision_worker.detect_scene_mode(catalog_items, depth_stats, coverage)
+            print(f"   🎯 Scene mode: {mode}, coverage={coverage:.1%}, residual={residual:.1%}")
+            
+            if vision_worker.should_activate_remainder(mode, residual, catalog_items, anchor_present, depth_stats):
+                pile_remainder = vision_worker.estimate_pile_remainder_v31(catalog_items, img_width, img_height, total_item_vol, depth_stats)
+            else:
+                pile_remainder = {"remainder_yards": 0, "activated": False, "residual_pct": residual}
+                print(f"   📊 Remainder skipped (mode={mode}, residual={residual:.1%})")
             
             # Final total
             remainder_vol = pile_remainder.get("remainder_yards", 0)
             total_with_remainder = total_item_vol + remainder_vol
             
-            print(f"   📊 Total volume (v3.1): items={total_item_vol:.2f} + remainder={remainder_vol:.2f} = {total_with_remainder:.2f} yd³")
+            print(f"   📊 Total volume (v3.3): items={total_item_vol:.2f} + remainder={remainder_vol:.2f} = {total_with_remainder:.2f} yd³")
             
-            # Lock volumes at final stage
-            for item in catalog_items:
-                item["volume_stage"] = VOLUME_STAGES["final"]
-                item["volume_stage_name"] = "final"
+            # Phase 8: Auto-lock with hash
+            pipeline_hash = vision_worker.finalize_volumes(catalog_items, pile_remainder)
             catalog_volume["items"] = catalog_items
             catalog_volume["pile_remainder"] = pile_remainder
             catalog_volume["total_volume_yards"] = total_with_remainder
+            catalog_volume["pipeline_hash"] = pipeline_hash
             
             # 2b. GPT-5.2 Audit (replaces Gemini)
             # Build initial classifications list for audit
