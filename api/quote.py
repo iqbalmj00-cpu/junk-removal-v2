@@ -3265,34 +3265,7 @@ class PricingEngine:
             print(f"❌ GEMINI ERROR: {e}")
             return None
 
-    async def ask_gpt(self, base64_images):
-        try:
-            content = [{"type": "text", "text": self._get_system_prompt()}]
-            for img_b64 in base64_images:
-                 content.append({
-                    "type": "image_url", 
-                    "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}
-                })
-
-            response = await self.openai_client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": content}],
-                temperature=0.0,
-                max_tokens=300,
-                response_format={"type": "json_object"}
-            )
-            
-            raw_content = response.choices[0].message.content
-             # Cleanup markdown
-            if raw_content.startswith("```json"):
-                raw_content = raw_content[7:]
-            if raw_content.endswith("```"):
-                raw_content = raw_content[:-3]
-                
-            return json.loads(raw_content)
-        except Exception as e:
-            print(f"❌ GPT ERROR: {e}")
-            return None
+    # NOTE: GPT-4o removed - using only GPT-5.2 for auditing
     
     async def classify_with_gemma(self, image_b64: str, items: list) -> list:
         """Use Google Gemini Vision to classify ambiguous items into pricing categories."""
@@ -3597,7 +3570,7 @@ Return JSON array ONLY. No explanation."""
         return (d.get('l', 0) * d.get('w', 0) * d.get('h', 0)) / 27.0
 
     async def process_quote(self, images, base64_images, heavy_level='none'):
-        print("🚀 STARTING DUAL-MODEL CONSENSUS (Async)...")
+        print("🚀 STARTING GEMINI-ONLY QUOTE (GPT-4o removed)...")
         
         # Heavy Surcharge from user selection
         heavy_surcharge = HEAVY_SURCHARGES.get(heavy_level, 0)
@@ -3608,73 +3581,32 @@ Return JSON array ONLY. No explanation."""
         for img_bytes in images:
              gemini_inputs.append(types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
 
-        # 2. Parallel Execution (Survivor Protocol)
-        results = await asyncio.gather(
-            self.ask_gemini(gemini_inputs),
-            self.ask_gpt(base64_images),
-            return_exceptions=True
-        )
-        
-        res_gemini = results[0] if not isinstance(results[0], Exception) else None
-        res_gpt = results[1] if not isinstance(results[1], Exception) else None
-
-        if isinstance(results[0], Exception): print(f"❌ Gemini Exception: {results[0]}")
-        if isinstance(results[1], Exception): print(f"❌ GPT Exception: {results[1]}")
+        # 2. Gemini-only execution (GPT-4o removed)
+        try:
+            res_gemini = await self.ask_gemini(gemini_inputs)
+        except Exception as e:
+            print(f"❌ Gemini Exception: {e}")
+            res_gemini = None
 
         # 3. Fail-Over Check
-        if not res_gemini and not res_gpt:
-            return {"status": "SHADOW_MODE", "message": "Both Models Failed", "reason": "System Outage"}
-        
-        # Use survivor if one failed
         if not res_gemini:
-            res_gemini = res_gpt
-            print("⚠️ Gemini failed, mirroring GPT data.")
-        if not res_gpt:
-            res_gpt = res_gemini
-            print("⚠️ GPT failed, mirroring Gemini data.")
+            return {"status": "SHADOW_MODE", "message": "Gemini Failed", "reason": "System Outage"}
 
-        # 4. Confidence Gate
+        # 4. Confidence Gate (Gemini-only)
         conf_gemini = res_gemini.get('confidence_score', 0)
-        conf_gpt = res_gpt.get('confidence_score', 0)
         
-        if conf_gemini < 0.5 and conf_gpt < 0.5:
-             return {"status": "SHADOW_MODE", "message": "Image Unclear", "debug": f"Conf: G{conf_gemini}|O{conf_gpt}"}
+        if conf_gemini < 0.5:
+             return {"status": "SHADOW_MODE", "message": "Image Unclear", "debug": f"Conf: {conf_gemini}"}
 
-        # 5. Variance Check
+        # 5. Volume Calculation (Gemini-only)
         vol_gemini = self.calculate_volume(res_gemini)
-        vol_gpt = self.calculate_volume(res_gpt)
         
-        # Filter out invalid volumes (0.0 usually means parsing error or empty response)
-        if vol_gemini <= 0: vol_gemini = vol_gpt
-        if vol_gpt <= 0: vol_gpt = vol_gemini
+        if vol_gemini <= 0:
+            return {"status": "SHADOW_MODE", "message": "Could not calculate volume", "debug": "vol=0"}
 
-        diff = abs(vol_gemini - vol_gpt)
-        avg_vol = (vol_gemini + vol_gpt) / 2
-        variance = (diff / avg_vol) if avg_vol > 0 else 0
-        
-        print(f"🧮 MATH: Gemini({vol_gemini:.2f}) | GPT({vol_gpt:.2f}) | Diff({diff:.2f}) | Var({variance:.1%})")
+        print(f"🧮 MATH: Gemini({vol_gemini:.2f} yd³)")
 
-        final_vol = 0.0
-        
-        # Small Load Exception
-        if diff < 1.5:
-            final_vol = avg_vol
-            print("✅ SMALL LOAD EXCEPTION: Using Average")
-        elif variance < 0.20:
-             # High Agreement
-             final_vol = avg_vol
-             print("✅ HIGH AGREEMENT: Using Average")
-        elif variance <= 0.40:
-             # Moderate Disagreement -> Be Conservative (Min)
-             final_vol = min(vol_gemini, vol_gpt)
-             print("⚠️ MODERATE DISAGREEMENT: Using Minimum")
-        else:
-             # High Variance
-             return {
-                 "status": "SHADOW_MODE", 
-                 "message": "High Variance Detected", 
-                 "debug": f"Variance {variance:.1%}. Gemini: {vol_gemini} vs GPT: {vol_gpt}"
-             }
+        final_vol = vol_gemini
 
         # 6. Pricing Math
         final_vol = round(final_vol, 1)
@@ -3702,10 +3634,8 @@ Return JSON array ONLY. No explanation."""
             "heavy_surcharge": heavy_surcharge,
             "debug": {
                 "gemini_vol": vol_gemini,
-                "gpt_vol": vol_gpt,
-                "variance": f"{variance:.1%}",
+                "confidence": conf_gemini,
                 "gemini_raw": res_gemini,
-                "gpt_raw": res_gpt,
                 "heavy_level": heavy_level
             }
         }
