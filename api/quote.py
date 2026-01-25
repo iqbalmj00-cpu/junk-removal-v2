@@ -4092,16 +4092,16 @@ Return JSON array ONLY. No explanation."""
                     
                     # Store size for volume lookup
                     if cls.get("size"):
-                        gemma_sizes[label] = cls["size"]
+                        gemma_sizes[raw_label] = cls["size"]
                     
                     # Store corrected label for logging
-                    if cls.get("corrected_label") and cls["corrected_label"] != label:
-                        print(f"🔄 Gemini corrected: {label} → {cls['corrected_label']}")
+                    if cls.get("corrected_label") and cls["corrected_label"].lower() != raw_label:
+                        print(f"🔄 Gemini corrected: {raw_label} → {cls['corrected_label']}")
                     
                     # Store add-on flags
                     if cls.get("add_on_flags"):
                         gemma_add_ons.extend(cls["add_on_flags"])
-                        print(f"➕ Gemini detected add-ons for {label}: {cls['add_on_flags']}")
+                        print(f"➕ Gemini detected add-ons for {raw_label}: {cls['add_on_flags']}")
             
             # 2a.5 Apply Canonical Label System (Recommendation 4)
             # This normalizes all labels and applies proper volumes from catalog
