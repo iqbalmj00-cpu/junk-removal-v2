@@ -615,6 +615,18 @@ try:
     # v2.5: BANNED LABELS (never get volume)
     BANNED_LABELS = {"stack", "wooden", "banned_label", "object", "stuff", "item"}
     
+    # v2.8: CATEGORY → ITEMS map (for category-level skip propagation)
+    CATEGORY_ITEMS = {
+        "appliance": {"washer", "dryer", "refrigerator", "dishwasher", "stove", "oven", "microwave", "appliance"},
+        "furniture": {"couch", "sofa", "loveseat", "chair", "table", "desk", "dresser", "nightstand", "bed_frame", "mattress"},
+        "electronics": {"television", "tv", "monitor", "computer", "crt_television", "flat_screen_tv", "ewaste"},
+        "tires": {"tires", "tire", "wheel", "wheel_unspecified"},
+    }
+    
+    # v2.8: LOW IMPACT LABELS (don't aggressively skip, cap volume)
+    LOW_IMPACT_LABELS = {"boxes", "bags", "bag", "box", "misc", "unknown_small", "plastic_bag", "plastic bag"}
+    LOW_IMPACT_MAX_VOLUME = 0.2  # Never price more than 0.2 yd³ per low-impact item
+    
     def canonicalize_synonym(label: str, gemini_correction: str = None) -> str:
         """Aggressive synonym canonicalization."""
         label_lower = label.lower().strip()
@@ -2192,14 +2204,27 @@ Now run the audit using the provided inputs. Output JSON only."""
                 det["canonical_label"] = canonical_label
                 det["label"] = canonical_label  # Overwrite for consistency
                 
-                # v2.7: Override to tires if GPT category says so
+                # v2.8: Tighter tire override - require STRONG evidence
                 cat = gemini_info.get("category", "")
-                if cat == "tires" or (corrected_label and "tire" in corrected_label.lower()):
+                corrected_lower = (corrected_label or "").lower()
+                should_promote_to_tires = False
+                
+                if cat == "tires":
+                    # Category explicitly set to tires by GPT - check corrected label
+                    if corrected_lower in ["tires", "tire", "tire stack", "tire pile", "stack of tires"]:
+                        should_promote_to_tires = True
+                        print(f"🔄 v2.8: {raw_label} → tires (exact match)")
+                    elif "stack" in corrected_lower or "pile" in corrected_lower:
+                        should_promote_to_tires = True
+                        print(f"🔄 v2.8: {raw_label} → tires (stack/pile keyword)")
+                    else:
+                        print(f"⚠️ v2.8: {raw_label} has cat=tires but corrected='{corrected_lower}' - not enough evidence")
+                
+                if should_promote_to_tires:
                     canonical_label = "tires"
                     det["canonical_label"] = "tires"
                     det["normalized_label"] = "tires"
                     det["label"] = "tires"
-                    print(f"🔄 v2.7: {raw_label} → tires (GPT override)")
                 
                 # Validate canonical label
                 det["is_valid_label"] = (
@@ -2218,6 +2243,13 @@ Now run the audit using the provided inputs. Output JSON only."""
                 else:
                     # Apply canonical volume
                     det["volume_yards"] = self.get_canonical_volume(canonical_label, size_class)
+                    
+                    # v2.8: Cap volume for low-impact items
+                    if canonical_label.lower() in LOW_IMPACT_LABELS:
+                        if det["volume_yards"] > LOW_IMPACT_MAX_VOLUME:
+                            print(f"📦 v2.8: Capped {canonical_label} from {det['volume_yards']} to {LOW_IMPACT_MAX_VOLUME} yd³ (low-impact)")
+                            det["volume_yards"] = LOW_IMPACT_MAX_VOLUME
+                    
                     # v2.7: Set volume_source for debugging
                     if canonical_label.lower() in STABLE_CATALOG_VOLUMES:
                         det["volume_source"] = "stable_catalog"
@@ -4066,10 +4098,13 @@ Return JSON array ONLY. No explanation."""
                 # Store Gemini classifications for volume calculation
                 gemma_sizes = {}  # label -> size bucket
                 gpt_corrected_map = {}  # v2.7: normalized_key -> corrected_label (for tire override)
+                gemini_skip_ids = set()  # v2.8: Skip by detection_id
                 
                 for cls in classifications:
                     raw_label = (cls.get("item") or "").strip().lower()
                     corrected_label = (cls.get("corrected_label") or raw_label).strip().lower()
+                    detection_id = cls.get("detection_id")  # v2.8: If available
+                    gpt_confidence = cls.get("confidence", 0.5)
                     
                     # v2.7: Normalize with safe fallback
                     norm_raw = canonicalize_synonym(raw_label) or raw_label
@@ -4081,10 +4116,27 @@ Return JSON array ONLY. No explanation."""
                     
                     # Skip if Gemini says this isn't junk (background object)
                     if cls.get("is_junk") == False:
-                        # v2.7: Add ALL variants to skip set
-                        gemini_skip_labels.update({raw_label, corrected_label, norm_raw, norm_corr})
-                        print(f"🚫 v2.7 Skip: raw={raw_label}, corr={corrected_label}, norm_raw={norm_raw}, norm_corr={norm_corr}")
-                        continue
+                        # v2.8: Check if low-impact item - don't skip unless high confidence
+                        is_low_impact = raw_label in LOW_IMPACT_LABELS or norm_raw in LOW_IMPACT_LABELS
+                        if is_low_impact and gpt_confidence < 0.8:
+                            print(f"⚠️ v2.8: Keeping low-impact {raw_label} despite GPT skip (conf={gpt_confidence:.2f})")
+                            # Don't skip - continue to category storage
+                        else:
+                            # v2.8: Skip by detection_id if available
+                            if detection_id:
+                                gemini_skip_ids.add(detection_id)
+                            
+                            # v2.7: Add ALL label variants to skip set
+                            gemini_skip_labels.update({raw_label, corrected_label, norm_raw, norm_corr})
+                            
+                            # v2.8: Category propagation - if category is skipped, skip all items in that category
+                            skipped_category = cls.get("category", "").lower()
+                            if skipped_category in CATEGORY_ITEMS:
+                                gemini_skip_labels.update(CATEGORY_ITEMS[skipped_category])
+                                print(f"🔗 v2.8: Category propagation: {skipped_category} → {CATEGORY_ITEMS[skipped_category]}")
+                            
+                            print(f"🚫 v2.8 Skip: raw={raw_label}, corr={corrected_label}, norm_raw={norm_raw}, cat={skipped_category}")
+                            continue
                     
                     # Store category (keyed by all variants for lookup)
                     gemma_categories[raw_label] = cls.get("category", "furniture")
@@ -4125,6 +4177,14 @@ Return JSON array ONLY. No explanation."""
             # ==================== v2.6: CORRECT PIPELINE ORDER ====================
             # STEP 1: Finalize detection list FIRST (skip, dedupe, ban)
             # NO volumes assigned yet - just list cleanup
+            
+            # v2.8: Save ALL detection bboxes BEFORE finalization for consistent coverage
+            fused_detection_bboxes = [
+                {"bbox": item.get("bbox"), "label": item.get("label")}
+                for item in catalog_items if item.get("bbox")
+            ]
+            print(f"📐 v2.8: Saved {len(fused_detection_bboxes)} bboxes for remainder (pre-finalize)")
+            
             print("🔒 v2.6: Finalizing detection list BEFORE volume assignment...")
             catalog_items = finalize_detections(
                 catalog_items, 
@@ -4176,22 +4236,23 @@ Return JSON array ONLY. No explanation."""
                     depth_stats = r["depth_stats"]
                     break
             
-            # Phase 6: Union coverage (junk only)
-            junk_items = [item for item in catalog_items if item.get("is_junk", True) and not item.get("is_background")]
-            coverage = vision_worker.calculate_union_coverage(junk_items, img_width, img_height)
+            # v2.8: Use fused bboxes (pre-finalize) for consistent coverage
+            # This prevents 0% coverage when finalized list is sparse
+            coverage = vision_worker.calculate_union_coverage(fused_detection_bboxes, img_width, img_height)
+            print(f"📐 v2.8: Coverage from {len(fused_detection_bboxes)} fused bboxes: {coverage:.1%}")
             
             # v2.3 RULE 2: Coverage sanity check - if 0% but valid bboxes exist, recalculate
-            valid_bboxes = [item for item in catalog_items if item.get("bbox") or item.get("bbox_pixels")]
-            if coverage == 0 and len(valid_bboxes) > 0:
+            if coverage == 0 and len(fused_detection_bboxes) > 0:
                 # Force recalculate from bbox areas
                 total_bbox_area = sum(
                     (b[2] - b[0]) * (b[3] - b[1]) 
-                    for item in valid_bboxes 
-                    for b in [item.get("bbox", item.get("bbox_pixels", [0,0,0,0]))]
+                    for item in fused_detection_bboxes 
+                    for b in [item.get("bbox", [0,0,0,0])]
+                    if b and len(b) >= 4
                 )
                 image_area = img_width * img_height
                 coverage = min(1.0, total_bbox_area / image_area) if image_area > 0 else 0
-                print(f"⚠️ v2.3: Coverage was 0% with {len(valid_bboxes)} bboxes, recalculated to {coverage:.1%}")
+                print(f"⚠️ v2.8: Coverage was 0% with {len(fused_detection_bboxes)} bboxes, recalculated to {coverage:.1%}")
             
             residual = max(0, 1.0 - coverage)
             

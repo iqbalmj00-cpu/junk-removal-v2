@@ -6,3 +6,4 @@ wheel==0.45.1
 replicate
 Pillow
 numpy
+scikit-learn>=1.0.0
