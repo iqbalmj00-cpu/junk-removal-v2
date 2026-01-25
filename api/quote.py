@@ -519,6 +519,209 @@ try:
                 return tier["price"], tier["label"]
         return 599, "Full Load"
     
+    # ==================== VOLUME HOTFIX v2.2 ====================
+    
+    # Fix 2: Synonym canonicalization (deploy before clustering)
+    SYNONYM_MAP = {
+        # Debris
+        "debris pile": "mixed_debris",
+        "debris": "mixed_debris",
+        # Spools
+        "wooden spool": "cable_spool_wood",
+        "industrial spool": "cable_spool_wood",
+        # Tires
+        "wheel": "tires",  # May need Gemini confirmation
+        "tire": "tires",
+        # Crates
+        "wood crate": "wood_crate",
+        "wood crate shipping crate": "wood_crate",
+        # Bags
+        "plastic bag": "bags",
+        "bag": "bags",
+        # Garbage labels
+        "applian": "unknown_medium",
+        "stuff": "unknown_medium",
+        "object": "unknown_medium",
+        "item": "unknown_medium",
+    }
+    
+    def canonicalize_synonym(label: str, gemini_correction: str = None) -> str:
+        """Aggressive synonym canonicalization."""
+        label_lower = label.lower().strip()
+        # Check if wheel → tires needs Gemini confirmation
+        if label_lower == "wheel" and gemini_correction and gemini_correction.lower() != "tires":
+            return "unknown_medium"
+        return SYNONYM_MAP.get(label_lower, label_lower)
+    
+    # Fix 3: Pile height defaults (not flat 24")
+    PILE_HEIGHT_DEFAULTS = {
+        "furniture": 28,      # 24-30"
+        "bags_yard": 20,      # 18-24"
+        "mixed_debris": 30,   # 24-36"
+        "appliance": 32,      # Tall items
+        "unknown": 24,
+    }
+    
+    def get_default_pile_height(pile_type: str) -> int:
+        """Get default height by pile type, clamped 12-48\"."""
+        height = PILE_HEIGHT_DEFAULTS.get(pile_type, 24)
+        return max(12, min(height, 48))
+    
+    def infer_pile_type(items: list) -> str:
+        """Infer pile type from dominant item categories."""
+        supercats = [infer_supercategory(i.get("canonical_label", i.get("label", ""))) for i in items]
+        from collections import Counter
+        if not supercats:
+            return "unknown"
+        most_common = Counter(supercats).most_common(1)[0][0]
+        if most_common in ["large_furniture", "medium_furniture"]:
+            return "furniture"
+        elif most_common == "small_misc":
+            return "bags_yard"
+        elif most_common == "appliance":
+            return "appliance"
+        return "mixed_debris" if "mixed_debris" in [i.get("canonical_label", "") for i in items] else "unknown"
+    
+    # Fix 4: Remainder cap
+    REMAINDER_THRESHOLDS = {"pile": 0.25, "single_item": 0.35}
+    REMAINDER_CAP_FACTOR = 0.6  # remainder_vol <= 0.6 * packed_vol
+    
+    def should_activate_remainder_v22(mode: str, residual: float) -> bool:
+        """Fixed remainder trigger using residual, not coverage."""
+        return residual >= REMAINDER_THRESHOLDS.get(mode, 0.30)
+    
+    def cap_remainder_volume(remainder_vol: float, packed_vol: float) -> float:
+        """Cap remainder to prevent explosion."""
+        max_allowed = packed_vol * REMAINDER_CAP_FACTOR
+        if remainder_vol > max_allowed:
+            print(f"⚠️ Remainder capped: {remainder_vol:.2f} → {max_allowed:.2f} (max={REMAINDER_CAP_FACTOR}× packed)")
+            return max_allowed
+        return remainder_vol
+    
+    # Fix 5: Confidence gates (asymmetric downgrade)
+    HIGH_IMPACT_LABELS = {"hot_tub", "mixed_debris", "demo_heavy", "sectional", "piano"}
+    GARBAGE_LABELS = {"applian", "stuff", "object", "item", "thing"}
+    
+    def validate_label_v22(label: str, confidence: float, bbox_area: float, multi_model: bool) -> tuple:
+        """Validate high-impact labels with asymmetric downgrade. Returns (label, needs_confirmation)."""
+        if label in GARBAGE_LABELS:
+            return "unknown_medium", False
+        
+        if label in HIGH_IMPACT_LABELS:
+            if confidence < 0.7 or not multi_model:
+                # Asymmetric: downgrade based on bbox size
+                if bbox_area > 50000:  # Large bbox
+                    return "unknown_large", True
+                else:
+                    return "unknown_medium", True
+        return label, False
+    
+    # Fix 6: Hybrid clustering (label-type aware, no sklearn)
+    def dedupe_by_iou(detections: list, threshold: float = 0.3) -> list:
+        """Simple IoU-based deduplication without sklearn."""
+        if not detections:
+            return []
+        
+        def calc_iou(box1, box2):
+            x1 = max(box1[0], box2[0])
+            y1 = max(box1[1], box2[1])
+            x2 = min(box1[2], box2[2])
+            y2 = min(box1[3], box2[3])
+            
+            inter = max(0, x2 - x1) * max(0, y2 - y1)
+            area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+            area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+            union = area1 + area2 - inter
+            return inter / union if union > 0 else 0
+        
+        result = []
+        used = set()
+        
+        for i, det_a in enumerate(detections):
+            if i in used:
+                continue
+            bbox_a = det_a.get("bbox_pixels", det_a.get("bbox", [0, 0, 0, 0]))
+            result.append(det_a)
+            used.add(i)
+            
+            for j, det_b in enumerate(detections):
+                if j in used or j <= i:
+                    continue
+                bbox_b = det_b.get("bbox_pixels", det_b.get("bbox", [0, 0, 0, 0]))
+                if calc_iou(bbox_a, bbox_b) > threshold:
+                    used.add(j)  # Skip duplicate
+        
+        return result
+    
+    def cluster_detections_hybrid(detections: list, image_counts: dict = None) -> list:
+        """Hybrid clustering: IoU for unique, max-per-view for countables, merge debris."""
+        unique_items = []
+        countables = {}
+        debris_merged = None
+        
+        for det in detections:
+            label = det.get("canonical_label", det.get("label", "")).lower()
+            label = canonicalize_synonym(label)  # Apply synonyms first
+            det["canonical_label"] = label
+            
+            if label in UNIQUE_LABELS:
+                unique_items.append(det)
+            elif label in COUNTABLE_LABELS:
+                img_id = det.get("image_id", 0)
+                countables.setdefault(label, {}).setdefault(img_id, 0)
+                countables[label][img_id] += 1
+            elif label == "mixed_debris":
+                # Merge all debris into one
+                if debris_merged is None:
+                    debris_merged = det.copy()
+                    debris_merged["merged_count"] = 1
+                else:
+                    debris_merged["volume_yards"] = debris_merged.get("volume_yards", 0) + det.get("volume_yards", 0)
+                    debris_merged["merged_count"] = debris_merged.get("merged_count", 0) + 1
+            else:
+                unique_items.append(det)  # Treat as unique by default
+        
+        # Dedupe unique items by IoU
+        unique_final = dedupe_by_iou(unique_items, threshold=0.3)
+        
+        # Count countables: max + buffer
+        countable_final = []
+        for label, counts in countables.items():
+            max_count = max(counts.values())
+            min_count = min(counts.values())
+            buffer = 1 if len(counts) > 1 and max_count != min_count else 0
+            sanity_cap = BASE_SANITY_CAPS.get(label, 10)
+            final_count = min(max_count + buffer, sanity_cap)
+            
+            # Create detection entries
+            for _ in range(final_count):
+                countable_final.append({"canonical_label": label, "source": "countable_dedupe"})
+        
+        result = unique_final + countable_final
+        if debris_merged:
+            print(f"🗑️ Merged {debris_merged.get('merged_count', 1)} debris detections into one")
+            result.append(debris_merged)
+        
+        return result
+    
+    # Fix 7: Volume sanity check before tiering
+    def sanity_check_volume(final_vol: float, packed_sum: float, footprint_sqft: float = None) -> float:
+        """Sanity check volume before tiering."""
+        # Check 1: final_vol should >= packed_sum * 0.8
+        if packed_sum > 0 and final_vol < packed_sum * 0.8:
+            print(f"⚠️ SANITY: final_vol ({final_vol:.2f}) < packed_sum ({packed_sum:.2f}), forcing recompute")
+            return packed_sum
+        
+        # Check 2: volume vs footprint sanity (if available)
+        if footprint_sqft and footprint_sqft > 0:
+            max_vol_by_footprint = footprint_sqft * 0.5 / 27  # Rough estimate
+            if final_vol > max_vol_by_footprint and final_vol > 18:
+                print(f"⚠️ SANITY: final_vol ({final_vol:.2f}) exceeds footprint limit, capping at 18")
+                return 18.0  # Cap at full load
+        
+        return final_vol
+    
+    
     # ==================== BILLABLE VOLUME MULTIPLIERS ====================
     # Convert raw volume to billable volume based on item handling difficulty
     CATEGORY_MULTIPLIERS = {
@@ -1695,10 +1898,13 @@ Now run the audit using the provided inputs. Output JSON only."""
             if (canonical_label, "small") in CANONICAL_VOLUME_CATALOG:
                 return CANONICAL_VOLUME_CATALOG[(canonical_label, "small")]
             
-            # Ultimate fallback based on size class (updated values)
-            fallbacks = {"small": 0.35, "medium": 0.75, "large": 1.50, "xl": 3.00}
-            print(f"   ⚠️ No catalog entry for ({canonical_label}, {size_class}), using fallback {fallbacks.get(size_class, 0.75)}")
-            return fallbacks.get(size_class, 0.75)  # Default 0.75, not 0.05
+            # v2.2 HOTFIX: Use bounded supercategory fallback instead of flat values
+            fallback_data = get_fallback_volume_v21(canonical_label, size_class)
+            vol = fallback_data.get("vol", 0.75)
+            category = fallback_data.get("category", "unknown")
+            vol_range = fallback_data.get("range", (0.3, 1.0))
+            print(f"   ⚠️ No catalog entry for ({canonical_label}, {size_class}), using v2.2 fallback: {vol:.2f} yd³ ({category}, range={vol_range})")
+            return vol
         
         def apply_canonical_labels(self, detections: list, gemini_classifications: list = None) -> list:
             """Apply canonical label system to detections (Recommendation 4)."""
@@ -3819,13 +4025,27 @@ Return JSON array ONLY. No explanation."""
             if final_vol <= 0:
                 final_vol = 0.5  # Minimum estimate if nothing detected
             
+            # v2.2 HOTFIX: Calculate packed_sum for sanity check
+            packed_sum = sum(
+                item.get("cluster_volume", 0) or item.get("volume_yards", 0)
+                for item in catalog_items
+            )
+            
+            # v2.2 HOTFIX: Volume stage logging
+            catalog_vol = catalog_volume.get("net_volume", 0.0)
+            remainder_vol = residual_pile.get("remainder_yards", 0)
+            print(f"📊 Volume stages: catalog={catalog_vol:.2f}, packed={packed_sum:.2f}, remainder={remainder_vol:.2f}, final={final_vol:.2f}")
+            
+            # v2.2 HOTFIX: Sanity check before tiering
+            final_vol = sanity_check_volume(final_vol, packed_sum)
+            
             # 4. Add-on flags only (not priced by tool in v2.1)
             add_on_flags = {}
             for flag in gemma_add_ons:
                 add_on_flags[f"{flag}_possible"] = True
                 print(f"🏷️ Add-on flag: {flag}_possible (UI will price)")
             
-            # 5. Pricing Math v2.1 (TIERED + TIGHT RANGES + INVARIANTS)
+            # 5. Pricing Math v2.2 (TIERED + TIGHT RANGES + INVARIANTS + SANITY)
             final_vol = round_to_half(final_vol)  # Round to nearest 0.5 (display only)
             
             # Choose tier from volume (not price)
