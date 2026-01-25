@@ -722,6 +722,169 @@ try:
         return final_vol
     
     
+    # ==================== PIPELINE v2.4: DETECTION IDENTITY ARCHITECTURE ====================
+    
+    import hashlib
+    
+    def generate_detection_id(image_id: int, bbox: list, model_source: str) -> str:
+        """Generate stable detection ID from image + bbox + model."""
+        bbox_str = "_".join([f"{b:.1f}" for b in bbox]) if bbox else "0_0_0_0"
+        raw = f"{image_id}_{bbox_str}_{model_source}"
+        return hashlib.md5(raw.encode()).hexdigest()[:12]
+    
+    # High-impact labels that require confidence gating
+    HIGH_IMPACT_GATED = {"hot_tub", "piano", "pool_table", "safe", "demo_heavy"}
+    HIGH_IMPACT_VOLUMES = {
+        "hot_tub": 6.0,
+        "piano": 4.0,
+        "pool_table": 5.0,
+        "safe": 2.0,
+        "demo_heavy": 8.0,
+    }
+    
+    def gate_high_impact_labels(detections: list) -> list:
+        """Gate high-impact labels: require 2-model agreement + high confidence."""
+        result = []
+        for det in detections:
+            label = det.get("normalized_label", det.get("label", "")).lower()
+            
+            if label in HIGH_IMPACT_GATED:
+                confidence = det.get("confidence", 0.5)
+                model_sources = det.get("model_sources", [det.get("source", "unknown")])
+                two_model = len(set(model_sources)) >= 2
+                
+                if two_model and confidence >= 0.7:
+                    # Trusted: use correct high-impact volume
+                    det["volume_yards"] = HIGH_IMPACT_VOLUMES.get(label, 3.0)
+                    det["gated"] = "APPROVED"
+                    print(f"✅ v2.4: {label} approved (2-model, conf={confidence:.2f})")
+                else:
+                    # Downgrade to unknown_large
+                    det["original_label"] = label
+                    det["normalized_label"] = "unknown_large"
+                    det["label"] = "unknown_large"
+                    det["volume_yards"] = 2.0  # Capped
+                    det["gated"] = "DOWNGRADED"
+                    det["needs_user_confirmation"] = True
+                    print(f"⚠️ v2.4: {label} → unknown_large (low conf or single-model)")
+            
+            result.append(det)
+        return result
+    
+    def collapse_debris_to_bucket(detections: list) -> list:
+        """Collapse all debris-like detections into a single bucket."""
+        DEBRIS_LABELS = {"mixed_debris", "debris", "debris_pile", "trash", "garbage", "junk_pile"}
+        
+        debris_items = []
+        non_debris = []
+        
+        for det in detections:
+            label = det.get("normalized_label", det.get("label", "")).lower()
+            if label in DEBRIS_LABELS:
+                debris_items.append(det)
+            else:
+                non_debris.append(det)
+        
+        if not debris_items:
+            return detections
+        
+        # Sum all debris footprints
+        total_footprint = sum(
+            (det.get("bbox", [0,0,0,0])[2] - det.get("bbox", [0,0,0,0])[0]) *
+            (det.get("bbox", [0,0,0,0])[3] - det.get("bbox", [0,0,0,0])[1])
+            for det in debris_items
+        )
+        
+        # Create single debris bucket
+        debris_bucket = {
+            "detection_id": "debris_bucket",
+            "normalized_label": "mixed_debris",
+            "canonical_label": "mixed_debris",
+            "label": "mixed_debris",
+            "source": "debris_bucket",
+            "merged_count": len(debris_items),
+            "total_footprint_px": total_footprint,
+            "volume_yards": 2.75,  # Default, will be overridden by footprint estimator
+            "is_bucket": True,
+        }
+        
+        print(f"🗑️ v2.4: Collapsed {len(debris_items)} debris → 1 bucket (footprint={total_footprint:.0f}px²)")
+        
+        return non_debris + [debris_bucket]
+    
+    def normalize_detection_labels(detections: list) -> list:
+        """Apply synonym normalization and set normalized_label field."""
+        for det in detections:
+            original = det.get("label", "unknown")
+            normalized = canonicalize_synonym(original.lower())
+            det["original_label"] = original
+            det["normalized_label"] = normalized
+            if normalized != original.lower():
+                print(f"🔀 v2.4: {original} → {normalized}")
+        return detections
+    
+    def apply_skip_by_id(detections: list, skip_ids: set) -> list:
+        """Filter detections by detection_id (not label)."""
+        before = len(detections)
+        result = [det for det in detections if det.get("detection_id") not in skip_ids]
+        skipped = before - len(result)
+        if skipped > 0:
+            print(f"🚫 v2.4: Removed {skipped} detections by ID")
+        return result
+    
+    def apply_skip_by_normalized_label(detections: list, skip_labels: set) -> list:
+        """Fallback: filter by normalized_label if skip_ids not available."""
+        before = len(detections)
+        result = [det for det in detections 
+                  if det.get("normalized_label", det.get("label", "")).lower() not in skip_labels]
+        skipped = before - len(result)
+        if skipped > 0:
+            print(f"🚫 v2.4: Removed {skipped} detections by normalized label")
+        return result
+    
+    def finalize_detections(detections: list, skip_ids: set = None, skip_labels: set = None) -> list:
+        """
+        Finalize detection list BEFORE any volume math.
+        Order: normalize → skip → debris bucket → gating → unique/count rules
+        """
+        print("🔒 v2.4: Finalizing detection list...")
+        
+        # Step 1: Normalize all labels (set normalized_label field)
+        detections = normalize_detection_labels(detections)
+        
+        # Step 2: Apply skip (by ID if available, else by normalized label)
+        if skip_ids:
+            detections = apply_skip_by_id(detections, skip_ids)
+        elif skip_labels:
+            detections = apply_skip_by_normalized_label(detections, skip_labels)
+        
+        # Step 3: Collapse debris to single bucket
+        detections = collapse_debris_to_bucket(detections)
+        
+        # Step 4: Gate high-impact labels
+        detections = gate_high_impact_labels(detections)
+        
+        # Step 5: Merge duplicate UNIQUE labels
+        from collections import Counter
+        label_counts = Counter(det.get("normalized_label", det.get("label", "")).lower() for det in detections)
+        merged = 0
+        for label in UNIQUE_LABELS:
+            if label_counts.get(label, 0) > 1:
+                instances = [d for d in detections if d.get("normalized_label", d.get("label", "")).lower() == label]
+                keep = max(instances, key=lambda x: x.get("bbox_area", 0) or 
+                          ((x.get("bbox", [0,0,0,0])[2] - x.get("bbox", [0,0,0,0])[0]) * 
+                           (x.get("bbox", [0,0,0,0])[3] - x.get("bbox", [0,0,0,0])[1])))
+                detections = [d for d in detections if d.get("normalized_label", d.get("label", "")).lower() != label]
+                detections.append(keep)
+                merged += label_counts[label] - 1
+                print(f"🔀 v2.4: Merged {label_counts[label]} × {label} → 1")
+        
+        if merged > 0:
+            print(f"🔀 v2.4: Total merged: {merged} duplicate unique labels")
+        
+        print(f"🔒 v2.4: Finalized {len(detections)} detections")
+        return detections
+    
     # ==================== BILLABLE VOLUME MULTIPLIERS ====================
     # Convert raw volume to billable volume based on item handling difficulty
     CATEGORY_MULTIPLIERS = {
@@ -3804,43 +3967,14 @@ Return JSON array ONLY. No explanation."""
             ]
             catalog_items = vision_worker.apply_canonical_labels(catalog_items, gemini_classifications_list)
             
-            # v2.3 RULE 1: Filter out Gemini-skipped items (background objects)
-            pre_skip_count = len(catalog_items)
-            catalog_items = [item for item in catalog_items 
-                            if item.get("label", "").lower() not in gemini_skip_labels 
-                            and not item.get("is_background", False)]
-            skip_count = pre_skip_count - len(catalog_items)
-            if skip_count > 0:
-                print(f"🚫 v2.3: Removed {skip_count} background items from volume calculation")
-            
-            # v2.3 RULE 3: Merge duplicate UNIQUE labels before packing
-            from collections import Counter
-            label_counts = Counter(item.get("canonical_label", item.get("label", "")).lower() for item in catalog_items)
-            merged_count = 0
-            for label in UNIQUE_LABELS:
-                if label_counts.get(label, 0) > 1:
-                    # Keep only the largest bbox instance
-                    instances = [i for i in catalog_items if i.get("canonical_label", i.get("label", "")).lower() == label]
-                    keep = max(instances, key=lambda x: x.get("bbox_area", 0) or 
-                              ((x.get("bbox", [0,0,0,0])[2] - x.get("bbox", [0,0,0,0])[0]) * 
-                               (x.get("bbox", [0,0,0,0])[3] - x.get("bbox", [0,0,0,0])[1])))
-                    catalog_items = [i for i in catalog_items if i.get("canonical_label", i.get("label", "")).lower() != label]
-                    catalog_items.append(keep)
-                    merged_count += label_counts[label] - 1
-                    print(f"🔀 v2.3: Merged {label_counts[label]} × {label} into 1 (keeping largest bbox)")
-            
-            # Special case: mixed_debris should always be merged to 1
-            debris_count = label_counts.get("mixed_debris", 0)
-            if debris_count > 1:
-                debris_instances = [i for i in catalog_items if i.get("canonical_label", i.get("label", "")).lower() == "mixed_debris"]
-                keep_debris = max(debris_instances, key=lambda x: x.get("volume_yards", 0))
-                catalog_items = [i for i in catalog_items if i.get("canonical_label", i.get("label", "")).lower() != "mixed_debris"]
-                catalog_items.append(keep_debris)
-                merged_count += debris_count - 1
-                print(f"🗑️ v2.3: Merged {debris_count} × mixed_debris into 1")
-            
-            if merged_count > 0:
-                print(f"🔀 v2.3: Total merged: {merged_count} duplicate unique items")
+            # ==================== v2.4: DETECTION FINALIZATION ====================
+            # PIPELINE INVARIANT: No volume math until detection list is finalized
+            # This replaces fragmented v2.3 code with unified call
+            catalog_items = finalize_detections(
+                catalog_items, 
+                skip_ids=None,  # TODO: wire detection IDs from Gemini
+                skip_labels=gemini_skip_labels
+            )
             
             # Filter out invalid labels before audit
             valid_items = [item for item in catalog_items if item.get("is_valid_label", True)]
