@@ -4054,18 +4054,23 @@ Return JSON array ONLY. No explanation."""
                 {"item": label, "category": cat, "corrected_label": label, "add_on_flags": gemma_add_ons}
                 for label, cat in gemma_categories.items()
             ]
-            catalog_items = vision_worker.apply_canonical_labels(catalog_items, gemini_classifications_list)
             
-            # ==================== v2.5: DETECTION FINALIZATION ====================
-            # PIPELINE INVARIANT: No volume math until detection list is finalized
+            # ==================== v2.6: CORRECT PIPELINE ORDER ====================
+            # STEP 1: Finalize detection list FIRST (skip, dedupe, ban)
+            # NO volumes assigned yet - just list cleanup
+            print("🔒 v2.6: Finalizing detection list BEFORE volume assignment...")
             catalog_items = finalize_detections(
                 catalog_items, 
-                skip_ids=None,  # TODO: wire detection IDs from Gemini
+                skip_ids=None,
                 skip_labels=gemini_skip_labels,
-                gemini_underdelivered=gemini_underdelivered  # v2.5: apply default skip if underdelivered
+                gemini_underdelivered=gemini_underdelivered
             )
             
-            # Filter out invalid labels before audit
+            # STEP 2: NOW assign volumes to finalized list only
+            print(f"📏 v2.6: Assigning volumes to {len(catalog_items)} finalized items...")
+            catalog_items = vision_worker.apply_canonical_labels(catalog_items, gemini_classifications_list)
+            
+            # STEP 3: Filter invalid labels
             valid_items = [item for item in catalog_items if item.get("is_valid_label", True)]
             invalid_count = len(catalog_items) - len(valid_items)
             if invalid_count > 0:
