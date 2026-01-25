@@ -255,10 +255,11 @@ try:
         {"max_cuft": 486,  "price": 599, "label": "Full Load"},         # 18 yd³ MAX
     ]
     
-    # ==================== PRICING v2.0 ====================
+    # ==================== PRICING v2.1 ====================
     # Hard range caps (tight UX)
     RANGE_CAPS = {250: 50, 400: 75, 999: 100}
     PRICE_FLOOR = 95  # Dispatch Minimum
+    MIN_SPREAD = 10   # Minimum range width
     
     # Disposal candidates (flags only, not priced by tool)
     DISPOSAL_CANDIDATES = ["mattress", "refrigerator", "freezer", "ac_unit", "tv", "monitor", "tire", "box_spring"]
@@ -266,6 +267,133 @@ try:
     # Trust sentence for output
     TRUST_NOTE = "Add-ons may apply based on your selections (stairs, long carry, mattress/tires/TV, freon)."
     
+    # ==================== PHASE 2: BOUNDED FALLBACK ====================
+    FALLBACK_BY_SUPERCATEGORY = {
+        "small_misc": {"vol": 0.15, "range": (0.05, 0.3)},
+        "medium_furniture": {"vol": 1.0, "range": (0.75, 1.5)},
+        "large_furniture": {"vol": 2.5, "range": (2.0, 4.0)},
+        "appliance": {"vol": 2.0, "range": (1.5, 2.5)},
+        "ewaste": {"vol": 0.35, "range": (0.2, 0.6)},
+        "heavy": {"vol": 0.5, "range": (0.3, 0.8)},
+        "unknown": {"vol": 0.5, "range": (0.3, 1.0)},
+    }
+    
+    SUBLABEL_KEYWORDS = {
+        "microwave": {"vol": 0.2, "range": (0.1, 0.3), "category": "small_misc"},
+        "tv": {"vol": 0.4, "range": (0.2, 0.6), "category": "ewaste"},
+        "monitor": {"vol": 0.3, "range": (0.2, 0.5), "category": "ewaste"},
+        "concrete": {"vol": 0.5, "range": (0.3, 0.8), "category": "heavy", "flag_only": True},
+        "brick": {"vol": 0.4, "range": (0.3, 0.6), "category": "heavy", "flag_only": True},
+    }
+    
+    SUPERCATEGORY_KEYWORDS = {
+        "small_misc": ["bag", "plastic", "trash", "box", "small", "bucket", "bin"],
+        "medium_furniture": ["dresser", "drawer", "cabinet", "table", "chair", "desk", "nightstand"],
+        "large_furniture": ["couch", "sofa", "sectional", "bed", "mattress", "wardrobe"],
+        "appliance": ["fridge", "refrigerator", "washer", "dryer", "stove", "oven", "dishwasher"],
+        "ewaste": ["computer", "printer", "electronic", "screen"],
+    }
+    
+    # ==================== PHASE 4: DEDUPE CLASSES ====================
+    UNIQUE_LABELS = {"sofa", "couch", "dresser", "fridge", "mattress", "bed", "table", "piano", "hot_tub"}
+    SEMI_COUNTABLE_LABELS = {"chairs", "chair", "speakers", "boxes", "bins", "cushions", "lamps"}
+    COUNTABLE_LABELS = {"bags", "bag", "tires", "tire", "trash_bag", "pallet", "wood_pallet"}
+    BASE_SANITY_CAPS = {"bags": 15, "bag": 15, "tires": 8, "tire": 8, "pallet": 4}
+    
+    # ==================== PHASE 7: HANDLING VS UI-PRICED ====================
+    HANDLING_MULTIPLIERS = {
+        "mattress": 1.1,
+        "hot_tub": 1.3,
+        "piano": 1.4,
+    }
+    UI_PRICED_CATEGORIES = ["freon", "ewaste", "tires", "mattress_disposal", "disassembly"]
+    
+    # ==================== PHASE 11: HARD CONSTRAINTS ====================
+    NO_PACK_LABELS = {"mattress", "box_spring", "sofa", "couch", "sectional", "piano", "hot_tub"}
+    RIGID_LABELS = {"dresser", "cabinet", "wardrobe", "desk", "table", "fridge", "refrigerator"}
+    MINIMUM_VOLUMES = {"large_furniture": 1.5, "appliance": 1.0}
+    COMPRESSION_FLOORS = {"small_misc": 0.75}
+    
+    # ==================== PHASE 1+9: ROUNDING FUNCTIONS ====================
+    def round_down(p: float) -> int:
+        """Round price down for min_price."""
+        if p > 100: return int(5 * (p // 5))
+        return int(p)
+    
+    def round_up(p: float) -> int:
+        """Round price up for max_price."""
+        import math
+        if p > 100: return int(5 * math.ceil(p / 5))
+        return int(math.ceil(p))
+    
+    def round_nearest(p: float) -> int:
+        """Round price to nearest for estimate."""
+        if p > 100: return int(5 * round(p / 5))
+        return round(p)
+    
+    def round_to_half(value: float) -> float:
+        """Round volume to nearest 0.5."""
+        return round(value * 2) / 2
+    
+    # ==================== PHASE 2: FALLBACK FUNCTIONS ====================
+    def infer_supercategory(label: str) -> str:
+        """Infer supercategory from label using keyword matching."""
+        label_lower = label.lower()
+        for category, keywords in SUPERCATEGORY_KEYWORDS.items():
+            if any(kw in label_lower for kw in keywords):
+                return category
+        return "unknown"
+    
+    def get_fallback_volume_v21(label: str, size_class: str = "medium") -> dict:
+        """Get fallback volume with range using substring matching."""
+        label_lower = label.lower()
+        
+        # Check sublabel keywords first
+        for keyword, data in SUBLABEL_KEYWORDS.items():
+            if keyword in label_lower:
+                if data.get("flag_only"):
+                    return {"vol": 0, "range": (0, 0), "flag": data["category"], "category": data["category"]}
+                return {**data, "used_fallback": True}
+        
+        # Infer supercategory
+        category = infer_supercategory(label_lower)
+        base = FALLBACK_BY_SUPERCATEGORY.get(category, FALLBACK_BY_SUPERCATEGORY["unknown"])
+        
+        # Size adjustment
+        if size_class == "large" and category == "medium_furniture":
+            return {"vol": 1.5, "range": (1.0, 2.0), "category": category, "used_fallback": True}
+        
+        return {"vol": base["vol"], "range": base["range"], "category": category, "used_fallback": True}
+    
+    # ==================== PHASE 8: DELTA CALCULATION ====================
+    def calc_volume_delta_v21(billable: float, anchor_trust: str, fallback_uncertainty: float,
+                              size_confidence: float, catalog_variance: float, near_cliff: bool, tier_id: int) -> float:
+        """Calculate volume delta with all safeguards."""
+        base = max(0.2, 0.15 * billable)
+        
+        if anchor_trust == "LOW": base += 0.3
+        if size_confidence < 0.7: base += 0.2
+        base += min(0.5, 0.3 * fallback_uncertainty)
+        if catalog_variance > 0: base += min(0.5, catalog_variance * 0.25)
+        if near_cliff: base += 0.15
+        
+        # Piecewise caps
+        if billable < 2: delta = min(base, 0.5)
+        elif billable < 8: delta = min(base, 0.8)
+        else: delta = min(base, 1.2)
+        
+        # 1-tier crossing limit
+        current_max = VOLUME_TIERS[tier_id]["max_cuft"] / 27
+        next_idx = min(tier_id + 1, len(VOLUME_TIERS) - 1)
+        next_max = VOLUME_TIERS[next_idx]["max_cuft"] / 27
+        
+        if billable + delta > next_max and tier_id < len(VOLUME_TIERS) - 1:
+            delta = max(0.2, next_max - billable)
+            print(f"⚠️ Delta clamped to prevent 2+ tier crossing: {delta:.2f}")
+        
+        return delta
+    
+    # ==================== PHASE 1: TIER SELECTION ====================
     def get_range_cap(base_price: float) -> int:
         """Get dollar cap for range based on price level."""
         for threshold, cap in RANGE_CAPS.items():
@@ -281,31 +409,97 @@ try:
                 return tier_id, tier
         return len(VOLUME_TIERS) - 1, VOLUME_TIERS[-1]
     
-    def calc_volume_delta_v2(billable: float, anchor_trust: str, fallback_rate: float, size_conf: float) -> float:
-        """Proportional delta (scales with load size)."""
-        base = max(0.2, 0.15 * billable)  # Proportional floor
-        if anchor_trust == "LOW": base += 0.3
-        if fallback_rate > 0.20: base += 0.2
-        if size_conf < 0.7: base += 0.2
-        return min(base, 1.0)  # Max ±1 yd³
+    def is_near_cliff(volume: float, tier_id: int, threshold: float = 0.5) -> bool:
+        """Check if volume is near tier boundary."""
+        tier_max = VOLUME_TIERS[tier_id]["max_cuft"] / 27
+        return abs(volume - tier_max) < threshold
     
-    def apply_cap_v2(tier_id: int, base_price: int, raw_min: float, raw_max: float) -> tuple:
-        """Apply tier-aware cap with midpoint boundary clamping."""
-        cap = get_range_cap(base_price)
-        capped_min = max(raw_min, base_price - cap/2, PRICE_FLOOR)
-        capped_max = min(raw_max, base_price + cap/2)
+    # ==================== PHASE 9: FINALIZE PRICES ====================
+    def finalize_prices_v21(base_estimate: int, base_min: int, base_max: int, 
+                            surcharges: int, tier_id: int) -> tuple:
+        """Finalize prices with directional rounding and tier constraints."""
+        # Directional rounding
+        final_estimate = round_nearest(base_estimate + surcharges)
+        final_min = round_down(base_min + surcharges)
+        final_max = round_up(base_max + surcharges)
         
-        # Clamp to midpoint between tier prices
-        if tier_id > 0:
-            lower_price = VOLUME_TIERS[tier_id - 1]["price"]
-            boundary = (base_price + lower_price) / 2
-            capped_min = max(capped_min, boundary)
-        if tier_id < len(VOLUME_TIERS) - 1:
-            upper_price = VOLUME_TIERS[tier_id + 1]["price"]
-            boundary = (base_price + upper_price) / 2
-            capped_max = min(capped_max, boundary)
+        # Fix inversions
+        if final_min > final_max:
+            final_min = final_max = final_estimate
         
-        return int(capped_min), int(capped_max)
+        # Get tier boundaries
+        tier_min = VOLUME_TIERS[max(0, tier_id - 1)]["price"] if tier_id > 0 else PRICE_FLOOR
+        tier_max_price = VOLUME_TIERS[min(tier_id + 1, len(VOLUME_TIERS) - 1)]["price"]
+        
+        # Minimum spread (subordinate to tier constraints)
+        if final_max - final_min < MIN_SPREAD:
+            desired_min = final_estimate - MIN_SPREAD // 2
+            desired_max = final_estimate + MIN_SPREAD // 2
+            
+            if desired_min >= tier_min and desired_max <= tier_max_price:
+                final_min = desired_min
+                final_max = desired_max
+            else:
+                # Can't expand within tier: collapse to single point
+                final_min = final_max = final_estimate
+        
+        # Final invariant enforcement
+        if final_estimate < final_min: final_estimate = final_min
+        if final_estimate > final_max: final_estimate = final_max
+        
+        # Ensure price floor
+        final_min = max(final_min, PRICE_FLOOR)
+        final_estimate = max(final_estimate, PRICE_FLOOR)
+        
+        return final_estimate, final_min, final_max
+    
+    # ==================== PHASE 10: REASON CODES ====================
+    REASON_PHRASES = {
+        "anchor_low": {"internal": "anchor_trust=LOW", "customer": "photo angle/scale unclear"},
+        "fallback_high": {"internal": "fallback_ratio>0.2", "customer": "some items had limited visibility"},
+        "near_cliff": {"internal": "near_cliff=True", "customer": "pile is near a pricing boundary"},
+        "size_ambiguous": {"internal": "size_ambiguous", "customer": "uncertain size for some items"},
+    }
+    
+    def get_reason_codes_v21(anchor_trust: str, fallback_ratio: float, near_cliff: bool, 
+                             top_ambiguous: list) -> dict:
+        """Generate customer-safe and internal reason codes."""
+        internal = []
+        customer = []
+        
+        if anchor_trust == "LOW":
+            internal.append(REASON_PHRASES["anchor_low"]["internal"])
+            customer.append(REASON_PHRASES["anchor_low"]["customer"])
+        
+        if fallback_ratio > 0.2:
+            internal.append(REASON_PHRASES["fallback_high"]["internal"])
+            customer.append(REASON_PHRASES["fallback_high"]["customer"])
+        
+        if near_cliff:
+            internal.append(REASON_PHRASES["near_cliff"]["internal"])
+            customer.append(REASON_PHRASES["near_cliff"]["customer"])
+        
+        if top_ambiguous:
+            internal.append(REASON_PHRASES["size_ambiguous"]["internal"])
+            customer.append(REASON_PHRASES["size_ambiguous"]["customer"])
+        
+        return {
+            "reason_codes_internal": "; ".join(internal) or "standard",
+            "reason_codes_customer": ("Range widened because: " + "; ".join(customer)) if customer else "standard estimate"
+        }
+    
+    # ==================== PHASE 6: LABOR FLAGS ====================
+    def detect_labor_flags_v21(items: list) -> dict:
+        """Detect labor conditions via attributes (not packing group)."""
+        supercats = [infer_supercategory(i.get("canonical_label", i.get("label", ""))) for i in items]
+        unique_supercats = set(supercats)
+        entropy = len(unique_supercats) / max(len(supercats), 1)
+        
+        return {
+            "loose_debris_possible": len(items) > 15 and entropy > 0.5,
+            "mixed_debris_possible": entropy > 0.6 and len(unique_supercats) > 4,
+            "wet_dirty_possible": False,  # UI-confirmed only
+        }
     
     def detect_disposal_flags(items: list) -> dict:
         """Detect disposal candidates as flags (not priced)."""
@@ -316,10 +510,6 @@ try:
                 if candidate in label:
                     flags[f"{candidate}_detected"] = True
         return flags
-    
-    def round_to_half(value: float) -> float:
-        """Round to nearest 0.5."""
-        return round(value * 2) / 2
     
     def get_tier_price(volume_yards: float) -> tuple:
         """Convert cubic yards to (price, label) using tiers."""
@@ -3629,27 +3819,42 @@ Return JSON array ONLY. No explanation."""
             if final_vol <= 0:
                 final_vol = 0.5  # Minimum estimate if nothing detected
             
-            # 4. Add-on surcharges from Gemma classification
-            add_on_surcharge = 0
+            # 4. Add-on flags only (not priced by tool in v2.1)
+            add_on_flags = {}
             for flag in gemma_add_ons:
-                if flag in ADD_ON_FEES:
-                    add_on_surcharge += ADD_ON_FEES[flag]
-                    print(f"➕ Add-on fee: {flag} = +${ADD_ON_FEES[flag]}")
+                add_on_flags[f"{flag}_possible"] = True
+                print(f"🏷️ Add-on flag: {flag}_possible (UI will price)")
             
-            # 5. Pricing Math v2.0 (TIERED + TIGHT RANGES)
+            # 5. Pricing Math v2.1 (TIERED + TIGHT RANGES + INVARIANTS)
             final_vol = round_to_half(final_vol)  # Round to nearest 0.5 (display only)
             
-            # Calculate uncertainty delta (proportional)
-            anchor_trust = "LOW" if not detections.get("anchor_found") else "MEDIUM"
-            fallback_rate = sum(1 for item in catalog_items if item.get("used_fallback", False)) / max(len(catalog_items), 1)
-            size_conf = confidence.get("confidence", 0.85)
-            delta = calc_volume_delta_v2(final_vol, anchor_trust, fallback_rate, size_conf)
-            
             # Choose tier from volume (not price)
-            tier_id, tier = choose_tier_v2(final_vol, delta)
+            tier_id, tier = choose_tier_v2(final_vol)
             base_price = tier["price"]
             tier_label = tier["label"]
-            print(f"💰 Tier v2.0: {tier_label} → ${base_price} (for {final_vol} yd³, delta=±{delta:.2f})")
+            
+            # Calculate v2.1 uncertainty inputs
+            anchor_trust = "LOW" if not detections.get("anchor_found") else "MEDIUM"
+            fallback_items = [item for item in catalog_items if item.get("used_fallback", False)]
+            fallback_count = len(fallback_items)
+            fallback_ratio = fallback_count / max(len(catalog_items), 1)
+            
+            # Sum fallback range widths for uncertainty
+            fallback_uncertainty = sum(
+                (item.get("range", (0, 0))[1] - item.get("range", (0, 0))[0])
+                for item in fallback_items
+            )
+            
+            size_conf = confidence.get("confidence", 0.85)
+            catalog_variance = 0  # TODO: Compute from size variants
+            near_cliff = is_near_cliff(final_vol, tier_id)
+            
+            # v2.1 delta with 1-tier crossing limit
+            delta = calc_volume_delta_v21(
+                final_vol, anchor_trust, fallback_uncertainty, 
+                size_conf, catalog_variance, near_cliff, tier_id
+            )
+            print(f"💰 Tier v2.1: {tier_label} → ${base_price} (for {final_vol} yd³, delta=±{delta:.2f})")
             
             # Map volume bounds to price range
             vol_low = max(0, final_vol - delta)
@@ -3659,36 +3864,46 @@ Return JSON array ONLY. No explanation."""
             raw_min = tier_low["price"]
             raw_max = tier_high["price"]
             
-            # Apply tier-aware cap with midpoint boundary
-            min_vol_price, max_vol_price = apply_cap_v2(tier_id, base_price, raw_min, raw_max)
-            print(f"   📊 Range capped: ${min_vol_price}–${max_vol_price} (cap=${get_range_cap(base_price)})")
+            # Apply tier-aware cap
+            cap = get_range_cap(base_price)
+            base_min = max(raw_min, base_price - cap // 2, PRICE_FLOOR)
+            base_max = min(raw_max, base_price + cap // 2)
+            print(f"   📊 Range capped: ${base_min}–${base_max} (cap=${cap})")
             
-            # Add fixed surcharges AFTER (protected from discounting)
-            total_surcharge = heavy_surcharge + add_on_surcharge
-            min_price = min_vol_price + total_surcharge
-            max_price = max_vol_price + total_surcharge
+            # Surcharges: only heavy_surcharge (add-ons are UI-only in v2.1)
+            total_surcharge = heavy_surcharge
             
-            def round_pretty(p):
-                if p > 100: return 5 * round(p / 5)
-                return round(p)
+            # v2.1 finalize with directional rounding and invariants
+            final_estimate, final_min, final_max = finalize_prices_v21(
+                base_price, base_min, base_max, total_surcharge, tier_id
+            )
+            print(f"   ✅ Final v2.1: ${final_min}–${final_max} (estimate=${final_estimate})")
             
-            min_price = round_pretty(min_price)
-            max_price = round_pretty(max_price)
-            
-            # Detect disposal flags (not priced by tool)
+            # Detect flags (not priced by tool)
             disposal_flags = detect_disposal_flags(catalog_items)
+            labor_flags = detect_labor_flags_v21(catalog_items)
+            
+            # Get reason codes
+            top_ambiguous = []  # TODO: Compute from variance report
+            reason_codes = get_reason_codes_v21(anchor_trust, fallback_ratio, near_cliff, top_ambiguous)
+            
+            # INVARIANT CHECK
+            assert final_min <= final_estimate <= final_max, \
+                f"Invariant violated: {final_estimate} not in [{final_min}, {final_max}]"
             
             return {
                 "status": "SUCCESS",
                 "volume_yards": final_vol,
-                "min_price": min_price,
-                "max_price": max_price,
-                "price": round(base_price + total_surcharge, 2),
+                "min_price": final_min,
+                "max_price": final_max,
+                "price": final_estimate,
                 "tier_label": tier_label,
-                "heavy_surcharge": total_surcharge,  # Combined heavy + add-ons
-                "add_on_surcharge": add_on_surcharge,
+                "heavy_surcharge": heavy_surcharge,
                 "disposal_flags": disposal_flags,
+                "add_on_flags": add_on_flags,
+                "labor_flags": labor_flags,
                 "trust_note": TRUST_NOTE,
+                "reason_codes_customer": reason_codes["reason_codes_customer"],
                 "vision_enhanced": True,
                 "anchor_found": detections.get("anchor_found", False),
                 "anchor_scale_inches": detections.get("anchor_scale_inches"),
@@ -3702,12 +3917,17 @@ Return JSON array ONLY. No explanation."""
                     "depth_available": any(r.get("depth_available", False) for r in all_vision_results),
                     "heavy_level": heavy_level,
                     "gemma_categories": gemma_categories,
-                    "gemma_add_ons": gemma_add_ons,
                     "gpt5_risk_level": audit_result.get("uncertainty_band", {}).get("risk_level", "medium"),
                     "missed_vol": missed_vol,
-                    "v2_delta": delta,
-                    "v2_tier_id": tier_id,
-                    "v2_range_cap": get_range_cap(base_price),
+                    # v2.1 debug fields
+                    "v21_delta": delta,
+                    "v21_tier_id": tier_id,
+                    "v21_range_cap": cap,
+                    "v21_near_cliff": near_cliff,
+                    "v21_fallback_ratio": fallback_ratio,
+                    "v21_fallback_uncertainty": fallback_uncertainty,
+                    "v21_anchor_trust": anchor_trust,
+                    "reason_codes_internal": reason_codes["reason_codes_internal"],
                     # Phase 4: GroundingDINO metrics
                     "florence_count": detections.get("florence_count", 0),
                     "gdino_count": detections.get("gdino_count", 0),
