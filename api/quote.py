@@ -3496,33 +3496,54 @@ class PricingEngine:
         """
 
     async def ask_gemini(self, images):
+        """Use GPT-5 via Replicate for quote analysis (replaced Gemini-3-Pro)."""
         try:
-            # Gemini 3 Pro Preview
-            # Wrap synchronous call in thread for async compatibility
             prompt = self._get_system_prompt()
             
-            def _call():
-                return self.google_client.models.generate_content(
-                    model='gemini-3-pro-preview',
-                    contents=[prompt, *images],
-                    config=types.GenerateContentConfig(
-                        temperature=0.0,
-                        response_mime_type='application/json'
-                    )
-                )
-
-            response = await asyncio.to_thread(_call)
+            # Convert images to base64 for Replicate
+            image_data = []
+            for img in images:
+                if hasattr(img, 'data'):
+                    img_b64 = base64.b64encode(img.data).decode('utf-8')
+                    image_data.append(f"data:image/jpeg;base64,{img_b64}")
             
-            # Safety check: handle None or empty response
-            response_text = response.text if response and response.text else None
+            print(f"🤖 Calling GPT-5 via Replicate for quote analysis ({len(image_data)} images)...")
+            
+            def _call():
+                return replicate.run(
+                    "openai/gpt-5",
+                    input={
+                        "prompt": prompt,
+                        "image": image_data[0] if image_data else None,
+                        "max_tokens": 2000,
+                        "temperature": 0.1,
+                    }
+                )
+            
+            output = await asyncio.to_thread(_call)
+            
+            # Handle streaming output
+            if hasattr(output, '__iter__') and not isinstance(output, str):
+                response_text = "".join(output)
+            else:
+                response_text = str(output) if output else None
+            
             if not response_text:
-                print("⚠️ Gemini returned empty/None response")
+                print("⚠️ GPT-5 returned empty/None response")
                 return None
             
-            return json.loads(response_text)
+            # Clean up markdown formatting
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0]
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0]
+            
+            print(f"🤖 GPT-5 response length: {len(response_text)} chars")
+            return json.loads(response_text.strip())
         except Exception as e:
-            print(f"❌ GEMINI ERROR: {e}")
+            print(f"❌ GPT-5 ERROR: {e}")
             return None
+
 
     # NOTE: GPT-4o removed - using only GPT-5.2 for auditing
     
@@ -3765,7 +3786,7 @@ Return JSON array ONLY. No explanation."""
     
     async def ask_gemini_with_vision(self, visual_bridge_b64: str, detections: dict) -> dict:
         """
-        Send annotated visual bridge image to Gemini 3 Pro for enhanced analysis.
+        Use GPT-5 via Replicate for enhanced visual analysis (replaced Gemini-3-Pro).
         Uses vision-specific prompt that understands RED/BLUE boxes and depth heatmap.
         """
         try:
@@ -3775,38 +3796,48 @@ Return JSON array ONLY. No explanation."""
                 detection_context += f"ANCHOR DETECTED: {detections.get('anchor_scale_inches')} inches scale available.\n"
             detection_context += f"Items detected: {len(detections.get('detections', []))}\n"
             
-            # Build Gemini-compatible prompt
+            # Build prompt
             prompt = f"{self._get_vision_enhanced_prompt()}\n\nPRE-ANALYSIS CONTEXT:\n{detection_context}"
             
-            # Decode base64 image for Gemini
-            img_bytes = base64.b64decode(visual_bridge_b64)
-            image_part = types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg")
+            print(f"🤖 Calling GPT-5 via Replicate for vision analysis...")
             
             def _call():
-                return self.google_client.models.generate_content(
-                    model='gemini-3-pro-preview',
-                    contents=[prompt, image_part],
-                    config=types.GenerateContentConfig(
-                        temperature=0.0,
-                        response_mime_type='application/json'
-                    )
+                return replicate.run(
+                    "openai/gpt-5",
+                    input={
+                        "prompt": prompt,
+                        "image": f"data:image/jpeg;base64,{visual_bridge_b64}",
+                        "max_tokens": 2000,
+                        "temperature": 0.1,
+                    }
                 )
-
-            response = await asyncio.to_thread(_call)
             
-            # Safety check: handle None or empty response
-            response_text = response.text if response and response.text else None
+            output = await asyncio.to_thread(_call)
+            
+            # Handle streaming output
+            if hasattr(output, '__iter__') and not isinstance(output, str):
+                response_text = "".join(output)
+            else:
+                response_text = str(output) if output else None
+            
             if not response_text:
-                print("⚠️ Gemini returned empty/None response")
+                print("⚠️ GPT-5 Vision returned empty/None response")
                 return None
             
-            print(f"✅ Gemini Vision Response: {response_text[:200]}..." if len(response_text) > 200 else f"✅ Gemini Vision Response: {response_text}")
-            return json.loads(response_text)
+            # Clean up markdown formatting
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0]
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0]
+            
+            print(f"✅ GPT-5 Vision Response: {response_text[:200]}..." if len(response_text) > 200 else f"✅ GPT-5 Vision Response: {response_text}")
+            return json.loads(response_text.strip())
         except Exception as e:
-            print(f"❌ GEMINI VISION ERROR: {e}")
+            print(f"❌ GPT-5 VISION ERROR: {e}")
             import traceback
             traceback.print_exc()
             return None
+
 
     def calculate_volume(self, json_data):
         if not json_data or 'packed_dimensions' not in json_data: 
