@@ -615,12 +615,13 @@ try:
     # v2.5: BANNED LABELS (never get volume)
     BANNED_LABELS = {"stack", "wooden", "banned_label", "object", "stuff", "item"}
     
-    # v2.8: CATEGORY → ITEMS map (for category-level skip propagation)
+    # v2.8.1: CATEGORY → ITEMS map (for grouping only, NOT for skip propagation)
+    # NOTE: wheel/wheel_unspecified removed from tires - they should NOT be skip-propagated
     CATEGORY_ITEMS = {
         "appliance": {"washer", "dryer", "refrigerator", "dishwasher", "stove", "oven", "microwave", "appliance"},
         "furniture": {"couch", "sofa", "loveseat", "chair", "table", "desk", "dresser", "nightstand", "bed_frame", "mattress"},
         "electronics": {"television", "tv", "monitor", "computer", "crt_television", "flat_screen_tv", "ewaste"},
-        "tires": {"tires", "tire", "wheel", "wheel_unspecified"},
+        "tires": {"tires", "tire"},  # v2.8.1: wheel/wheel_unspecified REMOVED
     }
     
     # v2.8: LOW IMPACT LABELS (don't aggressively skip, cap volume)
@@ -825,31 +826,42 @@ try:
     }
     
     def gate_high_impact_labels(detections: list) -> list:
-        """Gate high-impact labels: require 2-model agreement + high confidence."""
+        """v2.8.1: Gate high-impact labels - check all label forms."""
         result = []
         for det in detections:
-            label = det.get("normalized_label", det.get("label", "")).lower()
+            # v2.8.1: Check raw, normalized, AND canonical labels
+            raw_label = det.get("label", "").lower()
+            normalized_label = det.get("normalized_label", raw_label).lower()
+            canonical = canonicalize_synonym(raw_label) or raw_label
             
-            if label in HIGH_IMPACT_GATED:
+            is_high_impact = (
+                raw_label in HIGH_IMPACT_GATED or 
+                normalized_label in HIGH_IMPACT_GATED or
+                canonical in HIGH_IMPACT_GATED
+            )
+            
+            if is_high_impact:
                 confidence = det.get("confidence", 0.5)
                 model_sources = det.get("model_sources", [det.get("source", "unknown")])
                 two_model = len(set(model_sources)) >= 2
                 
+                # Get the matching label for volume lookup
+                matching_label = raw_label if raw_label in HIGH_IMPACT_GATED else (
+                    normalized_label if normalized_label in HIGH_IMPACT_GATED else canonical
+                )
+                
                 if two_model and confidence >= 0.7:
                     # Trusted: use correct high-impact volume
-                    det["volume_yards"] = HIGH_IMPACT_VOLUMES.get(label, 3.0)
+                    det["volume_yards"] = HIGH_IMPACT_VOLUMES.get(matching_label, 3.0)
                     det["gated"] = "APPROVED"
-                    det["priced"] = True  # v2.7: Explicitly mark as priced
-                    print(f"✅ v2.4: {label} approved (2-model, conf={confidence:.2f})")
+                    det["priced"] = True
+                    print(f"✅ v2.8.1: {raw_label} approved (2-model, conf={confidence:.2f})")
                 else:
-                    # v2.7: Drop/zero instead of downgrade
-                    det["original_label"] = label
-                    det["normalized_label"] = "unknown_large"
-                    det["label"] = "unknown_large"
-                    det["priced"] = False  # v2.7: Exclude from billing
+                    # v2.8.1: Mark as not priced - needs confirmation
+                    det["priced"] = False
                     det["gated"] = "DROPPED_PENDING_CONFIRMATION"
                     det["needs_user_confirmation"] = True
-                    print(f"⚠️ v2.7: {label} → DROPPED (low conf or single-model)")
+                    print(f"⚠️ v2.8.1: {raw_label} → DROPPED (needs confirmation)")
             
             result.append(det)
         return result
@@ -2244,11 +2256,7 @@ Now run the audit using the provided inputs. Output JSON only."""
                     # Apply canonical volume
                     det["volume_yards"] = self.get_canonical_volume(canonical_label, size_class)
                     
-                    # v2.8: Cap volume for low-impact items
-                    if canonical_label.lower() in LOW_IMPACT_LABELS:
-                        if det["volume_yards"] > LOW_IMPACT_MAX_VOLUME:
-                            print(f"📦 v2.8: Capped {canonical_label} from {det['volume_yards']} to {LOW_IMPACT_MAX_VOLUME} yd³ (low-impact)")
-                            det["volume_yards"] = LOW_IMPACT_MAX_VOLUME
+                    # v2.8.1: Removed per-item low-impact cap - using combined cap instead
                     
                     # v2.7: Set volume_source for debugging
                     if canonical_label.lower() in STABLE_CATALOG_VOLUMES:
@@ -4129,13 +4137,11 @@ Return JSON array ONLY. No explanation."""
                             # v2.7: Add ALL label variants to skip set
                             gemini_skip_labels.update({raw_label, corrected_label, norm_raw, norm_corr})
                             
-                            # v2.8: Category propagation - if category is skipped, skip all items in that category
+                            # v2.8.1: REMOVED category propagation - it caused over-skipping
+                            # Skip only applies to the specific label GPT flagged, not whole category
                             skipped_category = cls.get("category", "").lower()
-                            if skipped_category in CATEGORY_ITEMS:
-                                gemini_skip_labels.update(CATEGORY_ITEMS[skipped_category])
-                                print(f"🔗 v2.8: Category propagation: {skipped_category} → {CATEGORY_ITEMS[skipped_category]}")
                             
-                            print(f"🚫 v2.8 Skip: raw={raw_label}, corr={corrected_label}, norm_raw={norm_raw}, cat={skipped_category}")
+                            print(f"🚫 v2.8.1 Skip: raw={raw_label}, corr={corrected_label}, cat={skipped_category}")
                             continue
                     
                     # Store category (keyed by all variants for lookup)
@@ -4178,12 +4184,13 @@ Return JSON array ONLY. No explanation."""
             # STEP 1: Finalize detection list FIRST (skip, dedupe, ban)
             # NO volumes assigned yet - just list cleanup
             
-            # v2.8: Save ALL detection bboxes BEFORE finalization for consistent coverage
+            # v2.8.1: Get bboxes from all_detections (catalog_items has no bboxes!)
+            # all_detections is defined at line 4083 and has bbox fields
             fused_detection_bboxes = [
-                {"bbox": item.get("bbox"), "label": item.get("label")}
-                for item in catalog_items if item.get("bbox")
+                {"bbox": det.get("bbox"), "label": det.get("label", "").lower(), "priced": True}
+                for det in all_detections if det.get("bbox")
             ]
-            print(f"📐 v2.8: Saved {len(fused_detection_bboxes)} bboxes for remainder (pre-finalize)")
+            print(f"📐 v2.8.1: Saved {len(fused_detection_bboxes)} bboxes from all_detections")
             
             print("🔒 v2.6: Finalizing detection list BEFORE volume assignment...")
             catalog_items = finalize_detections(
@@ -4236,23 +4243,37 @@ Return JSON array ONLY. No explanation."""
                     depth_stats = r["depth_stats"]
                     break
             
-            # v2.8: Use fused bboxes (pre-finalize) for consistent coverage
-            # This prevents 0% coverage when finalized list is sparse
-            coverage = vision_worker.calculate_union_coverage(fused_detection_bboxes, img_width, img_height)
-            print(f"📐 v2.8: Coverage from {len(fused_detection_bboxes)} fused bboxes: {coverage:.1%}")
+            # v2.8.1: Filter bboxes to billable-only (exclude skip/ban/background)
+            billable_bboxes = []
+            for d in fused_detection_bboxes:
+                label = (d.get("label") or "").strip().lower()
+                normalized = canonicalize_synonym(label) or label
+                
+                # Exclude if in skip/ban/background sets
+                if normalized in gemini_skip_labels:
+                    continue
+                if normalized in BANNED_LABELS:
+                    continue
+                if label in BACKGROUND_LABELS or normalized in BACKGROUND_LABELS:
+                    continue
+                
+                billable_bboxes.append(d)
             
-            # v2.3 RULE 2: Coverage sanity check - if 0% but valid bboxes exist, recalculate
-            if coverage == 0 and len(fused_detection_bboxes) > 0:
-                # Force recalculate from bbox areas
+            print(f"📐 v2.8.1: {len(billable_bboxes)}/{len(fused_detection_bboxes)} bboxes billable")
+            coverage = vision_worker.calculate_union_coverage(billable_bboxes, img_width, img_height)
+            print(f"📐 v2.8.1: Coverage from {len(billable_bboxes)} billable bboxes: {coverage:.1%}")
+            
+            # v2.8.1: Coverage sanity check - if 0% but billable bboxes exist, recalculate
+            if coverage == 0 and len(billable_bboxes) > 0:
                 total_bbox_area = sum(
                     (b[2] - b[0]) * (b[3] - b[1]) 
-                    for item in fused_detection_bboxes 
+                    for item in billable_bboxes 
                     for b in [item.get("bbox", [0,0,0,0])]
                     if b and len(b) >= 4
                 )
                 image_area = img_width * img_height
                 coverage = min(1.0, total_bbox_area / image_area) if image_area > 0 else 0
-                print(f"⚠️ v2.8: Coverage was 0% with {len(fused_detection_bboxes)} bboxes, recalculated to {coverage:.1%}")
+                print(f"⚠️ v2.8.1: Coverage was 0% with {len(billable_bboxes)} bboxes, recalculated to {coverage:.1%}")
             
             residual = max(0, 1.0 - coverage)
             
@@ -4261,6 +4282,22 @@ Return JSON array ONLY. No explanation."""
                 item.get("cluster_volume", 0) or item.get("volume_yards", 0.75)
                 for item in catalog_items if not item.get("in_cluster")
             )
+            
+            # v2.8.1: Combined low-impact cap (not per-item)
+            LOW_IMPACT_MAX_TOTAL = 0.6  # Max 0.6 yd³ for all bags/boxes/misc combined
+            low_impact_items = [item for item in catalog_items if item.get("canonical_label", "").lower() in LOW_IMPACT_LABELS]
+            total_low_impact = sum(item.get("volume_yards", 0) for item in low_impact_items)
+            
+            if total_low_impact > LOW_IMPACT_MAX_TOTAL:
+                scale_factor = LOW_IMPACT_MAX_TOTAL / total_low_impact
+                for item in low_impact_items:
+                    item["volume_yards"] = item["volume_yards"] * scale_factor
+                print(f"📦 v2.8.1: Scaled low-impact from {total_low_impact:.2f} to {LOW_IMPACT_MAX_TOTAL:.2f} yd³")
+                # Recalculate total_item_vol after scaling
+                total_item_vol = sum(
+                    item.get("cluster_volume", 0) or item.get("volume_yards", 0.75)
+                    for item in catalog_items if not item.get("in_cluster")
+                )
             
             # Phase 5: Mode-aware remainder trigger
             anchor_present = any(item.get("is_anchor") for item in catalog_items)
