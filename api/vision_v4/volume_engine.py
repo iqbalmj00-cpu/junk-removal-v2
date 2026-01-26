@@ -65,7 +65,7 @@ def compute_lane_b_catalog(fused_items: List[dict]) -> dict:
             "label": label,
             "size": size,
             "volume": round(base_vol, 2),
-            "proposal_id": item["proposal_id"]
+            "proposal_id": item.get("proposal_id", "")
         })
     
     return {

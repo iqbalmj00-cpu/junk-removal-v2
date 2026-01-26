@@ -69,7 +69,7 @@ def load_image_from_base64(b64_string: str):
     return img
 
 
-def get_image_metadata(img: Image.Image) -> dict:
+def get_image_metadata(img) -> dict:
     """Extract metadata from PIL Image."""
     return {
         "width": img.width,
