@@ -3717,16 +3717,29 @@ Return JSON array ONLY. No explanation."""
 
             print(f"🤖 Calling GPT-5-mini via Replicate for {len(items)} items...")
             
-            # Use GPT-5-mini via Replicate
-            output = replicate.run(
-                "openai/gpt-5-mini",
-                input={
-                    "prompt": prompt,
-                    "image": f"data:image/jpeg;base64,{image_b64}",
-                    "max_tokens": 1500,
-                    "temperature": 0.2,
-                }
-            )
+            # Use GPT-5-mini via Replicate with timeout
+            import asyncio
+            import concurrent.futures
+            
+            def run_gpt_sync():
+                return replicate.run(
+                    "openai/gpt-5-mini",
+                    input={
+                        "prompt": prompt,
+                        "image": f"data:image/jpeg;base64,{image_b64}",
+                        "max_tokens": 1500,
+                        "temperature": 0.2,
+                    }
+                )
+            
+            # Run with 60 second timeout
+            try:
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(run_gpt_sync)
+                    output = future.result(timeout=60)  # 60 second timeout
+            except concurrent.futures.TimeoutError:
+                print("⚠️ GPT-5-mini timed out after 60s, using static mapping")
+                raise ValueError("GPT-5-mini timed out")
             
             # Handle streaming output from Replicate
             if hasattr(output, '__iter__') and not isinstance(output, str):
