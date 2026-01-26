@@ -41,21 +41,19 @@ def bytes_to_base64(data: bytes) -> str:
 
 def base64_to_replicate_file(b64_string: str) -> str:
     """
-    Upload base64 image to Replicate file storage.
-    Returns a URL that can be used as input to Replicate models.
+    Convert base64 image to format Replicate models accept.
+    Returns a data URI string (most robust approach).
     """
-    import replicate  # Lazy import
+    # Strip data URI prefix if already present
+    if "," in b64_string:
+        # Already has prefix, return as-is or reconstruct
+        parts = b64_string.split(",", 1)
+        if parts[0].startswith("data:"):
+            return b64_string
+        b64_string = parts[1]
     
-    img_bytes = base64_to_bytes(b64_string)
-    
-    # Create a file-like object for the upload
-    file_obj = io.BytesIO(img_bytes)
-    file_obj.name = "image.jpg"
-    
-    # Upload to Replicate
-    file_url = replicate.files.create(file_obj)
-    
-    return file_url
+    # Return as data URI - works with all Replicate models
+    return f"data:image/jpeg;base64,{b64_string}"
 
 
 def load_image_from_base64(b64_string: str):
