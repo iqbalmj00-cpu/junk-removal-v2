@@ -2292,6 +2292,30 @@ Now run the audit using the provided inputs. Output JSON only."""
                     det["category"] = gemini_info.get("category", "misc")
                     det["add_on_flags"] = gemini_info.get("add_on_flags", [])
                     det["gemini_confidence"] = gemini_info.get("confidence", 0.5)
+                
+                # v2.9 FIX 5: Consensus gating for expensive labels AFTER canonical assignment
+                EXPENSIVE_LABELS = {"hot_tub", "piano", "pool_table", "safe", "gun_safe", "hot_tub_spa", "jacuzzi"}
+                if canonical_label.lower() in EXPENSIVE_LABELS and det.get("priced") != False:
+                    # Check for consensus: multi-signal confirmation needed
+                    confidence = det.get("confidence", 0.5)
+                    bbox = det.get("bbox", [0, 0, 0, 0])
+                    bbox_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) if len(bbox) >= 4 else 0
+                    model_sources = det.get("model_sources", [det.get("source", "unknown")])
+                    has_multimodel = len(set(model_sources)) >= 2
+                    
+                    # Require: high confidence (>=0.75) OR large bbox OR multi-model
+                    has_consensus = (
+                        confidence >= 0.75 or
+                        bbox_area >= 15000 or  # Large item
+                        has_multimodel
+                    )
+                    
+                    if not has_consensus:
+                        det["priced"] = False
+                        det["volume_yards"] = 0.0
+                        det["gated"] = "CONSENSUS_FAILED"
+                        det["needs_user_confirmation"] = True
+                        print(f"⚠️ v2.9: {canonical_label} lacks consensus (conf={confidence:.2f}, bbox={bbox_area}, multimodel={has_multimodel}) → not priced")
             
             return detections
         
@@ -3827,12 +3851,32 @@ Return JSON array ONLY. No explanation."""
     def apply_audit_corrections(
         self,
         classifications: list,
-        audit_result: dict
+        audit_result: dict,
+        detected_labels: set = None,  # v2.9: Labels with bbox evidence
+        catalog_items: list = None    # v2.9: For multi-image check
     ) -> tuple:
-        """Apply GPT-5.2 audit corrections and calculate missed item volume."""
+        """Apply GPT-5.2 audit corrections and calculate missed item volume.
+        
+        v2.9: Evidence-gated - audit can only add volume if:
+        1. Label exists in detected_labels (has bbox), OR
+        2. Label appears in 2+ images (multi-image confirmation)
+        """
         
         # Track volume corrections for items where category changed significantly
         volume_corrections = {}  # item_idx -> new_volume
+        
+        # v2.9: Build evidence sets
+        detected_labels = detected_labels or set()
+        
+        # Count label occurrences across images (for multi-image confirmation)
+        label_image_counts = {}
+        if catalog_items:
+            for item in catalog_items:
+                label = (item.get("label") or "").lower()
+                canonical = (item.get("canonical_label") or "").lower()
+                for lbl in [label, canonical]:
+                    if lbl:
+                        label_image_counts[lbl] = label_image_counts.get(lbl, 0) + 1
         
         # 1. Apply category corrections
         corrections = audit_result.get("classification_corrections", [])
@@ -3846,25 +3890,47 @@ Return JSON array ONLY. No explanation."""
                     print(f"🔄 Correction: item_{item_idx} {old_cat} → {new_cat}")
                     
                     # If category changed significantly, re-lookup volume
-                    # This handles cases like "car" (0.05 yd³) being corrected to "ewaste_tv" (1.2 yd³)
                     if old_cat != new_cat:
                         new_vol = CATEGORY_DEFAULT_VOLUMES.get(new_cat, 0.5)
                         volume_corrections[item_idx] = new_vol
                         print(f"📏 Volume re-lookup: item_{item_idx} → {new_vol:.2f} yd³ ({new_cat} default)")
         
-        # 2. Calculate missed item volumes with GPT-5.2 size buckets
+        # 2. Calculate missed item volumes with EVIDENCE GATING (v2.9)
         missed_vol = 0.0
+        audit_added_items = []  # v2.9: Track what was actually added
+        
         for item in audit_result.get("missed_items", []):
-            if item.get("confidence", 0) >= 0.5:  # Include if moderately confident
+            label = (item.get("label") or "").lower()
+            normalized = canonicalize_synonym(label) or label
+            
+            # v2.9 FIX 2: Re-check banned labels after audit
+            if label in BANNED_LABELS or normalized in BANNED_LABELS:
+                print(f"⛔ AUDIT_BLOCKED: {label} is banned")
+                continue
+            
+            # v2.9 FIX 1: Evidence check
+            has_bbox = label in detected_labels or normalized in detected_labels
+            has_multiimage = label_image_counts.get(label, 0) >= 2 or label_image_counts.get(normalized, 0) >= 2
+            has_evidence = has_bbox or has_multiimage
+            
+            confidence = item.get("confidence", 0)
+            
+            if has_evidence and confidence >= 0.7:
+                # Has evidence + high confidence → add full volume
                 size_bucket = item.get("size_bucket", "unknown")
                 base_vol = SIZE_BUCKET_VOLUMES.get(size_bucket, 0.5)
-                count = item.get("count", 1)
+                count = min(item.get("count", 1), 3)  # v2.9: Cap count at 3 max
                 category = item.get("proposed_category", "misc")
                 multiplier = GPT_CATEGORY_TO_MULTIPLIER.get(category, 1.0)
                 
                 item_vol = base_vol * count * multiplier
                 missed_vol += item_vol
-                print(f"🔍 Missed: {item.get('label', 'unknown')} ({size_bucket}×{count}) = {base_vol:.2f} × {multiplier} = {item_vol:.2f} yd³")
+                audit_added_items.append({"label": label, "volume": item_vol, "evidence": "bbox" if has_bbox else "multiimage"})
+                print(f"✅ AUDIT_ADDED: {label} ({size_bucket}×{count}) = {item_vol:.2f} yd³ [evidence: {'bbox' if has_bbox else 'multiimage'}]")
+            else:
+                # No evidence → log and skip
+                reason = "no_bbox_or_multiimage" if not has_evidence else f"low_confidence({confidence:.2f})"
+                print(f"⛔ AUDIT_BLOCKED: {label} - {reason}")
         
         # 3. Collect add-on flags
         add_on_flags = []
@@ -3875,7 +3941,10 @@ Return JSON array ONLY. No explanation."""
                     add_on_flags.append(flag)
                     print(f"➕ GPT-5.2 detected add-on: {flag}")
         
-        return classifications, missed_vol, add_on_flags, volume_corrections
+        # v2.9: Log summary
+        print(f"📊 AUDIT_SUMMARY: {len(audit_added_items)} items added, {missed_vol:.2f} yd³ total")
+        
+        return classifications, missed_vol, add_on_flags, volume_corrections, audit_added_items
     
     async def ask_gemini_with_vision(self, visual_bridge_b64: str, detections: dict) -> dict:
         """
@@ -4436,10 +4505,22 @@ Return JSON array ONLY. No explanation."""
                 initial_classifications
             )
             
-            # Apply GPT-5.2 audit corrections
-            corrected_classifications, missed_vol, gpt_add_ons, volume_corrections = self.apply_audit_corrections(
+            # Apply GPT-5.2 audit corrections (v2.9: with evidence gating)
+            # Build detected labels set from all_detections (items with bboxes)
+            detected_labels = set()
+            for det in all_detections:
+                label = (det.get("label") or "").lower()
+                if det.get("bbox") and label:
+                    detected_labels.add(label)
+                    normalized = canonicalize_synonym(label)
+                    if normalized:
+                        detected_labels.add(normalized)
+            
+            corrected_classifications, missed_vol, gpt_add_ons, volume_corrections, audit_added_items = self.apply_audit_corrections(
                 initial_classifications,
-                audit_result
+                audit_result,
+                detected_labels=detected_labels,
+                catalog_items=catalog_items
             )
             
             # Merge GPT-5.2 add-ons with Gemma add-ons
@@ -4600,14 +4681,31 @@ Return JSON array ONLY. No explanation."""
             print("-"*60)
             print(f"{'Label':<25} {'Canonical':<20} {'Volume':<10} {'Priced':<8}")
             print("-"*60)
+            catalog_item_vol = 0
             for item in catalog_items:
                 label = item.get("label", "?")[:24]
                 canonical = item.get("canonical_label", "?")[:19]
                 vol = item.get("volume_yards", 0)
                 priced = "Yes" if item.get("priced", True) else "No"
+                if item.get("priced", True):
+                    catalog_item_vol += vol
                 print(f"{label:<25} {canonical:<20} {vol:<10.2f} {priced:<8}")
+            
+            # v2.9 FIX 4: Show audit-added items in table
+            audit_vol = 0
+            if audit_added_items:
+                print("-"*60)
+                print("📋 AUDIT-ADDED ITEMS:")
+                for item in audit_added_items:
+                    label = item.get("label", "?")[:24]
+                    vol = item.get("volume", 0)
+                    evidence = item.get("evidence", "?")
+                    audit_vol += vol
+                    print(f"{label:<25} {'[AUDIT]':<20} {vol:<10.2f} {evidence:<8}")
+            
             print("-"*60)
-            print(f"{'TOTAL (items)':<46} {sum(i.get('volume_yards', 0) for i in catalog_items):.2f} yd³")
+            print(f"{'TOTAL (catalog items)':<46} {catalog_item_vol:.2f} yd³")
+            print(f"{'+ Audit items':<46} {audit_vol:.2f} yd³")
             print(f"{'+ Remainder':<46} {residual_pile.get('remainder_yards', 0):.2f} yd³")
             print(f"{'= TOTAL VOLUME':<46} {final_vol:.2f} yd³")
             print("="*60)
