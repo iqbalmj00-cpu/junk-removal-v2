@@ -4483,6 +4483,10 @@ Return JSON array ONLY. No explanation."""
         
         print("🔬 STARTING VISION-ENHANCED ANALYSIS...")
         
+        # v3.0: Set initial mode early (this function handles pile mode)
+        # Will be refined later by detect_scene_mode if needed
+        mode = "pile"
+        
         # Heavy Surcharge from user selection
         heavy_surcharge = HEAVY_SURCHARGES.get(heavy_level, 0)
         vlog(f"📦 Heavy Material Level: {heavy_level} -> +${heavy_surcharge}")
