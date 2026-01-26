@@ -14,6 +14,14 @@ from google.genai import types
 # ==================== VISION WORKER (INLINED) ====================
 # Florence-2 + Depth-Anything-V2 Integration using Replicate SDK
 
+# Verbosity control: Set to True for full debug logs, False for key milestones only
+VERBOSE = False
+
+def vlog(msg):
+    """Print only if VERBOSE is True"""
+    if VERBOSE:
+        print(msg)
+
 print("🔬 Loading Vision Pipeline...")
 
 try:
@@ -355,7 +363,7 @@ try:
         
         # v2.5: Check for banned labels - return 0 volume
         if label_lower in BANNED_LABELS:
-            print(f"⛔ v2.5: Banned label {label_lower} → 0 yd³")
+            vlog(f"⛔ v2.5: Banned label {label_lower} → 0 yd³")
             return {"vol": 0, "range": (0, 0), "category": "banned", "is_banned": True}
         
         # Check sublabel keywords first
@@ -863,6 +871,12 @@ try:
                     print(f"⚠️ v2.8.1: {raw_label} → DROPPED (needs confirmation)")
             
             result.append(det)
+        
+        # Line 4: Gated Hits List
+        gated_hits = [(d.get("label", "?"), d.get("gated", "N/A")) for d in result if d.get("gated")]
+        if gated_hits:
+            print(f"🚧 GATED_HITS: {gated_hits}")
+        
         return result
     
     def collapse_debris_to_bucket(detections: list) -> list:
@@ -923,7 +937,7 @@ try:
         result = [det for det in detections if det.get("detection_id") not in skip_ids]
         skipped = before - len(result)
         if skipped > 0:
-            print(f"🚫 v2.4: Removed {skipped} detections by ID")
+            vlog(f"🚫 v2.4: Removed {skipped} detections by ID")
         return result
     
     def apply_skip_by_normalized_label(detections: list, skip_labels: set) -> list:
@@ -933,7 +947,7 @@ try:
                   if det.get("normalized_label", det.get("label", "")).lower() not in skip_labels]
         skipped = before - len(result)
         if skipped > 0:
-            print(f"🚫 v2.4: Removed {skipped} detections by normalized label")
+            vlog(f"🚫 v2.4: Removed {skipped} detections by normalized label")
         return result
     
     def finalize_detections(detections: list, skip_ids: set = None, skip_labels: set = None, gemini_underdelivered: bool = False) -> list:
@@ -952,13 +966,13 @@ try:
                       if det.get("normalized_label", det.get("label", "")).lower() not in BANNED_LABELS]
         banned_count = before_ban - len(detections)
         if banned_count > 0:
-            print(f"⛔ v2.5: Removed {banned_count} banned labels")
+            vlog(f"⛔ v2.5: Removed {banned_count} banned labels")
         
         # Step 3: v2.5 - Apply default skip list when Gemini underdelivers
         effective_skip = skip_labels.copy() if skip_labels else set()
         if gemini_underdelivered:
             effective_skip.update(DEFAULT_BACKGROUND_LABELS)
-            print(f"⚠️ v2.5: Gemini underdelivered, applying default skip list")
+            vlog(f"⚠️ v2.5: Gemini underdelivered, applying default skip list")
         
         # Step 4: Apply skip (by ID if available, else by normalized label)
         if skip_ids:
@@ -996,7 +1010,16 @@ try:
         if merged > 0:
             print(f"🔀 v2.5: Total merged: {merged} duplicate unique labels")
         
-        print(f"🔒 v2.5: Finalized {len(detections)} detections")
+        # Line 3: Finalization Removals Summary
+        removal_summary = {
+            "banned_label": banned_count,
+            "skipped": len(skip_labels) if skip_labels else 0,
+            "merged_unique": merged,
+            "gated_unapproved": gated_count,
+        }
+        print(f"🚫 FINALIZE_REMOVED: {removal_summary}")
+        
+        vlog(f"🔒 v2.5: Finalized {len(detections)} detections")
         return detections
     
     # ==================== BILLABLE VOLUME MULTIPLIERS ====================
@@ -1660,7 +1683,7 @@ Now run the audit using the provided inputs. Output JSON only."""
             device_key = f"{exif['make']} {exif['model']}".strip()
             
             if device_key not in CAMERA_INTRINSICS_DB:
-                print(f"📷 Unknown device: {device_key}")
+                vlog(f"📷 Unknown device: {device_key}")
                 return {"available": False, "reason": "unknown_device", "device": device_key}
             
             device_config = CAMERA_INTRINSICS_DB[device_key]
@@ -1672,7 +1695,7 @@ Now run the audit using the provided inputs. Output JSON only."""
             spec = device_config[module]
             scaled_K = self.scale_intrinsics(spec["K"], spec["ref_res"], actual_resolution)
             
-            print(f"📷 Device: {device_key} ({module}) - K available")
+            vlog(f"📷 Device: {device_key} ({module}) - K available")
             return {
                 "available": True,
                 "device": device_key,
@@ -1720,7 +1743,7 @@ Now run the audit using the provided inputs. Output JSON only."""
                         # Already normalized 0-1, scale to reasonable depth (0-10m)
                         depth_array = depth_array * 10.0
                     
-                    print(f"✅ Depth Pro: shape={depth_array.shape}, range=[{depth_array.min():.2f}, {depth_array.max():.2f}]m")
+                    vlog(f"✅ Depth Pro: shape={depth_array.shape}, range=[{depth_array.min():.2f}, {depth_array.max():.2f}]m")
                     return {
                         "success": True,
                         "depth_map": depth_array,
@@ -1968,7 +1991,7 @@ Now run the audit using the provided inputs. Output JSON only."""
                 "residual_area": round(residual_area, 1),
                 "coverage_ratio": round(coverage, 2)
             }
-            print(f"📐 Pile Analysis: {result['coverage_ratio']*100:.0f}% covered by items, {result['residual_area']:.0f}px² residual")
+            vlog(f"📐 Pile Analysis: {result['coverage_ratio']*100:.0f}% covered by items, {result['residual_area']:.0f}px² residual")
             return result
         
         def calculate_pipeline_confidence(self, context: dict) -> dict:
@@ -2017,7 +2040,7 @@ Now run the audit using the provided inputs. Output JSON only."""
                     break
             
             result = {"score": round(min(score, 1.5), 2), "mode": mode, "band": band, "factors": factors}
-            print(f"🎯 Confidence: {result['score']} ({mode}) - {', '.join(factors)}")
+            vlog(f"🎯 Confidence: {result['score']} ({mode}) - {', '.join(factors)}")
             return result
         
         def _base64_to_file(self, image_base64: str):
@@ -2032,7 +2055,7 @@ Now run the audit using the provided inputs. Output JSON only."""
                     FLORENCE_MODEL,
                     input={"image": img_file, "task_input": "Object Detection"}
                 )
-                print(f"✅ Florence-2 output: {output}")
+                vlog(f"✅ Florence-2 output: {output}")
                 return self._parse_florence_output(output)
             except Exception as e:
                 print(f"❌ Florence-2 Error: {e}")
@@ -2042,7 +2065,7 @@ Now run the audit using the provided inputs. Output JSON only."""
             """Run GroundingDINO open-vocabulary detection with tiered prompting."""
             try:
                 prompt = GROUNDING_DINO_PROMPTS.get(tier, GROUNDING_DINO_PROMPTS["tier1"])
-                print(f"🎯 GroundingDINO ({tier}): '{prompt[:50]}...'")
+                vlog(f"🎯 GroundingDINO ({tier}): '{prompt[:50]}...'")
                 
                 img_file = self._base64_to_file(image_base64)
                 
@@ -2229,7 +2252,7 @@ Now run the audit using the provided inputs. Output JSON only."""
                         should_promote_to_tires = True
                         print(f"🔄 v2.8: {raw_label} → tires (stack/pile keyword)")
                     else:
-                        print(f"⚠️ v2.8: {raw_label} has cat=tires but corrected='{corrected_lower}' - not enough evidence")
+                        vlog(f"⚠️ v2.8: {raw_label} has cat=tires but corrected='{corrected_lower}' - not enough evidence")
                 
                 if should_promote_to_tires:
                     canonical_label = "tires"
@@ -2262,7 +2285,7 @@ Now run the audit using the provided inputs. Output JSON only."""
                         det["volume_source"] = "stable_catalog"
                     else:
                         det["volume_source"] = "catalog_lookup"
-                    print(f"   📝 {raw_label} → {canonical_label} ({size_class}) = {det['volume_yards']} yd³")
+                    vlog(f"   📝 {raw_label} → {canonical_label} ({size_class}) = {det['volume_yards']} yd³")
                 
                 # Add Gemini fields if present
                 if gemini_info:
@@ -2951,7 +2974,7 @@ Now run the audit using the provided inputs. Output JSON only."""
             try:
                 if isinstance(raw_output, dict) and 'text' in raw_output:
                     text_str = raw_output['text']
-                    print(f"🔬 Florence text field: {text_str[:200]}..." if len(text_str) > 200 else f"🔬 Florence text field: {text_str}")
+                    vlog(f"🔬 Florence text field: {text_str[:200]}..." if len(text_str) > 200 else f"🔬 Florence text field: {text_str}")
                     
                     parsed = ast.literal_eval(text_str)
                     od_data = parsed.get('<OD>', {})
@@ -2986,7 +3009,7 @@ Now run the audit using the provided inputs. Output JSON only."""
                 import traceback
                 traceback.print_exc()
             
-            print(f"📦 Parsed {len(result['detections'])} detections, {len(result['validated_anchors'])} anchors validated")
+            vlog(f"📦 Parsed {len(result['detections'])} detections, {len(result['validated_anchors'])} anchors validated")
             return result
         
         # ===== PHASE 3: DETECTION + DEPTH =====
@@ -3131,7 +3154,7 @@ Now run the audit using the provided inputs. Output JSON only."""
             # Clamp to reasonable range
             uncertainty = max(0.08, min(uncertainty, 0.45))
             
-            print(f"📊 Uncertainty: ±{uncertainty*100:.0f}% ({', '.join(factors)})")
+            vlog(f"📊 Uncertainty: ±{uncertainty*100:.0f}% ({', '.join(factors)})")
             return {
                 "uncertainty": round(uncertainty, 2),
                 "factors": factors,
@@ -3146,7 +3169,7 @@ Now run the audit using the provided inputs. Output JSON only."""
                     DEPTH_MODEL,
                     input={"image": img_file, "model_size": "Large"}
                 )
-                print(f"✅ Depth-Anything-V2 raw output: {output}")
+                vlog(f"✅ Depth-Anything-V2 raw output: {output}")
                 
                 # Extract the color_depth URL from the output dict
                 # Output format: {'color_depth': <FileOutput or URL>, 'grey_depth': <FileOutput or URL>}
@@ -3156,7 +3179,7 @@ Now run the audit using the provided inputs. Output JSON only."""
                     if color_depth is not None:
                         # Handle both string URLs and FileOutput objects
                         depth_url = str(color_depth)
-                        print(f"🔬 Extracted depth URL: {depth_url[:80]}..." if len(depth_url) > 80 else f"🔬 Extracted depth URL: {depth_url}")
+                        vlog(f"🔬 Extracted depth URL: {depth_url[:80]}..." if len(depth_url) > 80 else f"🔬 Extracted depth URL: {depth_url}")
                 else:
                     print(f"⚠️ Unexpected depth output format: {type(output)}")
                 
@@ -3304,7 +3327,7 @@ Now run the audit using the provided inputs. Output JSON only."""
             # Get image resolution
             img = Image.open(io.BytesIO(image_bytes))
             resolution = (img.width, img.height)
-            print(f"📷 Image resolution: {resolution[0]}x{resolution[1]}")
+            vlog(f"📷 Image resolution: {resolution[0]}x{resolution[1]}")
             
             # Phase 1: Get camera intrinsics
             intrinsics = self.get_camera_intrinsics(image_bytes, resolution)
@@ -3360,7 +3383,7 @@ Now run the audit using the provided inputs. Output JSON only."""
             depth_url = depth_result.get("depth_map_url") if depth_result.get("success") else None
             visual_bridge = self.create_visual_bridge(image_b64, detections, depth_url)
             
-            print(f"✅ Camera-Aware Complete: {len(detections.get('detections', []))} objects, scale={scale.get('scale_source')}")
+            vlog(f"✅ Camera-Aware Complete: {len(detections.get('detections', []))} objects, scale={scale.get('scale_source')}")
             return {
                 "detections": detections,
                 "visual_bridge_image": visual_bridge,
@@ -3396,6 +3419,13 @@ Now run the audit using the provided inputs. Output JSON only."""
             
             fused["detections"] = [v["det"] for v in seen_labels.values()]
             print(f"🔗 Fusion: {len(seen_labels)} unique labels from {len(all_results)} images")
+            
+            # Line 2: Fused Label Inventory
+            from collections import Counter
+            label_counts = Counter(v["det"].get("label", "?") for v in seen_labels.values())
+            top_labels = dict(label_counts.most_common(20))
+            print(f"📊 FUSION_LABELS: {top_labels}")
+            
             return fused
         
         def _normalize_label(self, label: str) -> str:
@@ -3470,7 +3500,7 @@ class PricingEngine:
             if request_count == 1:
                 self.redis_client.expire(key, 3600)
                 
-            print(f"🛡️ RATE LIMIT: IP {user_ip} is at {request_count}/50 requests.")
+            vlog(f"🛡️ RATE LIMIT: IP {user_ip} is at {request_count}/50 requests.")
 
             if request_count > 50:
                 # Temporarily raised to 50 for testing (was 5)
@@ -3570,7 +3600,7 @@ class PricingEngine:
                     img_b64 = base64.b64encode(img.data).decode('utf-8')
                     image_data.append(f"data:image/jpeg;base64,{img_b64}")
             
-            print(f"🤖 Calling GPT-5 via Replicate for quote analysis ({len(image_data)} images)...")
+            vlog(f"🤖 Calling GPT-5 via Replicate for quote analysis ({len(image_data)} images)...")
             
             def _call():
                 return replicate.run(
@@ -3601,7 +3631,7 @@ class PricingEngine:
             elif "```" in response_text:
                 response_text = response_text.split("```")[1].split("```")[0]
             
-            print(f"🤖 GPT-5 response length: {len(response_text)} chars")
+            vlog(f"🤖 GPT-5 response length: {len(response_text)} chars")
             return json.loads(response_text.strip())
         except Exception as e:
             print(f"❌ GPT-5 ERROR: {e}")
@@ -3654,7 +3684,7 @@ Special instructions:
 
 Return JSON array ONLY. No explanation."""
 
-            print(f"🤖 Calling GPT-5-mini via Replicate for {len(items)} items...")
+            vlog(f"🤖 Calling GPT-5-mini via Replicate for {len(items)} items...")
             
             # Use GPT-5-mini via Replicate
             output = replicate.run(
@@ -3673,7 +3703,7 @@ Return JSON array ONLY. No explanation."""
             else:
                 result_text = str(output) if output else ""
             
-            print(f"🤖 GPT-5-mini raw response length: {len(result_text)} chars")
+            vlog(f"🤖 GPT-5-mini raw response length: {len(result_text)} chars")
             
             if not result_text:
                 raise ValueError("Empty response from GPT-5-mini")
@@ -3703,7 +3733,7 @@ Return JSON array ONLY. No explanation."""
                             })
                             print(f"      Added fallback for missing: {item.get('label')}")
             
-            print(f"🤖 GPT-5-mini classifications: {len(result)} items validated")
+            vlog(f"🤖 GPT-5-mini classifications: {len(result)} items validated")
             return result
             
         except Exception as e:
@@ -3862,7 +3892,7 @@ Return JSON array ONLY. No explanation."""
             # Build prompt
             prompt = f"{self._get_vision_enhanced_prompt()}\n\nPRE-ANALYSIS CONTEXT:\n{detection_context}"
             
-            print(f"🤖 Calling GPT-5 via Replicate for vision analysis...")
+            vlog(f"🤖 Calling GPT-5 via Replicate for vision analysis...")
             
             def _call():
                 return replicate.run(
@@ -3913,7 +3943,7 @@ Return JSON array ONLY. No explanation."""
         
         # Heavy Surcharge from user selection
         heavy_surcharge = HEAVY_SURCHARGES.get(heavy_level, 0)
-        print(f"📦 Heavy Material Level: {heavy_level} -> +${heavy_surcharge}")
+        vlog(f"📦 Heavy Material Level: {heavy_level} -> +${heavy_surcharge}")
         
         # 1. Prepare Gemini Inputs
         gemini_inputs = []
@@ -3984,11 +4014,19 @@ Return JSON array ONLY. No explanation."""
         Vision-only quote processing using Florence-2 + Depth-Anything-V2.
         Uses Replicate SDK for model inference.
         """
+        import uuid
+        request_id = str(uuid.uuid4())[:8]
+        
+        # Line 1: Request Header
+        print(f"\n{'='*60}")
+        print(f"📥 REQUEST: id={request_id} | mode=pile | images={len(base64_images)} | heavy={heavy_level}")
+        print(f"{'='*60}")
+        
         print("🔬 STARTING VISION-ENHANCED ANALYSIS...")
         
         # Heavy Surcharge from user selection
         heavy_surcharge = HEAVY_SURCHARGES.get(heavy_level, 0)
-        print(f"📦 Heavy Material Level: {heavy_level} -> +${heavy_surcharge}")
+        vlog(f"📦 Heavy Material Level: {heavy_level} -> +${heavy_surcharge}")
         
         try:
             # 1. Run Vision Pipeline on ALL images
@@ -4031,7 +4069,7 @@ Return JSON array ONLY. No explanation."""
             detections["detections"] = filtered_detections
             filtered_count = raw_detection_count - len(filtered_detections)
             if filtered_count > 0:
-                print(f"🚫 Filtered {filtered_count} background objects (cars, trucks, etc.)")
+                vlog(f"🚫 Filtered {filtered_count} background objects (cars, trucks, etc.)")
             
             # Phase 4: Calculate catalog-based volume
             catalog_volume = vision_worker.calculate_catalog_volume(detections.get("detections", []))
@@ -4076,7 +4114,7 @@ Return JSON array ONLY. No explanation."""
             if not visual_bridge:
                 visual_bridge = all_vision_results[0].get("visual_bridge_image")
             
-            print(f"👁️ Vision: Anchor={detections.get('anchor_found')}, Items={len(detections.get('detections', []))}")
+            vlog(f"👁️ Vision: Anchor={detections.get('anchor_found')}, Items={len(detections.get('detections', []))}")
             
             if not visual_bridge:
                 raise ValueError("Vision pipeline failed to create visual bridge")
@@ -4100,7 +4138,7 @@ Return JSON array ONLY. No explanation."""
                 fallback_items = [c for c in classifications if c.get("source") == "fallback"]
                 if len(fallback_items) >= len(ambiguous_items) * 0.5:
                     gemini_underdelivered = True
-                    print(f"⚠️ v2.5: Gemini underdelivered ({len(fallback_items)}/{len(ambiguous_items)} fallback)")
+                    vlog(f"⚠️ v2.5: Gemini underdelivered ({len(fallback_items)}/{len(ambiguous_items)} fallback)")
                 
                 # Store Gemini classifications for volume calculation
                 gemma_sizes = {}  # label -> size bucket
@@ -4126,7 +4164,7 @@ Return JSON array ONLY. No explanation."""
                         # v2.8: Check if low-impact item - don't skip unless high confidence
                         is_low_impact = raw_label in LOW_IMPACT_LABELS or norm_raw in LOW_IMPACT_LABELS
                         if is_low_impact and gpt_confidence < 0.8:
-                            print(f"⚠️ v2.8: Keeping low-impact {raw_label} despite GPT skip (conf={gpt_confidence:.2f})")
+                            vlog(f"⚠️ v2.8: Keeping low-impact {raw_label} despite GPT skip (conf={gpt_confidence:.2f})")
                             # Don't skip - continue to category storage
                         else:
                             # v2.8: Skip by detection_id if available
@@ -4153,7 +4191,7 @@ Return JSON array ONLY. No explanation."""
                     
                     # Store corrected label for logging
                     if cls.get("corrected_label") and cls["corrected_label"].lower() != raw_label:
-                        print(f"🔄 Gemini corrected: {raw_label} → {cls['corrected_label']}")
+                        vlog(f"🔄 Gemini corrected: {raw_label} → {cls['corrected_label']}")
                     
                     # Store add-on flags
                     if cls.get("add_on_flags"):
@@ -4172,7 +4210,7 @@ Return JSON array ONLY. No explanation."""
                 if canonical != original_label.lower():
                     item["original_label"] = original_label
                     item["label"] = canonical
-                    print(f"🔀 Synonym: {original_label} → {canonical}")
+                    vlog(f"🔀 Synonym: {original_label} → {canonical}")
             
             gemini_classifications_list = [
                 {"item": label, "category": cat, "corrected_label": label, "add_on_flags": gemma_add_ons}
@@ -4200,7 +4238,7 @@ Return JSON array ONLY. No explanation."""
             )
             
             # STEP 2: NOW assign volumes to finalized list only
-            print(f"📏 v2.6: Assigning volumes to {len(catalog_items)} finalized items...")
+            vlog(f"📏 v2.6: Assigning volumes to {len(catalog_items)} finalized items...")
             catalog_items = vision_worker.apply_canonical_labels(catalog_items, gemini_classifications_list)
             
             # STEP 3: Filter invalid labels
@@ -4280,6 +4318,20 @@ Return JSON array ONLY. No explanation."""
             coverage = vision_worker.calculate_union_coverage(billable_items, img_width, img_height)
             print(f"📐 v2.8.2: Coverage from {len(billable_items)} finalized billable items: {coverage:.1%}")
             
+            # Line 5: Coverage Inputs List
+            coverage_used = [item.get("canonical_label", item.get("label", "?")) for item in billable_items]
+            coverage_skipped = []
+            for item in catalog_items:
+                if item not in billable_items:
+                    label = item.get("canonical_label", item.get("label", "?"))
+                    reason = "no_bbox" if not item.get("bbox") else (
+                        "not_priced" if item.get("priced") == False else (
+                        "low_impact" if item.get("canonical_label", "").lower() in LOW_IMPACT_LABELS else (
+                        "background" if item.get("is_background") else "other")))
+                    coverage_skipped.append(f"{label}({reason})")
+            print(f"📐 COVERAGE_USED: {coverage_used}")
+            print(f"📐 COVERAGE_SKIPPED: {coverage_skipped}")
+            
             # v2.8.2: Coverage sanity check
             if coverage == 0 and len(billable_items) > 0:
                 total_bbox_area = sum(
@@ -4327,6 +4379,9 @@ Return JSON array ONLY. No explanation."""
                 if item.get("is_bucket") or item.get("normalized_label", item.get("label", "")).lower() == "mixed_debris"
             )
             
+            # Line 6: Remainder Formula Inputs
+            print(f"📊 REMAINDER_INPUTS: coverage={coverage:.1%} | residual={residual:.1%} | item_vol={total_item_vol:.2f} | debris_bucket={debris_bucket_vol:.2f}")
+            
             if vision_worker.should_activate_remainder(mode, residual, catalog_items, anchor_present, depth_stats):
                 pile_remainder = vision_worker.estimate_pile_remainder_v31(catalog_items, img_width, img_height, total_item_vol, depth_stats)
                 
@@ -4339,7 +4394,7 @@ Return JSON array ONLY. No explanation."""
                     # Sharply reduce remainder when debris is already counted
                     reduced_remainder = min(capped_remainder, 1.0)  # Cap at 1.0 yd³ max
                     if reduced_remainder != capped_remainder:
-                        print(f"⚠️ v2.5: Debris bucket={debris_bucket_vol:.2f} yd³, reducing remainder {capped_remainder:.2f} → {reduced_remainder:.2f}")
+                        vlog(f"⚠️ v2.5: Debris bucket={debris_bucket_vol:.2f} yd³, reducing remainder {capped_remainder:.2f} → {reduced_remainder:.2f}")
                         capped_remainder = reduced_remainder
                 
                 if capped_remainder != raw_remainder:
@@ -4501,7 +4556,7 @@ Return JSON array ONLY. No explanation."""
                 final_vol, anchor_trust, fallback_uncertainty, 
                 size_conf, catalog_variance, near_cliff, tier_id
             )
-            print(f"💰 Tier v2.1: {tier_label} → ${base_price} (for {final_vol} yd³, delta=±{delta:.2f})")
+            vlog(f"💰 Tier v2.1: {tier_label} → ${base_price} (for {final_vol} yd³, delta=±{delta:.2f})")
             
             # Map volume bounds to price range
             vol_low = max(0, final_vol - delta)
@@ -4515,7 +4570,7 @@ Return JSON array ONLY. No explanation."""
             cap = get_range_cap(base_price)
             base_min = max(raw_min, base_price - cap // 2, PRICE_FLOOR)
             base_max = min(raw_max, base_price + cap // 2)
-            print(f"   📊 Range capped: ${base_min}–${base_max} (cap=${cap})")
+            vlog(f"   📊 Range capped: ${base_min}–${base_max} (cap=${cap})")
             
             # Surcharges: only heavy_surcharge (add-ons are UI-only in v2.1)
             total_surcharge = heavy_surcharge
@@ -4524,7 +4579,7 @@ Return JSON array ONLY. No explanation."""
             final_estimate, final_min, final_max = finalize_prices_v21(
                 base_price, base_min, base_max, total_surcharge, tier_id
             )
-            print(f"   ✅ Final v2.1: ${final_min}–${final_max} (estimate=${final_estimate})")
+            vlog(f"   ✅ Final v2.1: ${final_min}–${final_max} (estimate=${final_estimate})")
             
             # Detect flags (not priced by tool)
             disposal_flags = detect_disposal_flags(catalog_items)
@@ -4537,6 +4592,34 @@ Return JSON array ONLY. No explanation."""
             # INVARIANT CHECK
             assert final_min <= final_estimate <= final_max, \
                 f"Invariant violated: {final_estimate} not in [{final_min}, {final_max}]"
+            
+            # ==================== FINAL LOGGING BLOCKS ====================
+            # Block 1: Finalized Billable Items Table
+            print("\n" + "="*60)
+            print("📋 FINALIZED BILLABLE ITEMS:")
+            print("-"*60)
+            print(f"{'Label':<25} {'Canonical':<20} {'Volume':<10} {'Priced':<8}")
+            print("-"*60)
+            for item in catalog_items:
+                label = item.get("label", "?")[:24]
+                canonical = item.get("canonical_label", "?")[:19]
+                vol = item.get("volume_yards", 0)
+                priced = "Yes" if item.get("priced", True) else "No"
+                print(f"{label:<25} {canonical:<20} {vol:<10.2f} {priced:<8}")
+            print("-"*60)
+            print(f"{'TOTAL (items)':<46} {sum(i.get('volume_yards', 0) for i in catalog_items):.2f} yd³")
+            print(f"{'+ Remainder':<46} {residual_pile.get('remainder_yards', 0):.2f} yd³")
+            print(f"{'= TOTAL VOLUME':<46} {final_vol:.2f} yd³")
+            print("="*60)
+            
+            # Block 2: FINAL Summary Line
+            cuft = final_vol * 27
+            rounded_vol = round(final_vol * 2) / 2  # Nearest 0.5
+            print(f"\n🎯 FINAL SUMMARY: {final_vol:.2f} yd³ ({cuft:.0f} cuft) → Tier: {tier_label} → Base: ${base_price} → Addons: ${total_surcharge} → Range: ${final_min}-${final_max}")
+            
+            # Line 7: Pricing Tier/Rounding Trace
+            print(f"💵 PRICING_TRACE: raw_vol={final_vol:.2f} | rounded_vol={rounded_vol:.1f} | tier={tier_label} | base=${base_price} | surcharges=${total_surcharge} | final=${final_estimate}")
+            print("="*60 + "\n")
             
             return {
                 "status": "SUCCESS",
@@ -4846,7 +4929,7 @@ Return JSON array ONLY. No explanation."""
             # Fallback focal if not provided
             if not focal_px:
                 focal_px = image_width * 0.7
-                print(f"📷 Using fallback focal: {focal_px:.0f}px")
+                vlog(f"📷 Using fallback focal: {focal_px:.0f}px")
             
             if label in TIER_2_ROUTING:
                 # Known variable item → axis-aware measurement
