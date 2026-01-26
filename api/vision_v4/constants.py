@@ -62,13 +62,13 @@ MIN_CONFIDENCE = 0.10           # Below this = drop in early gating
 # ==============================================================================
 
 CATALOG_VOLUMES = {
-    # Bags & Boxes
-    ("bags", "small"): 0.10,
-    ("bags", "medium"): 0.15,
-    ("bags", "large"): 0.25,
-    ("boxes", "small"): 0.08,
-    ("boxes", "medium"): 0.15,
-    ("boxes", "large"): 0.25,
+    # Bags & Boxes (boosted - bags add up quickly)
+    ("bags", "small"): 0.15,
+    ("bags", "medium"): 0.25,
+    ("bags", "large"): 0.40,
+    ("boxes", "small"): 0.12,
+    ("boxes", "medium"): 0.20,
+    ("boxes", "large"): 0.35,
     
     # Furniture
     ("couch", "medium"): 1.5,
@@ -153,8 +153,8 @@ CATALOG_VOLUMES = {
     ("pool table", "xlarge"): 4.0,
 }
 
-# Default volume when not in catalog
-DEFAULT_VOLUME = 0.3
+# Default volume when not in catalog (boosted from 0.3)
+DEFAULT_VOLUME = 0.4
 
 # ==============================================================================
 # CANONICAL LABEL MAPPING

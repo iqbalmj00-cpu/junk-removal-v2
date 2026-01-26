@@ -2,21 +2,63 @@
 v4.0 Pile Segmenter (Step 2)
 
 Runs Lang-SAM BEFORE YOLO to establish pile boundary.
-This is critical for stable remainder mask computation.
+Estimates pile area dynamically based on mask analysis.
 """
 
 from typing import Optional
+import io
+import requests
 from .constants import LANG_SAM_VERSION, PILE_PROMPTS
 from .utils import base64_to_replicate_file, extract_replicate_url, vlog
+
+
+def estimate_pile_ratio_from_mask(mask_url: str) -> float:
+    """
+    Download mask image and estimate pile coverage ratio.
+    
+    The mask is typically a black/white PNG where white = detected pile.
+    We calculate: white_pixels / total_pixels = coverage ratio.
+    
+    Args:
+        mask_url: URL to the mask image
+        
+    Returns:
+        Estimated pile coverage ratio (0.0 to 1.0)
+    """
+    try:
+        from PIL import Image
+        
+        # Download mask image
+        response = requests.get(mask_url, timeout=10)
+        response.raise_for_status()
+        
+        # Load as PIL image
+        mask_img = Image.open(io.BytesIO(response.content))
+        
+        # Convert to grayscale
+        mask_gray = mask_img.convert('L')
+        
+        # Count pixels
+        total_pixels = mask_gray.width * mask_gray.height
+        
+        # Count white-ish pixels (above threshold 127)
+        white_pixels = sum(1 for pixel in mask_gray.getdata() if pixel > 127)
+        
+        # Calculate ratio
+        ratio = white_pixels / total_pixels if total_pixels > 0 else 0.0
+        
+        vlog(f"      Mask analysis: {white_pixels}/{total_pixels} pixels = {ratio*100:.1f}%")
+        return ratio
+        
+    except Exception as e:
+        vlog(f"      ⚠️ Mask analysis failed: {e}, using fallback")
+        # Fallback to reasonable estimate
+        return 0.55
 
 
 def run_pile_segmentation(image: dict) -> dict:
     """
     Run Lang-SAM to get coarse pile boundary BEFORE item detection.
-    
-    This is Step 2 in the pipeline and must run BEFORE YOLO.
-    The pile mask establishes the overall debris region, which is later
-    used to compute pile_overlap for lane splitting.
     
     Args:
         image: Dict with image_id, base64, width, height
@@ -24,56 +66,57 @@ def run_pile_segmentation(image: dict) -> dict:
     Returns:
         Dict with pile_mask_url, pile_area_ratio, success flag
     """
-    import replicate  # Lazy import
+    import replicate
     
     vlog(f"🗻 Running pile segmentation for {image['image_id']}")
     
     try:
-        # Upload image to Replicate
-        img_file = base64_to_replicate_file(image["base64"])
+        # Create data URI for image
+        img_data = base64_to_replicate_file(image["base64"])
         
         # Run Lang-SAM with pile-specific prompts
         output = replicate.run(
             LANG_SAM_VERSION,
             input={
-                "image": img_file,
+                "image": img_data,
                 "text_prompt": PILE_PROMPTS,
             }
         )
         
-        # Parse output using robust helper
+        # Parse mask URL
         mask_url = extract_replicate_url(output)
-        vlog(f"   DEBUG: output type={type(output)}, extracted={mask_url is not None}")
         
         if mask_url:
-            vlog(f"   ✅ Pile mask obtained: {mask_url[:60]}...")
+            vlog(f"   ✅ Pile mask obtained")
             
-            # Estimate pile area ratio from mask (rough estimate based on typical results)
-            # In production, we'd download and analyze the mask image
-            # For now, assume pile covers ~40-60% of image
-            estimated_pile_ratio = 0.50
+            # ACTUALLY analyze the mask to get real coverage
+            pile_ratio = estimate_pile_ratio_from_mask(mask_url)
+            
+            # Apply minimum floor (if mask found, at least 30% coverage)
+            pile_ratio = max(pile_ratio, 0.30)
             
             return {
                 "success": True,
                 "pile_mask_url": mask_url,
-                "pile_area_ratio": estimated_pile_ratio,
+                "pile_area_ratio": round(pile_ratio, 3),
                 "image_id": image["image_id"]
             }
         else:
-            vlog(f"   ⚠️ Pile segmentation returned no mask")
+            vlog(f"   ⚠️ No pile mask, using fallback estimate")
+            # Fallback: assume moderate pile (better than 0)
             return {
                 "success": False,
                 "pile_mask_url": None,
-                "pile_area_ratio": 0.0,
+                "pile_area_ratio": 0.40,  # Non-zero fallback
                 "image_id": image["image_id"]
             }
             
     except Exception as e:
-        vlog(f"   ❌ Pile segmentation failed: {e}")
+        vlog(f"   ❌ Pile segmentation error: {e}")
         return {
             "success": False,
             "pile_mask_url": None,
-            "pile_area_ratio": 0.0,
+            "pile_area_ratio": 0.40,  # Non-zero fallback
             "image_id": image["image_id"],
             "error": str(e)
         }
@@ -83,9 +126,6 @@ def segment_pile_for_all_images(images: list) -> dict:
     """
     Run pile segmentation for all images.
     
-    Args:
-        images: List of image dicts
-        
     Returns:
         Dict mapping image_id -> pile segmentation result
     """
@@ -95,7 +135,10 @@ def segment_pile_for_all_images(images: list) -> dict:
         result = run_pile_segmentation(image)
         pile_masks[image["image_id"]] = result
     
+    # Summary stats
     success_count = sum(1 for r in pile_masks.values() if r.get("success"))
-    vlog(f"🗻 Pile segmentation complete: {success_count}/{len(images)} successful")
+    avg_ratio = sum(r.get("pile_area_ratio", 0) for r in pile_masks.values()) / len(images) if images else 0
+    
+    vlog(f"🗻 Pile segmentation: {success_count}/{len(images)} masks, avg coverage={avg_ratio*100:.1f}%")
     
     return pile_masks
