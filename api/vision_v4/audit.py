@@ -89,7 +89,7 @@ Return JSON:
             model="gpt-5.2-2025-12-11",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
-            temperature=0.3,
+            # Note: gpt-5 doesn't support temperature, uses default (1)
         )
         
         result = json.loads(response.choices[0].message.content)

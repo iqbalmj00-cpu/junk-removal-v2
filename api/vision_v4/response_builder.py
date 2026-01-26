@@ -50,12 +50,24 @@ def build_response(
             "verdict": item.get("verdict", "UNCERTAIN"),
         })
     
-    # Collect all add-on flags
+    # Collect all add-on flags (handle both strings and dicts from GPT-5)
     item_addons = set()
     for item in fused_items:
-        item_addons.update(item.get("add_on_flags", []))
-    audit_addons = set(audit.get("add_on_flags", []))
-    all_addons = list(item_addons | audit_addons)
+        for flag in item.get("add_on_flags", []):
+            if isinstance(flag, str):
+                item_addons.add(flag)
+            elif isinstance(flag, dict):
+                # Extract flag name from dict
+                item_addons.add(flag.get("flag") or flag.get("name") or str(flag))
+    
+    audit_flags = audit.get("add_on_flags", [])
+    for flag in audit_flags:
+        if isinstance(flag, str):
+            item_addons.add(flag)
+        elif isinstance(flag, dict):
+            item_addons.add(flag.get("flag") or flag.get("name") or str(flag))
+    
+    all_addons = list(item_addons)
     
     # Trust metrics
     items_with_masks = sum(1 for i in fused_items if i.get("has_mask", False))
