@@ -79,7 +79,7 @@ Each item in the array must include the proposal_id from the input."""
 
     try:
         response = openai.chat.completions.create(
-            model="gpt-5-2025-08-07",
+            model="gpt-5-mini-2025-08-07",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
             # Note: gpt-5 doesn't support temperature, uses default (1)
