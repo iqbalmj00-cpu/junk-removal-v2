@@ -1,7 +1,7 @@
 """
 v4.0 GPT Classifier (Step 7)
 
-Batch classification of discrete items using GPT-4o-mini.
+Batch classification of discrete items using GPT-4o.
 Uses proposal_id as PRIMARY KEY - never index-based mapping.
 Returns consistent JSON contract: {"items": [...]}
 """
@@ -35,7 +35,7 @@ def run_gpt_classifier(discrete_items: List[dict]) -> List[dict]:
         vlog("📋 No items to classify")
         return []
     
-    vlog(f"📋 Classifying {len(discrete_items)} items with GPT-4o-mini...")
+    vlog(f"📋 Classifying {len(discrete_items)} items with GPT-4o...")
     
     # Build classifier input with proposal_id as PRIMARY KEY
     items_for_classifier = []
@@ -79,10 +79,10 @@ Each item in the array must include the proposal_id from the input."""
 
     try:
         response = openai.chat.completions.create(
-            model="gpt-5-mini-2025-08-07",
+            model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
-            # Note: gpt-5 doesn't support temperature, uses default (1)
+            temperature=0,  # Deterministic output
         )
         
         result = json.loads(response.choices[0].message.content)
