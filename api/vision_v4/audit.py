@@ -12,7 +12,7 @@ from .utils import vlog
 
 
 # Replicate model version for GPT-5-Pro
-GPT5_PRO_VERSION = "openai/gpt-5-pro"
+GPT5_PRO_VERSION = "openai/gpt-5-pro-2025-10-06"
 
 
 def run_gpt_audit(
