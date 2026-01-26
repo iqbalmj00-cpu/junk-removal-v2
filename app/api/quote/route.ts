@@ -17,14 +17,14 @@ export async function POST(request: NextRequest) {
         // Validate
         if (!images.length) {
             return NextResponse.json(
-                { error: 'No images provided' },
+                { status: 'ERROR', error: 'No images provided' },
                 { status: 400 }
             );
         }
 
         if (images.length > 10) {
             return NextResponse.json(
-                { error: 'Max 10 images allowed' },
+                { status: 'ERROR', error: 'Max 10 images allowed' },
                 { status: 400 }
             );
         }
@@ -81,12 +81,23 @@ export async function POST(request: NextRequest) {
                         const result = await retryResponse.json();
                         const elapsed = Date.now() - startTime;
                         console.log(`✅ Retry succeeded in ${elapsed}ms`);
-                        return NextResponse.json(result.quote || result);
+
+                        // Transform to frontend-expected format
+                        const quote = result.quote || result;
+                        return NextResponse.json({
+                            status: 'SUCCESS',
+                            volume_yards: quote.final_volume || quote.volume || 0,
+                            min_price: quote.pricing?.low_price || quote.min_price || 0,
+                            max_price: quote.pricing?.high_price || quote.max_price || 0,
+                            price: quote.pricing?.base_price || quote.price || 0,
+                            items: quote.items || [],
+                            audit: quote.audit || {}
+                        });
                     }
                 }
 
                 return NextResponse.json(
-                    { error: 'Vision service unavailable', details: errorText },
+                    { status: 'ERROR', error: 'Vision service unavailable', details: errorText },
                     { status: response.status }
                 );
             }
@@ -95,8 +106,18 @@ export async function POST(request: NextRequest) {
             const elapsed = Date.now() - startTime;
             console.log(`✅ Quote complete in ${elapsed}ms`);
 
-            // Return just the quote (not debug unless requested)
-            return NextResponse.json(result.quote || result);
+            // Transform Fly response to frontend-expected format
+            const quote = result.quote || result;
+
+            return NextResponse.json({
+                status: 'SUCCESS',
+                volume_yards: quote.final_volume || quote.volume || 0,
+                min_price: quote.pricing?.low_price || quote.min_price || 0,
+                max_price: quote.pricing?.high_price || quote.max_price || 0,
+                price: quote.pricing?.base_price || quote.price || 0,
+                items: quote.items || [],
+                audit: quote.audit || {}
+            });
 
         } catch (fetchError: any) {
             clearTimeout(timeoutId);
@@ -104,7 +125,7 @@ export async function POST(request: NextRequest) {
             if (fetchError.name === 'AbortError') {
                 console.error('⏱️ Request timed out');
                 return NextResponse.json(
-                    { error: 'Request timed out' },
+                    { status: 'TIMEOUT', error: 'Request timed out' },
                     { status: 504 }
                 );
             }
@@ -114,7 +135,7 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
         console.error('❌ Proxy error:', error);
         return NextResponse.json(
-            { error: 'Internal server error', message: error.message },
+            { status: 'ERROR', error: 'Internal server error', message: error.message },
             { status: 500 }
         );
     }
@@ -123,7 +144,7 @@ export async function POST(request: NextRequest) {
 export const config = {
     api: {
         bodyParser: {
-            sizeLimit: '50mb', // Allow large base64 payloads
+            sizeLimit: '50mb',
         },
     },
 };
