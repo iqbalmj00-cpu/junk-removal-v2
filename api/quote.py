@@ -1235,11 +1235,13 @@ try:
         ),
 
         # Tier 3: Edge cases (run if Tier 2 still finds <3 items)
-        # Includes crates and large reels for industrial sites
+        # v2.9: REMOVED hot_tub, spa, piano, pool_table - too costly when wrong
+        # These are now handled via consensus gating in apply_canonical_labels
         "tier3": (
-            "hot tub . spa . exercise equipment . treadmill . elliptical . piano . "
-            "pool table . trampoline . swing set . shed components . fence panels . "
-            "wood crate . shipping crate . large cable reel"
+            "exercise equipment . treadmill . elliptical . "
+            "trampoline . swing set . shed components . fence panels . "
+            "wood crate . shipping crate . large cable reel . "
+            "foam cushions . mattress topper . couch cushions"  # Added to catch foam correctly
         )
     }
     
@@ -1250,14 +1252,16 @@ try:
     GROUNDING_DINO_CONFIDENCE = 0.35
     
     # Label priority: open-vocab labels take precedence over Florence generic labels
+    # v2.9: REMOVED hot_tub, piano, pool_table - these cause false positives
     OPEN_VOCAB_PRIORITY_LABELS = [
         "pallet", "wooden pallet", "shipping pallet", "pallet stack", "stack of pallets",
         "cable spool", "cable reel", "wire spool", "wooden spool", "industrial spool",
         "lumber stack", "wood planks", "plywood sheet", "scrap wood", "wood debris",
         "crt television", "flat screen tv", "shelving unit", 
         "construction debris", "construction materials", "scrap metal", "metal pipe",
-        "hot tub", "exercise equipment", "treadmill", "piano", "pool table",
-        "wood crate", "shipping crate", "large cable reel"
+        "exercise equipment", "treadmill",  # Keep these, they're lower-risk
+        "wood crate", "shipping crate", "large cable reel",
+        "foam cushions", "mattress topper", "couch cushions"  # Added for foam detection
     ]
     
     # ==================== FIX 1: VALID LABEL DICTIONARY ====================
