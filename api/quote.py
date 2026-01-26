@@ -989,14 +989,28 @@ try:
             signals += 1
             signal_details.append("multi_image")
         
-        # Signal 3: Large bbox area (>5% of image)
+        # Signal 3: Large bbox area (per-label thresholds)
+        # v3.1: Different items need different thresholds
+        BBOX_THRESHOLDS = {
+            # Large items - lower threshold (they're significant even when small in frame)
+            "appliance": 0.03, "washer": 0.03, "dryer": 0.03, "refrigerator": 0.03,
+            "mattress": 0.04, "couch": 0.04,
+            # Medium items
+            "tires": 0.05, "tire_pile": 0.05, "industrial_spool": 0.05,
+            # Small items - higher threshold (need to be large in frame to be confident)
+            "loudspeaker": 0.02, "speaker": 0.02,
+            # Default for unlisted labels
+            "default": 0.05
+        }
+        
         bbox = det.get("bbox", [0, 0, 0, 0])
         if len(bbox) >= 4:
             bbox_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
             image_area = img_area or (1024 * 768)  # Default image size
-            if bbox_area >= 0.05 * image_area:
+            threshold = BBOX_THRESHOLDS.get(label, BBOX_THRESHOLDS["default"])
+            if bbox_area >= threshold * image_area:
                 signals += 1
-                signal_details.append("large_bbox")
+                signal_details.append(f"large_bbox({threshold:.0%})")
         
         passed = signals >= 2
         add_on_flag = f"{label}_possible" if not passed else None
@@ -1007,7 +1021,7 @@ try:
         return passed, signals, add_on_flag
     
     def gate_high_impact_labels(detections: list) -> list:
-        """v2.8.1: Gate high-impact labels - check all label forms."""
+        """v2.8.1 + v3.1: Gate high-impact and high-inflation labels."""
         result = []
         for det in detections:
             # v2.8.1: Check raw, normalized, AND canonical labels
@@ -1032,17 +1046,27 @@ try:
                 )
                 
                 if two_model and confidence >= 0.7:
-                    # Trusted: use correct high-impact volume
                     det["volume_yards"] = HIGH_IMPACT_VOLUMES.get(matching_label, 3.0)
                     det["gated"] = "APPROVED"
                     det["priced"] = True
                     print(f"✅ v2.8.1: {raw_label} approved (2-model, conf={confidence:.2f})")
                 else:
-                    # v2.8.1: Mark as not priced - needs confirmation
                     det["priced"] = False
                     det["gated"] = "DROPPED_PENDING_CONFIRMATION"
                     det["needs_user_confirmation"] = True
                     print(f"⚠️ v2.8.1: {raw_label} → DROPPED (needs confirmation)")
+            
+            # v3.1: Also apply 2-of-3 confirmation for HIGH_INFLATION_LABELS
+            det_label = det.get("canonical_label", det.get("label", "")).lower()
+            if det_label in HIGH_INFLATION_LABELS and det.get("priced") != False:
+                passed, signals, add_on_flag = check_2of3_confirmation(det, detections)
+                if not passed:
+                    det["priced"] = False
+                    det["confirmed"] = False
+                    det["add_on_flag"] = add_on_flag
+                    det["gated"] = "INFLATION_GATE_FAILED"
+                else:
+                    det["confirmed"] = True
             
             result.append(det)
         
@@ -1372,9 +1396,10 @@ try:
         "unknown_large": 1.5,
     }
     
-    # Labels that require Gemma classification (ambiguous)
-    # v2.9 FIX B: Added high-volume suspicious labels that need confirmation
-    AMBIGUOUS_LABELS = [
+    # v3.1: ALWAYS_VERIFY_LABELS - these MUST go through LLM verification
+    # regardless of whether they're in ITEM_TO_CATEGORY
+    # Includes: ambiguous labels + high-inflation labels that cause pricing blowups
+    ALWAYS_VERIFY_LABELS = [
         # Original ambiguous
         "pile", "debris", "unknown", "junk", "stuff", "items", "trash",
         # v2.9: High-volume labels that cause inflation if wrong
@@ -1384,6 +1409,8 @@ try:
         "mixed_debris", "debris pile",
         "metal pipe", "scrap_metal",
     ]
+    # Backward compatibility alias
+    AMBIGUOUS_LABELS = ALWAYS_VERIFY_LABELS
     
     # Background objects to filter out (not junk items)
     BACKGROUND_LABELS = [
@@ -2887,10 +2914,55 @@ Now run the audit using the provided inputs. Output JSON only."""
             
             return round(volume_yd3, 2)
         
+        # ==================== V3.1: SCALE RESOLVER ====================
+        
+        def resolve_pile_height(self, depth_stats: dict, anchor_scale_inches: float = None,
+                                detections: list = None) -> tuple:
+            """
+            v3.1 Scale Resolver: Convert relative depth to absolute height.
+            
+            Priority:
+            1. Anchor object (if detected) - most reliable
+            2. Depth gradient + calibrated multiplier
+            3. Fallback prior based on scene type
+            
+            Returns: (height_ft, method_used)
+            """
+            # Method 1: Anchor-based (most reliable)
+            if anchor_scale_inches and anchor_scale_inches > 0:
+                # Anchor provides real-world scale
+                # Typical trash bin = 36", curb height = 6"
+                anchor_height_ft = anchor_scale_inches / 12
+                # Pile height is typically 2-3x anchor reference
+                height_ft = min(anchor_height_ft * 2.5, 6.0)
+                return height_ft, "anchor"
+            
+            # Method 2: Depth gradient with calibrated multiplier
+            if depth_stats:
+                depth_range = depth_stats.get("range", 0)
+                if depth_range > 0.15:
+                    # Calibrated multiplier: 5.5 (empirically tuned)
+                    # depth_range of 0.4 → ~2.2ft, 0.6 → ~3.3ft
+                    height_ft = min(depth_range * 5.5, 5.0)
+                    return height_ft, "depth"
+            
+            # Method 3: Fallback priors based on detection hints
+            if detections:
+                has_furniture = any(
+                    "couch" in d.get("label", "").lower() or 
+                    "mattress" in d.get("label", "").lower()
+                    for d in detections
+                )
+                if has_furniture:
+                    return 3.5, "furniture_prior"
+            
+            # Default: typical curb pile height
+            return 3.0, "default_prior"
+        
         # ==================== V3.0: TWO-LANE ESTIMATOR ====================
         
         def compute_occupancy_volume(self, detections: list, depth_stats: dict,
-                                     img_w: int, img_h: int) -> float:
+                                     img_w: int, img_h: int, anchor_scale_inches: float = None) -> float:
             """
             v3.0 Lane A: Occupancy Volume.
             
@@ -2931,17 +3003,17 @@ Now run the audit using the provided inputs. Output JSON only."""
             # Assume scene is ~150 sqft (typical curb pile view)
             footprint_sqft = coverage * 150
             
-            # Estimate height from depth gradient (default 3.0 ft)
-            height_ft = 3.0
-            if depth_stats:
-                depth_range = depth_stats.get("range", depth_stats.get("max", 1.0) - depth_stats.get("min", 0.0))
-                if depth_range > 0.2:
-                    height_ft = min(depth_range * 6, 5.0)
+            # v3.1: Use Scale Resolver for height estimation
+            height_ft, scale_method = self.resolve_pile_height(depth_stats, anchor_scale_inches, junk_detections)
             
-            volume_cuft = footprint_sqft * height_ft
+            # v3.1: Apply fill factor - loose items don't fill 100% of bbox volume
+            # Typical pile compaction is 45-65%, we use 55%
+            PILE_FILL_FACTOR = 0.55
+            
+            volume_cuft = footprint_sqft * height_ft * PILE_FILL_FACTOR
             volume_yd3 = volume_cuft / 27
             
-            print(f"   🏔️ v3.0 Lane A (Occupancy): coverage={coverage:.1%}, footprint={footprint_sqft:.1f}sqft, height={height_ft:.1f}ft → {volume_yd3:.2f} yd³")
+            print(f"   🏔️ v3.1 Lane A (Occupancy): coverage={coverage:.1%}, footprint={footprint_sqft:.1f}sqft, height={height_ft:.1f}ft ({scale_method}), fill={PILE_FILL_FACTOR} → {volume_yd3:.2f} yd³")
             
             return round(volume_yd3, 2)
         
@@ -2981,9 +3053,10 @@ Now run the audit using the provided inputs. Output JSON only."""
             
             # Scene-appropriate clamping
             if mode == "pile":
-                # Curb pile: 2.0 - 15.0 yd³ range
-                V_final = max(2.0, min(V_raw, 15.0))
-                min_floor, max_ceiling = 2.0, 15.0
+                # v3.1 FIX: Pile range 0.5 - 15.0 yd³ (allows Minimum tier for small piles)
+                # Previously 2.0 floor would overcharge small jobs
+                V_final = max(0.5, min(V_raw, 15.0))
+                min_floor, max_ceiling = 0.5, 15.0
             else:
                 # Single item mode: 0.5 - 8.0 yd³ range
                 V_final = max(0.5, min(V_raw, 8.0))
@@ -4594,14 +4667,15 @@ Return JSON array ONLY. No explanation."""
                                or d.get("label", "").lower() not in ITEM_TO_CATEGORY]
             
             if ambiguous_items and visual_bridge:
-                print(f"🔮 {len(ambiguous_items)} ambiguous items found, calling Gemini Vision...")
+                # v3.1: Clarified - this calls GPT-5-mini via Replicate (not Gemini)
+                print(f"🔮 {len(ambiguous_items)} ambiguous items found, calling GPT-5-mini classifier...")
                 classifications = await self.classify_with_gemma(visual_bridge, ambiguous_items)
                 
-                # v2.5: Detect if Gemini underdelivered (returned fewer than 50% of items)
+                # v2.5: Detect if classifier underdelivered (returned fewer than 50% of items)
                 fallback_items = [c for c in classifications if c.get("source") == "fallback"]
                 if len(fallback_items) >= len(ambiguous_items) * 0.5:
                     gemini_underdelivered = True
-                    vlog(f"⚠️ v2.5: Gemini underdelivered ({len(fallback_items)}/{len(ambiguous_items)} fallback)")
+                    vlog(f"⚠️ v2.5: GPT-5-mini underdelivered ({len(fallback_items)}/{len(ambiguous_items)} fallback)")
                 
                 # Store Gemini classifications for volume calculation
                 gemma_sizes = {}  # label -> size bucket
@@ -4900,7 +4974,8 @@ Return JSON array ONLY. No explanation."""
             # Compute both lanes and take max for robust estimation
             
             # Lane A: Occupancy volume (footprint × height)
-            V_occ = vision_worker.compute_occupancy_volume(all_detections, depth_stats, img_width, img_height)
+            anchor_inches = detections.get("anchor_scale_inches")
+            V_occ = vision_worker.compute_occupancy_volume(all_detections, depth_stats, img_width, img_height, anchor_inches)
             
             # Bulk clutter volume (bags, boxes, foam)
             bulk_clutter = vision_worker.compute_bulk_clutter_volume(all_detections, img_width, img_height)
