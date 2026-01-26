@@ -25,7 +25,7 @@ from .lane_splitter import apply_lane_split
 from .classifier import run_gpt_classifier, filter_by_verdict
 from .fusion import fuse_across_images
 from .remainder import compute_remainder_stats
-from .volume_engine import compute_two_lane_volume
+from .volume_engine import compute_volume
 from .audit import run_gpt_audit
 from .response_builder import build_response, build_error_response
 
@@ -185,7 +185,8 @@ def process_quote_v4(base64_images: List[str], mode: str = "pile") -> dict:
         # STEP 10: TWO-LANE VOLUME
         # ================================================================
         vlog("\n📍 Step 10: Two-Lane Volume")
-        volumes = compute_two_lane_volume(fused_items, remainder_stats)
+        # CRITICAL: Pass pile_masks from Step 2, NOT remainder_stats
+        volumes = compute_volume(fused_items, pile_masks, remainder_stats)
         
         
         # ================================================================
