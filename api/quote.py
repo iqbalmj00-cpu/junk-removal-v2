@@ -700,12 +700,32 @@ try:
     LOW_IMPACT_LABELS = {"boxes", "bags", "bag", "box", "misc", "unknown_small", "plastic_bag", "plastic bag"}
     LOW_IMPACT_MAX_VOLUME = 0.2  # Never price more than 0.2 yd³ per low-impact item
     
-    # v3.0: BULK CLUTTER LABELS - represent pile bulk, NOT individually priced
-    # These contribute to occupancy volume, not catalog volume
-    BULK_CLUTTER_LABELS = {
-        "bags", "boxes", "foam_cushions", "plastic_bag", "bag", "box",
-        "loose_items", "household_misc", "clutter", "mattress_topper",
-        "couch_cushions", "cushions", "foam", "debris"
+    # v3.2: BULK_MASS_LABELS - items that form pile mass (contribute to occupancy)
+    # These are measured by footprint, not individually priced in catalog
+    BULK_MASS_LABELS = {
+        # Bags/boxes - core bulk
+        "bags", "boxes", "plastic_bag", "bag", "box", "trash_bag", "garbage_bag",
+        # Loose household
+        "bins", "toys", "clothes", "misc", "clutter", "loose_items", "household_misc",
+        # Cushions/foam
+        "foam_cushions", "cushions", "foam", "mattress_topper", "couch_cushions", "pillows",
+        # Mixed debris (non-construction)
+        "debris", "mixed_debris", "debris_pile", "junk", "trash", "garbage",
+        # Construction debris (gated - include if confirmed)
+        "wood_scraps", "drywall", "construction_debris", "lumber", "pallets",
+        # Yard waste (gated)
+        "branches", "leaves", "yard_waste", "brush", "tree_limbs",
+        # Scrap (gated)
+        "scrap_metal", "metal_scrap",
+    }
+    # Backward compat
+    BULK_CLUTTER_LABELS = BULK_MASS_LABELS
+    
+    # v3.2: GATED_BULK_LABELS - only count if confirmed (multi-image or large area)
+    GATED_BULK_LABELS = {
+        "construction_debris", "drywall", "lumber", "pallets",
+        "yard_waste", "branches", "leaves", "brush",
+        "scrap_metal", "metal_scrap"
     }
     
     def canonicalize_synonym(label: str, gemini_correction: str = None) -> str:
@@ -2946,15 +2966,30 @@ Now run the audit using the provided inputs. Output JSON only."""
                     height_ft = min(depth_range * 5.5, 5.0)
                     return height_ft, "depth"
             
-            # Method 3: Fallback priors based on detection hints
+            # Method 3: Scene-type priors based on detection hints
             if detections:
-                has_furniture = any(
-                    "couch" in d.get("label", "").lower() or 
-                    "mattress" in d.get("label", "").lower()
-                    for d in detections
-                )
+                labels = [d.get("label", "").lower() for d in detections]
+                all_labels = " ".join(labels)
+                
+                # Furniture scenes (garage cleanout, house interior)
+                has_furniture = any(l in all_labels for l in ["couch", "mattress", "dresser", "bed"])
                 if has_furniture:
                     return 3.5, "furniture_prior"
+                
+                # Yard/outdoor scenes (branches, leaves)
+                has_yard = any(l in all_labels for l in ["branch", "leaves", "yard", "brush"])
+                if has_yard:
+                    return 4.0, "yard_prior"  # Yard piles are often taller
+                
+                # Construction debris (drywall, lumber)
+                has_construction = any(l in all_labels for l in ["drywall", "lumber", "wood", "construction"])
+                if has_construction:
+                    return 3.0, "construction_prior"
+                
+                # Curb scene (most common - bags, boxes, misc)
+                has_curb = any(l in all_labels for l in ["bag", "box", "trash", "garbage"])
+                if has_curb:
+                    return 2.5, "curb_prior"
             
             # Default: typical curb pile height
             return 3.0, "default_prior"
@@ -4964,33 +4999,38 @@ Return JSON array ONLY. No explanation."""
                 pile_remainder = {"remainder_yards": 0, "activated": False, "residual_pct": residual}
                 print(f"   📊 Remainder skipped (mode={mode}, residual={residual:.1%})")
             
-            # Final total (legacy v3.3)
+            # Final total (legacy v3.3 - kept for logging only)
             remainder_vol = pile_remainder.get("remainder_yards", 0)
-            total_with_remainder = total_item_vol + remainder_vol
+            total_with_remainder_legacy = total_item_vol + remainder_vol
             
-            print(f"   📊 Total volume (v3.3): items={total_item_vol:.2f} + remainder={remainder_vol:.2f} = {total_with_remainder:.2f} yd³")
+            print(f"   📊 Legacy v3.3: items={total_item_vol:.2f} + remainder={remainder_vol:.2f} = {total_with_remainder_legacy:.2f} yd³")
             
-            # ==================== v3.0 TWO-LANE ESTIMATOR ====================
-            # Compute both lanes and take max for robust estimation
+            # ==================== v3.2 TWO-LANE ESTIMATOR (AUTHORITATIVE) ====================
+            # In pile mode: occupancy-PRIMARY, catalog-secondary
+            # This is the ONLY source of truth for pile mode volume
             
-            # Lane A: Occupancy volume (footprint × height)
+            # Lane A: Occupancy volume (footprint × height × fill)
             anchor_inches = detections.get("anchor_scale_inches")
             V_occ = vision_worker.compute_occupancy_volume(all_detections, depth_stats, img_width, img_height, anchor_inches)
             
-            # Bulk clutter volume (bags, boxes, foam)
+            # Bulk mass volume (expanded BULK_MASS_LABELS)
             bulk_clutter = vision_worker.compute_bulk_clutter_volume(all_detections, img_width, img_height)
             
-            # Lane B: Catalog volume (confirmed items)
+            # Lane B: Catalog volume (confirmed discrete items)
             V_items = vision_worker.compute_catalog_volume_v30(catalog_items)
             
-            # Two-lane selection: take max with scene-appropriate clamping
+            # Two-lane selection: max with scene-appropriate clamping
             lane_result = vision_worker.compute_final_volume_v30(V_occ, V_items, mode, bulk_clutter)
             
-            # Use v3.0 result if it's significantly different (more robust)
-            v30_final = lane_result["V_final"]
-            if mode == "pile" and abs(v30_final - total_with_remainder) > 1.0:
-                print(f"   🔄 v3.0 override: {total_with_remainder:.2f} → {v30_final:.2f} yd³ (two-lane is more robust)")
-                total_with_remainder = v30_final
+            # v3.2 CRITICAL: In pile mode, two-lane result is AUTHORITATIVE
+            # Never revert to legacy line-item sum
+            if mode == "pile":
+                total_with_remainder = lane_result["V_final"]
+                print(f"   ✅ v3.2 AUTHORITATIVE: {lane_result['V_final']:.2f} yd³ (occupancy-primary)")
+            else:
+                # Single-item mode: catalog-primary with sanity cap
+                total_with_remainder = min(lane_result["V_items"], 8.0)
+                print(f"   ✅ v3.2 Single-item: {total_with_remainder:.2f} yd³ (catalog-primary)")
             
             # Store lane breakdown for transparency
             catalog_volume["v30_lanes"] = lane_result
