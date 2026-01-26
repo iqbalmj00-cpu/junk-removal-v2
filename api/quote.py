@@ -40,7 +40,10 @@ try:
     PIPELINE_VERSION = os.environ.get("PIPELINE_VERSION", "v3.5")
     if PIPELINE_VERSION == "v4":
         print("🚀 v4.0 Pipeline ENABLED (YOLO-World + Lang-SAM + GPT)")
-        from vision_v4 import process_quote_v4
+        try:
+            from vision_v4 import process_quote_v4
+        except ImportError:
+            from .vision_v4 import process_quote_v4
     
     # Anchor Trust Registry: trust tiers + validation rules
     ANCHOR_REGISTRY = {
