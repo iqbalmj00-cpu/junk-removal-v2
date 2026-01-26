@@ -248,24 +248,32 @@ try:
     HIGH_RISK_KEYWORDS = ["piano", "safe", "hot tub", "spa", "pool table", 
                           "sleeper", "cast iron", "gun safe", "aquarium"]
     
-    # ==================== TIERED PRICING ====================
-    # Updated pricing tiers (v2.8.2)
+    # ==================== TIERED PRICING (v2.9 - Anchor-Based Linear) ====================
+    # 5 anchors tied to 20 yd³ truck fractions, with linear interpolation between
+    PRICE_ANCHORS = [
+        {"yards": 0.0,  "price": 135,  "label": "Minimum"},      # Minimum
+        {"yards": 2.5,  "price": 135,  "label": "Minimum"},      # 1/8 truck - still minimum
+        {"yards": 5.0,  "price": 285,  "label": "1/4 Load"},     # 1/4 truck
+        {"yards": 10.0, "price": 575,  "label": "1/2 Load"},     # 1/2 truck
+        {"yards": 15.0, "price": 865,  "label": "3/4 Load"},     # 3/4 truck
+        {"yards": 20.0, "price": 1150, "label": "Full Load"},    # Full truck
+    ]
+    
+    # Legacy VOLUME_TIERS for backward compatibility with finalize_prices_v21
+    # These are the anchor points converted to cuft
     VOLUME_TIERS = [
-        {"max_cuft": 13.5,  "price": 135,  "label": "Minimum"},        # 0.0 - 0.5 yd³
-        {"max_cuft": 67.5,  "price": 255,  "label": "1/4 Load"},       # 0.5 - 2.5 yd³
-        {"max_cuft": 135,   "price": 285,  "label": "Half Load"},      # 2.5 - 5.0 yd³
-        {"max_cuft": 202.5, "price": 430,  "label": "5/8 Load"},       # 5.0 - 7.5 yd³
-        {"max_cuft": 270,   "price": 575,  "label": "3/4 Load"},       # 7.5 - 10.0 yd³
-        {"max_cuft": 337.5, "price": 720,  "label": "7/8 Load"},       # 10.0 - 12.5 yd³
-        {"max_cuft": 405,   "price": 865,  "label": "Full Load"},      # 12.5 - 15.0 yd³
-        {"max_cuft": 472.5, "price": 1007, "label": "Oversize"},       # 15.0 - 17.5 yd³
-        {"max_cuft": 540,   "price": 1150, "label": "Max Load"},       # 17.5 - 20.0 yd³
+        {"max_cuft": 67.5,  "price": 135,  "label": "Minimum"},      # 0.0 - 2.5 yd³
+        {"max_cuft": 135,   "price": 285,  "label": "1/4 Load"},     # 2.5 - 5.0 yd³
+        {"max_cuft": 270,   "price": 575,  "label": "1/2 Load"},     # 5.0 - 10.0 yd³
+        {"max_cuft": 405,   "price": 865,  "label": "3/4 Load"},     # 10.0 - 15.0 yd³
+        {"max_cuft": 540,   "price": 1150, "label": "Full Load"},    # 15.0 - 20.0 yd³
     ]
     
     # ==================== PRICING v2.1 ====================
     # Hard range caps (tight UX)
     RANGE_CAPS = {250: 50, 400: 75, 999: 100}
-    PRICE_FLOOR = 135  # Minimum price (v2.8.2)
+    PRICE_FLOOR = 135  # Minimum price
+    PRICE_CEILING = 1150  # Maximum price - cap at full load
     MIN_SPREAD = 10   # Minimum range width
     
     # Disposal candidates (flags only, not priced by tool)
@@ -419,13 +427,67 @@ try:
                 return cap
         return 100
     
+    def calc_price_linear(volume_yards: float) -> tuple:
+        """
+        v2.9: Anchor-based piecewise linear pricing.
+        
+        Rounds volume to nearest 0.5 yd³, then linearly interpolates between anchors.
+        Returns (price, label, needs_review).
+        
+        Anchors:
+        - 0.0-2.5 yd³: $135 flat (minimum)
+        - 2.5-5.0 yd³: $135 → $285 (+$30 per 0.5)
+        - 5.0-10.0 yd³: $285 → $575 (+$29 per 0.5)
+        - 10.0-15.0 yd³: $575 → $865 (+$29 per 0.5)
+        - 15.0-20.0 yd³: $865 → $1,150 (+$28.50 per 0.5)
+        - >20.0 yd³: Cap at $1,150, flag for manual review
+        """
+        # Round to nearest 0.5
+        rounded_vol = round(volume_yards * 2) / 2
+        
+        # Cap at 20.0 yd³
+        needs_review = rounded_vol > 20.0
+        if rounded_vol > 20.0:
+            return (PRICE_CEILING, "Full Load (Review)", True)
+        
+        # Define anchor segments: (min_vol, max_vol, min_price, max_price, label)
+        segments = [
+            (0.0, 2.5, 135, 135, "Minimum"),        # Flat minimum
+            (2.5, 5.0, 135, 285, "1/4 Load"),       # +$30 per 0.5
+            (5.0, 10.0, 285, 575, "1/2 Load"),      # +$29 per 0.5
+            (10.0, 15.0, 575, 865, "3/4 Load"),     # +$29 per 0.5
+            (15.0, 20.0, 865, 1150, "Full Load"),   # +$28.50 per 0.5
+        ]
+        
+        for min_vol, max_vol, min_price, max_price, label in segments:
+            if rounded_vol <= max_vol:
+                if rounded_vol <= min_vol:
+                    return (min_price, label, False)
+                # Linear interpolation
+                ratio = (rounded_vol - min_vol) / (max_vol - min_vol)
+                price = min_price + ratio * (max_price - min_price)
+                return (int(round(price)), label, False)
+        
+        # Fallback (shouldn't reach here)
+        return (PRICE_CEILING, "Full Load", False)
+    
     def choose_tier_v2(volume_yards: float, delta_yards: float = 0.3) -> tuple:
-        """Choose tier from volume (not price). Returns (tier_id, tier_dict)."""
+        """Choose tier from volume. Returns (tier_id, tier_dict).
+        
+        v2.9: Updated to use anchor-based linear pricing.
+        tier_dict now includes 'price' from linear calculation.
+        """
+        price, label, _ = calc_price_linear(volume_yards)
+        
+        # Find matching tier_id for backward compatibility
         cuft = volume_yards * 27
         for tier_id, tier in enumerate(VOLUME_TIERS):
             if cuft <= tier["max_cuft"]:
-                return tier_id, tier
-        return len(VOLUME_TIERS) - 1, VOLUME_TIERS[-1]
+                # Return tier with updated price from linear calc
+                return tier_id, {"max_cuft": tier["max_cuft"], "price": price, "label": label}
+        
+        # Max tier
+        return len(VOLUME_TIERS) - 1, {"max_cuft": VOLUME_TIERS[-1]["max_cuft"], "price": price, "label": label}
     
     def is_near_cliff(volume: float, tier_id: int, threshold: float = 0.5) -> bool:
         """Check if volume is near tier boundary."""
