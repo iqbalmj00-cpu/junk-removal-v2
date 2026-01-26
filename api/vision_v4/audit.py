@@ -96,11 +96,17 @@ Return JSON:
         
         vlog(f"   ✅ Audit: {result.get('validation', 'unknown')} (conf={result.get('confidence', 0):.2f})")
         
+        # Safely log add-on flags (handle both strings and dicts)
         if result.get("add_on_flags"):
-            vlog(f"   ➕ Add-ons: {', '.join(result['add_on_flags'])}")
+            flags = result["add_on_flags"]
+            flag_strs = [f.get("name", str(f)) if isinstance(f, dict) else str(f) for f in flags]
+            vlog(f"   ➕ Add-ons: {', '.join(flag_strs)}")
         
+        # Safely log missing items (handle both strings and dicts)
         if result.get("missing_items"):
-            vlog(f"   ⚠️ Missing: {', '.join(result['missing_items'])}")
+            items = result["missing_items"]
+            item_strs = [i.get("label", str(i)) if isinstance(i, dict) else str(i) for i in items]
+            vlog(f"   ⚠️ Missing: {', '.join(item_strs)}")
         
         return result
         

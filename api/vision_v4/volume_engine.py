@@ -79,10 +79,8 @@ def compute_lane_a_occupancy(remainder_stats: dict) -> dict:
     """
     Compute Lane A: Occupancy volume from remainder coverage.
     
-    Uses scene priors to convert area coverage to volume:
-    - Estimated visible area per image
-    - Height prior for pile
-    - Fill factor for compaction
+    Uses scene priors to convert area coverage to volume.
+    Dynamic height prior based on pile size.
     
     Args:
         remainder_stats: Aggregate remainder statistics
@@ -91,17 +89,22 @@ def compute_lane_a_occupancy(remainder_stats: dict) -> dict:
         Dict with occupancy volume and calculation breakdown
     """
     avg_remainder_ratio = remainder_stats.get("avg_remainder_ratio", 0)
+    avg_pile_ratio = remainder_stats.get("avg_pile_ratio", 0)
     
     # Scene priors
     VISIBLE_SQFT_PER_IMAGE = 50  # Approximate visible floor area
-    HEIGHT_PRIOR_FT = 2.5        # Average pile height
     FILL_FACTOR = 0.55           # Compaction factor
     
-    # Calculate volume
-    # remainder_ratio * visible_area = covered sqft
-    # covered_sqft * height * fill_factor = cubic feet
-    # cubic feet / 27 = cubic yards
+    # DYNAMIC height prior based on pile coverage
+    # Larger piles tend to be taller
+    if avg_pile_ratio > 0.40:
+        HEIGHT_PRIOR_FT = 3.5  # Very large pile
+    elif avg_pile_ratio > 0.25:
+        HEIGHT_PRIOR_FT = 3.0  # Medium pile
+    else:
+        HEIGHT_PRIOR_FT = 2.5  # Small pile
     
+    # Calculate volume
     covered_sqft = avg_remainder_ratio * VISIBLE_SQFT_PER_IMAGE
     cubic_feet = covered_sqft * HEIGHT_PRIOR_FT * FILL_FACTOR
     cubic_yards = cubic_feet / 27
@@ -109,6 +112,7 @@ def compute_lane_a_occupancy(remainder_stats: dict) -> dict:
     return {
         "total": round(cubic_yards, 2),
         "remainder_ratio": avg_remainder_ratio,
+        "pile_ratio": avg_pile_ratio,
         "covered_sqft": round(covered_sqft, 2),
         "height_prior": HEIGHT_PRIOR_FT,
         "fill_factor": FILL_FACTOR

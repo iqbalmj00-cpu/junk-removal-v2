@@ -122,40 +122,48 @@ def segment_all_proposals(
     pile_masks: dict
 ) -> List[dict]:
     """
-    Run item segmentation for proposals that need it.
-    Skip pile-like labels to save API calls.
+    Run item segmentation for TOP proposals only.
+    Limits API calls for latency/cost control.
     """
     image_map = {img["image_id"]: img for img in images}
     
-    success_count = 0
-    skipped_count = 0
+    # Sort by bbox area * score to prioritize high-value items
+    def score_proposal(p):
+        img = image_map.get(p["image_id"])
+        if not img:
+            return 0
+        bbox = p.get("bbox", [0, 0, 0, 0])
+        area = bbox_area_ratio(bbox, img["width"], img["height"])
+        return area * p.get("score", 0.5)
     
-    for proposal in proposals:
+    # Limit segmentation to top N items (reduce latency from 29s)
+    SEGMENT_LIMIT = 8
+    
+    # Separate items that need segmentation
+    segmentable = [p for p in proposals if should_segment_item(p, image_map.get(p["image_id"], {}))]
+    non_segmentable = [p for p in proposals if not should_segment_item(p, image_map.get(p["image_id"], {}))]
+    
+    # Sort segmentable by priority and take top N
+    segmentable_sorted = sorted(segmentable, key=score_proposal, reverse=True)
+    to_segment = segmentable_sorted[:SEGMENT_LIMIT]
+    to_skip = segmentable_sorted[SEGMENT_LIMIT:]
+    
+    vlog(f"🎭 Segmenting top {len(to_segment)} of {len(segmentable)} candidates (limit={SEGMENT_LIMIT})")
+    
+    success_count = 0
+    
+    # Segment top priority items
+    for proposal in to_segment:
         image = image_map.get(proposal["image_id"])
         if not image:
             continue
         
-        # Get pile mask URL for this image
         pile_result = pile_masks.get(proposal["image_id"], {})
         pile_mask_url = pile_result.get("pile_mask_url")
         
-        # Decide: segment or skip?
-        if should_segment_item(proposal, image):
-            # Run segmentation
-            seg_result = run_item_segmentation(proposal, image, pile_mask_url)
-            if seg_result.get("success"):
-                success_count += 1
-        else:
-            # Skip segmentation - use bbox directly
-            skipped_count += 1
-            bbox = proposal.get("bbox", [0, 0, 0, 0])
-            seg_result = {
-                "mask_url": None,
-                "mask_area_ratio": bbox_area_ratio(bbox, image["width"], image["height"]),
-                "pile_overlap": 0.5,  # Assume high overlap for pile-like items
-                "has_mask": False,
-                "success": False
-            }
+        seg_result = run_item_segmentation(proposal, image, pile_mask_url)
+        if seg_result.get("success"):
+            success_count += 1
         
         # Attach results
         proposal["mask_url"] = seg_result.get("mask_url")
@@ -163,5 +171,17 @@ def segment_all_proposals(
         proposal["pile_overlap"] = seg_result.get("pile_overlap", 0)
         proposal["has_mask"] = seg_result.get("has_mask", False)
     
-    vlog(f"🎭 Item segmentation: {success_count} masks, {skipped_count} skipped, {len(proposals)} total")
+    # Use bbox fallback for remaining items (both skipped and over-limit)
+    for proposal in to_skip + non_segmentable:
+        image = image_map.get(proposal["image_id"])
+        if not image:
+            continue
+        
+        bbox = proposal.get("bbox", [0, 0, 0, 0])
+        proposal["mask_url"] = None
+        proposal["mask_area_ratio"] = bbox_area_ratio(bbox, image["width"], image["height"])
+        proposal["pile_overlap"] = 0.5 if proposal in non_segmentable else 0.0
+        proposal["has_mask"] = False
+    
+    vlog(f"🎭 Item segmentation: {success_count} masks, {len(to_skip) + len(non_segmentable)} bbox-fallback")
     return proposals
