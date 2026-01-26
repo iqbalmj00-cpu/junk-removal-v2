@@ -35,6 +35,13 @@ try:
     # Feature flag for camera-aware pipeline (Phases 1-8)
     CAMERA_AWARE_ENABLED = os.environ.get("CAMERA_AWARE", "false").lower() == "true"
     
+    # Feature flag for v4 pipeline (YOLO-World + Lang-SAM + GPT)
+    # Set PIPELINE_VERSION=v4 to enable the new pipeline
+    PIPELINE_VERSION = os.environ.get("PIPELINE_VERSION", "v3.5")
+    if PIPELINE_VERSION == "v4":
+        print("🚀 v4.0 Pipeline ENABLED (YOLO-World + Lang-SAM + GPT)")
+        from vision_v4 import process_quote_v4
+    
     # Anchor Trust Registry: trust tiers + validation rules
     ANCHOR_REGISTRY = {
         # HIGH trust - consistent, standardized sizes
@@ -164,6 +171,60 @@ try:
     
     # Depth Pro model on Replicate
     DEPTH_PRO_MODEL = "garg-aayush/ml-depth-pro"
+    
+    # ==================== v3.5: YOLO-WORLD DETECTION ====================
+    # franz-biz/yolo-world-xl - has return_json parameter for JSON bbox output
+    YOLO_WORLD_VERSION = "franz-biz/yolo-world-xl:fd1305d3fc19e81540542f51c2530cf8f393e28cc6ff4976337c3e2b75c7c292"
+    
+    # Tiered vocabulary for open-vocab detection
+    YOLO_VOCAB_TIER_1 = [
+        "trash bag", "garbage bag", "cardboard box", "moving box",
+        "plastic storage tote", "plastic bin", "tire", "mattress",
+        "couch", "sofa", "chair", "table", "dresser",
+        "tv", "monitor", "speaker", "subwoofer", "washer", "dryer",
+        "refrigerator", "freezer", "foam cushion"
+    ]
+    
+    YOLO_VOCAB_TIER_2 = [
+        "wood debris", "lumber", "fence panel", "pallet",
+        "metal scrap", "metal pipe", "branches", "yard waste",
+        "carpet", "debris pile", "exercise equipment", "treadmill"
+    ]
+    
+    YOLO_VOCAB_TIER_3 = [
+        "hot tub", "spa", "motorcycle", "scooter",
+        "piano", "safe", "pool table"
+    ]
+    
+    # Background items to filter out
+    YOLO_DENYLIST = {"car", "truck", "house", "driveway", "road", "tree", "person", "mailbox", "building", "fence"}
+    
+    # Canonical label mapping (YOLO vocab → catalog labels)
+    YOLO_CANON_MAP = {
+        # Bags & Boxes
+        "garbage bag": "bags", "trash bag": "bags",
+        "cardboard box": "boxes", "moving box": "boxes",
+        "plastic storage tote": "boxes", "plastic bin": "boxes",
+        # Furniture
+        "sofa": "couch", "couch": "couch",
+        "mattress": "mattress", "chair": "chair",
+        "table": "table", "dresser": "dresser",
+        # Appliances
+        "washer": "washer", "dryer": "dryer",
+        "refrigerator": "refrigerator", "freezer": "refrigerator",
+        "tv": "tv", "monitor": "tv",
+        # Other
+        "tire": "tires", "speaker": "loudspeaker", "subwoofer": "loudspeaker",
+        "hot tub": "hot_tub", "spa": "hot_tub",
+        "motorcycle": "motorcycle", "scooter": "motorcycle",
+        "pallet": "pallets", "fence panel": "fence_panels",
+        "metal pipe": "scrap_metal", "metal scrap": "scrap_metal",
+        "wood debris": "lumber", "lumber": "lumber",
+        "branches": "yard_waste", "yard waste": "yard_waste",
+        "debris pile": "debris", "foam cushion": "foam",
+        "exercise equipment": "exercise_equipment", "treadmill": "treadmill",
+        "piano": "piano", "safe": "safe", "pool table": "pool_table",
+    }
     
     # ==================== SINGLE ITEM ENGINE ====================
     # Smart Triage: Route items to fast lookup (Tier 1) or measurement (Tier 2)
@@ -968,6 +1029,17 @@ try:
         "tires", "tire_pile", "cable_spool_wood", "industrial_spool", "suspicious_spool",
         "mixed_debris", "debris_pile", "metal_pipe", "scrap_metal"
     }
+    
+    # v3.3: EVIDENCE REQUIRED LABELS - MUST have bbox to exist at all (geometry OR pricing)
+    # These are high-value items that cause major quote swings if hallucinated
+    EVIDENCE_REQUIRED_LABELS = {
+        "hot_tub", "piano", "pool_table", "gun_safe", "spa", "sectional",
+        "washer", "dryer", "refrigerator"
+    }
+    
+    # v3.3: Coverage collapse thresholds for remainder fallback
+    COVERAGE_COLLAPSE_THRESHOLD = 0.08  # 8% - below this, trust remainder
+    RESIDUAL_EXPLOSION_THRESHOLD = 0.85  # 85% - above this, coverage is useless
     
     def check_2of3_confirmation(det: dict, all_detections: list, img_area: float = None) -> tuple:
         """
@@ -2343,6 +2415,175 @@ Now run the audit using the provided inputs. Output JSON only."""
             except Exception as e:
                 print(f"⚠️ GroundingDINO failed: {e}")
                 return []
+        
+        def run_yolo_world_detection(self, image_base64: str, image_index: int, vocab: list, conf_thresh: float = 0.25) -> list:
+            """
+            v3.5: Run YOLO-World open-vocabulary detection.
+            Uses controlled vocabulary to eliminate garbage labels like 'woodenool'.
+            
+            Args:
+                image_base64: Base64 encoded image
+                image_index: Index of image in multi-image batch
+                vocab: List of class strings to detect
+                conf_thresh: Minimum confidence threshold
+            
+            Returns:
+                List of detections in pipeline format
+            """
+            try:
+                classes_str = ", ".join(vocab)
+                print(f"🎯 YOLO-World: Detecting {len(vocab)} classes (conf>{conf_thresh})")
+                
+                img_file = self._base64_to_file(image_base64)
+                
+                output = replicate.run(
+                    YOLO_WORLD_VERSION,
+                    input={
+                        "input_media": img_file,
+                        "class_names": classes_str,  # franz-biz uses class_names
+                        "score_thr": conf_thresh,    # franz-biz uses score_thr
+                        "return_json": True,         # CRITICAL: get JSON not image
+                        "max_num_boxes": 100,
+                    },
+                )
+                
+                # DEBUG: Log raw YOLO output to understand format
+                print(f"   🔍 YOLO raw output type: {type(output)}")
+                if isinstance(output, dict):
+                    print(f"   🔍 YOLO dict keys: {list(output.keys())}")
+                elif isinstance(output, list):
+                    print(f"   🔍 YOLO list length: {len(output)}")
+                    if output:
+                        print(f"   🔍 YOLO first item keys: {list(output[0].keys()) if isinstance(output[0], dict) else type(output[0])}")
+                else:
+                    print(f"   🔍 YOLO output: {str(output)[:200]}")
+                
+                # CRITICAL: franz-biz model returns detections as JSON string in `json_str` key
+                # Parse that string first before looking for detection keys
+                if isinstance(output, dict) and "json_str" in output:
+                    try:
+                        parsed = json.loads(output["json_str"])
+                        print(f"   🔍 YOLO json_str parsed: type={type(parsed)}, keys={list(parsed.keys()) if isinstance(parsed, dict) else len(parsed)}")
+                        output = parsed  # Replace output with parsed JSON
+                    except (json.JSONDecodeError, TypeError) as e:
+                        print(f"   ⚠️ YOLO json_str parse failed: {e}")
+                
+                # Parse output defensively - YOLO-World output format varies
+                dets_raw = None
+                if isinstance(output, dict):
+                    # First check for standard keys
+                    for key in ["detections", "predictions", "boxes", "results"]:
+                        if key in output:
+                            dets_raw = output[key]
+                            break
+                    
+                    # CRITICAL: franz-biz returns detections as "Det-0", "Det-1", etc.
+                    # If no standard key found, check for Det-* pattern
+                    if dets_raw is None:
+                        det_keys = [k for k in output.keys() if k.startswith("Det-")]
+                        if det_keys:
+                            dets_raw = [output[k] for k in sorted(det_keys)]
+                            print(f"   🔍 YOLO using Det-* format: {len(dets_raw)} detections")
+                
+                if dets_raw is None:
+                    dets_raw = output if isinstance(output, list) else []
+                
+                # DEBUG: Log first detection structure to understand format
+                if dets_raw and len(dets_raw) > 0:
+                    first_det = dets_raw[0]
+                    print(f"   🔍 YOLO first detection type: {type(first_det)}")
+                    if isinstance(first_det, dict):
+                        print(f"   🔍 YOLO first detection keys: {list(first_det.keys())}")
+                        print(f"   🔍 YOLO first detection values: {first_det}")
+                    else:
+                        print(f"   🔍 YOLO first detection value: {first_det}")
+                
+                detections = []
+                for r in dets_raw:
+                    # Parse bbox - handle multiple formats
+                    bbox = None
+                    if "bbox" in r and r["bbox"]:
+                        b = r["bbox"]
+                        bbox = [float(b[0]), float(b[1]), float(b[2]), float(b[3])]
+                    elif all(k in r for k in ("x0", "y0", "x1", "y1")):
+                        # franz-biz YOLO-World Det-* format
+                        bbox = [float(r["x0"]), float(r["y0"]), float(r["x1"]), float(r["y1"])]
+                    elif all(k in r for k in ("xmin", "ymin", "xmax", "ymax")):
+                        bbox = [float(r["xmin"]), float(r["ymin"]), float(r["xmax"]), float(r["ymax"])]
+                    elif all(k in r for k in ("x1", "y1", "x2", "y2")):
+                        bbox = [float(r["x1"]), float(r["y1"]), float(r["x2"]), float(r["y2"])]
+                    
+                    if not bbox:
+                        print(f"   ⚠️ YOLO detection skipped - no valid bbox: {r}")
+                        continue
+                    
+                    # Validate bbox ordering
+                    if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+                        print(f"   ⚠️ YOLO detection skipped - invalid bbox ordering: {bbox}")
+                        continue
+                    
+                    # Parse label and score - handle multiple key names
+                    label = (r.get("cls") or r.get("label") or r.get("class") or r.get("class_name") or r.get("name") or "").strip().lower()
+                    score = float(r.get("score") or r.get("confidence") or r.get("conf") or r.get("prob") or 0.0)
+                    
+                    # Skip denylist and low confidence
+                    if label in YOLO_DENYLIST:
+                        vlog(f"   ⛔ YOLO denylist: {label}")
+                        continue
+                    if score < conf_thresh:
+                        continue
+                    
+                    # Generate det_id and canonicalize label
+                    det_id = generate_detection_id(image_index, bbox, "yolo_world")
+                    canonical = YOLO_CANON_MAP.get(label, label)
+                    
+                    detections.append({
+                        "det_id": det_id,
+                        "image_index": image_index,
+                        "label": label,
+                        "canonical_label": canonical,
+                        "bbox": bbox,
+                        "confidence": score,
+                        "source": "yolo_world",
+                    })
+                
+                print(f"   ✓ YOLO-World found {len(detections)} items")
+                return detections
+                
+            except Exception as e:
+                print(f"⚠️ YOLO-World failed: {e}")
+                import traceback
+                traceback.print_exc()
+                return []
+        
+        def run_yolo_tiered_detection(self, image_base64: str, image_index: int) -> list:
+            """
+            v3.5: Run YOLO-World with tiered vocabulary (progressive refinement).
+            Same pattern as GroundingDINO tiers but with controlled vocab.
+            """
+            all_detections = []
+            
+            # Tier 1: Common junk items (always run)
+            tier1_results = self.run_yolo_world_detection(image_base64, image_index, YOLO_VOCAB_TIER_1, conf_thresh=0.25)
+            all_detections.extend(tier1_results)
+            
+            # Tier 2: Construction/yard items (if Tier 1 sparse)
+            if len(tier1_results) < 3:
+                print("   📈 YOLO Tier 1 sparse, adding Tier 2 vocab...")
+                import time
+                time.sleep(2)  # Rate limit mitigation
+                tier2_results = self.run_yolo_world_detection(image_base64, image_index, YOLO_VOCAB_TIER_2, conf_thresh=0.20)
+                all_detections.extend(tier2_results)
+                
+                # Tier 3: Rare big-ticket items (if still sparse)
+                if len(tier1_results) + len(tier2_results) < 5:
+                    print("   📈 YOLO Tier 2 sparse, adding Tier 3 vocab...")
+                    time.sleep(2)  # Rate limit mitigation
+                    tier3_results = self.run_yolo_world_detection(image_base64, image_index, YOLO_VOCAB_TIER_3, conf_thresh=0.15)
+                    all_detections.extend(tier3_results)
+            
+            print(f"🎯 YOLO-World total: {len(all_detections)} detections from tiered vocab")
+            return all_detections
         
         def run_tiered_detection(self, image_base64: str) -> list:
             """Run tiered GroundingDINO detection with progressive refinement."""
@@ -3761,24 +4002,30 @@ Now run the audit using the provided inputs. Output JSON only."""
             y2 = max(d["bbox"][3] for d in valid_dets)
             return [x1, y1, x2, y2]
         
-        def analyze_image(self, image_base64: str, image_bytes: bytes = None) -> dict:
+        def analyze_image(self, image_base64: str, image_bytes: bytes = None, image_index: int = 0) -> dict:
             """
             Main entry point for image analysis.
             Routes to camera-aware or legacy path based on feature flag.
+            
+            Args:
+                image_base64: Base64 encoded image
+                image_bytes: Raw image bytes (for EXIF extraction)
+                image_index: Index of image in multi-image batch (for det_id uniqueness)
             """
             import time
             
             # Route to camera-aware path if enabled and image_bytes provided
+            vlog(f"📐 CAMERA_AWARE_ENABLED: {CAMERA_AWARE_ENABLED}, has_bytes: {image_bytes is not None}")
             if CAMERA_AWARE_ENABLED and image_bytes:
                 print("🚀 Starting Camera-Aware Vision Pipeline...")
                 try:
-                    return self.analyze_image_camera_aware(image_base64, image_bytes)
+                    return self.analyze_image_camera_aware(image_base64, image_bytes, image_index)
                 except Exception as e:
                     print(f"⚠️ Camera-aware failed, falling back to legacy: {e}")
                     # Fall through to legacy
             
-            # Legacy path
-            print("🚀 Starting Vision Pipeline (Legacy + GroundingDINO)...")
+            # Legacy path - Using Florence + GroundingDINO (YOLO-World model only returns images, not JSON)
+            print("🚀 Starting Vision Pipeline (Florence-2 + GroundingDINO)...")
             
             # Run Florence detection
             florence_result = self.run_florence_detection(image_base64)
@@ -3823,7 +4070,7 @@ Now run the audit using the provided inputs. Output JSON only."""
                 "depth_stats": depth_stats
             }
         
-        def analyze_image_camera_aware(self, image_b64: str, image_bytes: bytes) -> dict:
+        def analyze_image_camera_aware(self, image_b64: str, image_bytes: bytes, image_index: int = 0) -> dict:
             """Camera-aware analysis with metric depth (Phases 1-5)."""
             import time
             
@@ -3835,29 +4082,18 @@ Now run the audit using the provided inputs. Output JSON only."""
             # Phase 1: Get camera intrinsics
             intrinsics = self.get_camera_intrinsics(image_bytes, resolution)
             
-            # Run Florence detection
-            florence_result = self.run_florence_detection(image_b64)
-            florence_dets = florence_result.get("detections", [])
-            print(f"   Florence-2: {len(florence_dets)} items")
+            # v3.5: Run YOLO-World with tiered vocabulary
+            yolo_dets = self.run_yolo_tiered_detection(image_b64, image_index=image_index)
+            print(f"   YOLO-World: {len(yolo_dets)} items")
             
-            # Rate limit delay before GroundingDINO
-            import time
-            time.sleep(12)
-            
-            # Run GroundingDINO with tiered prompting
-            gdino_dets = self.run_tiered_detection(image_b64)
-            print(f"   GroundingDINO: {len(gdino_dets)} items")
-            
-            # Merge detections, prioritizing open-vocab labels
-            merged_detections = self.merge_detections(florence_dets, gdino_dets)
-            print(f"   Merged: {len(merged_detections)} unique items")
-            
-            # Rebuild detections dict with merged results
+            # Build detections dict with YOLO results
             detections = {
-                **florence_result,
-                "detections": merged_detections,
-                "florence_count": len(florence_dets),
-                "gdino_count": len(gdino_dets)
+                "detections": yolo_dets,
+                "anchor_found": False,
+                "anchor_scale_inches": None,
+                "yolo_count": len(yolo_dets),
+                "florence_count": 0,  # Legacy compat
+                "gdino_count": 0  # Legacy compat
             }
             
             # Phase 2: Get scale (metric or anchor fallback)
@@ -3937,10 +4173,22 @@ Now run the audit using the provided inputs. Output JSON only."""
                     if norm_label not in seen_labels or area > seen_labels[norm_label]["area"]:
                         seen_labels[norm_label] = {"det": det, "area": area}
             
-            fused["detections"] = [v["det"] for v in seen_labels.values()]
-            fused["bbox_registry"] = bbox_registry  # v3.0: Store registry for later lookup
+            # v3.5: FIX - Build bbox_registry from SURVIVING detections only
+            # Previously we registered all det_ids but only some survived dedup
+            # This caused mismatch: 29 det_ids in registry, 18 in detections
+            surviving_dets = [v["det"] for v in seen_labels.values()]
+            bbox_registry = {}
+            for det in surviving_dets:
+                if det.get("det_id") and det.get("bbox"):
+                    bbox_registry[det["det_id"]] = det["bbox"]
+            
+            fused["detections"] = surviving_dets
+            fused["bbox_registry"] = bbox_registry
             print(f"🔗 Fusion: {len(seen_labels)} unique labels from {len(all_results)} images")
-            print(f"📦 v3.0: bbox_registry contains {len(bbox_registry)} det_ids")
+            print(f"📦 v3.5: bbox_registry contains {len(bbox_registry)} det_ids (matches detections)")
+            
+            # v3.5: Assert invariant - registry size must match detection count
+            assert len(bbox_registry) == len(surviving_dets), f"det_id/bbox mismatch: {len(bbox_registry)} vs {len(surviving_dets)}"
             
             # Line 2: Fused Label Inventory
             from collections import Counter
@@ -4165,18 +4413,39 @@ class PricingEngine:
     async def classify_with_gemma(self, image_b64: str, items: list) -> list:
         """Use GPT-5-mini via Replicate to classify ambiguous items into pricing categories."""
         try:
-            items_json = json.dumps([{"label": i.get("label", "unknown"), "bbox": i.get("bbox", [])} for i in items])
+            # v3.4: Include det_id for per-detection verdicts
+            items_json = json.dumps([{
+                "det_id": i.get("det_id", f"det_{idx}"),
+                "label": i.get("label", "unknown"), 
+                "bbox": i.get("bbox", [])
+            } for idx, i in enumerate(items)])
             
+            # v3.4: Updated prompt with three-tier verdicts + bbox_visible
             prompt = f"""Analyze these junk removal items detected in the image: {items_json}
 
-For EACH item, return:
+For EACH item (by det_id), return:
+- det_id: the detection ID provided
 - item: original detected label
-- is_junk: true/false (false if this is a background object like parked cars, buildings, people)
-- corrected_label: what this item actually is (if different from detection, e.g., "car" might be "CRT TV")
+- verdict: "CONFIRMED" / "UNCERTAIN" / "DENIED" (see below)
+- bbox_visible: true/false (is the bounding box showing the actual item, or empty/background?)
+- corrected_label: what this item actually is (if different from detection)
 - category: one of the categories listed below
 - size: xs/small/medium/large/xl (estimate physical size)
 - add_on_flags: ["mounted", "disassembly", "heavy_material"] if applicable (empty array if none)
 - confidence: 0.0-1.0
+
+VERDICT GUIDELINES:
+- CONFIRMED (confidence >= 0.8): Item is clearly visible, matches the label well
+- UNCERTAIN (confidence 0.4-0.8): Item is partially visible, occluded, or label might be wrong
+- DENIED (confidence < 0.4): This is NOT junk - it's background (car, building, person) or definitely wrong label
+
+IMPORTANT: Use UNCERTAIN for edge cases instead of forcing CONFIRMED or DENIED.
+- Example: A washer that's mostly hidden behind boxes → UNCERTAIN (not DENIED)
+- Example: Something that might be a couch or might be bags → UNCERTAIN (not DENIED)
+
+bbox_visible GUIDELINES:
+- true: The bounding box shows the actual item (even if partially)
+- false: The bounding box is empty, shows only background, or shows a different object
 
 Categories:
 - furniture: couches, chairs, tables, bookcases, shelves (1.0×)
@@ -4196,13 +4465,6 @@ Categories:
 - boxes_bags: cardboard boxes, trash bags (1.0×)
 - bulky_outdoor: hot tub, shed, playset, trampoline (1.4×)
 - misc: anything else (1.0×)
-
-Special instructions:
-1. For background objects (parked cars, trucks, buildings, fences, industrial spools), set is_junk: false
-2. For TVs: distinguish CRT (boxy, deep) from flat screens - different categories!
-3. For piles: estimate what material it is (wood, concrete, mixed)
-4. Count pallets if stacked together (put count in corrected_label: "4 pallets")
-5. If unsure, mark is_junk: false to be safe
 
 Return JSON array ONLY. No explanation."""
 
@@ -4406,7 +4668,18 @@ Return JSON array ONLY. No explanation."""
                 print(f"⛔ AUDIT_BLOCKED: {label} is banned")
                 continue
             
-            # v2.9 FIX 1: Evidence check
+            # v3.3: STRICTER EVIDENCE for high-value items
+            # EVIDENCE_REQUIRED labels must have bbox in detected_labels (not just label mention)
+            if label in EVIDENCE_REQUIRED_LABELS or normalized in EVIDENCE_REQUIRED_LABELS:
+                # High-value items: MUST have been actually detected with bbox
+                has_bbox_confirmed = label in detected_labels or normalized in detected_labels
+                if not has_bbox_confirmed:
+                    print(f"⛔ AUDIT_BLOCKED (v3.3): {label} is EVIDENCE_REQUIRED but no confirmed bbox detection")
+                    continue
+                else:
+                    print(f"✅ v3.3: {label} is EVIDENCE_REQUIRED and has bbox confirmation")
+            
+            # v2.9 FIX 1: Evidence check for other items
             has_bbox = label in detected_labels or normalized in detected_labels
             has_multiimage = label_image_counts.get(label, 0) >= 2 or label_image_counts.get(normalized, 0) >= 2
             has_evidence = has_bbox or has_multiimage
@@ -4578,12 +4851,56 @@ Return JSON array ONLY. No explanation."""
     
     async def process_quote_with_vision(self, base64_images, heavy_level='none'):
         """
-        Vision-only quote processing using Florence-2 + Depth-Anything-V2.
-        Uses Replicate SDK for model inference.
+        Vision-only quote processing.
+        
+        Routes to v4 pipeline if PIPELINE_VERSION=v4, otherwise uses v3.5.
         """
         import uuid
         request_id = str(uuid.uuid4())[:8]
         
+        # ================================================================
+        # v4.0 PIPELINE DISPATCH
+        # ================================================================
+        if PIPELINE_VERSION == "v4":
+            print(f"\n{'='*60}")
+            print(f"📥 REQUEST: id={request_id} | PIPELINE=v4 | images={len(base64_images)}")
+            print(f"{'='*60}")
+            
+            try:
+                # Route to v4 pipeline (synchronous)
+                v4_result = process_quote_v4(base64_images, mode="pile")
+                
+                # Apply heavy surcharge
+                heavy_surcharge = HEAVY_SURCHARGES.get(heavy_level, 0)
+                if heavy_surcharge:
+                    v4_result["pricing"]["base_price"] += heavy_surcharge
+                    v4_result["pricing"]["low_price"] += heavy_surcharge
+                    v4_result["pricing"]["high_price"] += heavy_surcharge
+                
+                # Return v4 result in expected format
+                return {
+                    "vol_cubic_yards": v4_result["volumes"]["final"],
+                    "items": v4_result.get("items", []),
+                    "price_tier": v4_result["pricing"]["tier"],
+                    "low_price": v4_result["pricing"]["low_price"],
+                    "high_price": v4_result["pricing"]["high_price"],
+                    "base_price": v4_result["pricing"]["base_price"],
+                    "add_on_flags": v4_result.get("add_on_flags", []),
+                    "trust": v4_result.get("trust", {}),
+                    "pipeline_version": "v4.0",
+                    "volumes": v4_result["volumes"],
+                    "audit": v4_result.get("audit", {}),
+                }
+            except Exception as e:
+                print(f"❌ v4 PIPELINE ERROR: {e}")
+                import traceback
+                traceback.print_exc()
+                # Fall through to v3.5 as backup
+                print("⚠️ Falling back to v3.5 pipeline...")
+        
+        # ================================================================
+        # v3.5 PIPELINE (Original)
+        # ================================================================
         # Line 1: Request Header
         print(f"\n{'='*60}")
         print(f"📥 REQUEST: id={request_id} | mode=pile | images={len(base64_images)} | heavy={heavy_level}")
@@ -4612,7 +4929,7 @@ Return JSON array ONLY. No explanation."""
                 try:
                     # Decode bytes for camera-aware path (EXIF extraction)
                     img_bytes = base64.b64decode(img_b64)
-                    result = vision_worker.analyze_image(img_b64, img_bytes)
+                    result = vision_worker.analyze_image(img_b64, img_bytes, image_index=i)
                     result["image_index"] = i
                     det_count = len(result.get("detections", {}).get("detections", []))
                     anchor = result.get("detections", {}).get("anchor_found", False)
@@ -4717,11 +5034,43 @@ Return JSON array ONLY. No explanation."""
                 gpt_corrected_map = {}  # v2.7: normalized_key -> corrected_label (for tire override)
                 gemini_skip_ids = set()  # v2.8: Skip by detection_id
                 
-                for cls in classifications:
+                # v3.4: Store classifier verdicts per det_id for geometry/pricing decisions
+                classifier_verdicts = {}  # det_id -> {verdict, bbox_visible, confidence}
+                
+                # v3.5: FIX - Build index-to-det_id map from ORIGINAL items (not LLM response)
+                # The LLM returns wrong det_ids - we MUST use our original det_ids
+                original_det_ids = {i: item.get("det_id") for i, item in enumerate(ambiguous_items)}
+                print(f"📐 v3.5: Mapping {len(original_det_ids)} ambiguous items by index to det_id")
+                
+                for idx, cls in enumerate(classifications):
                     raw_label = (cls.get("item") or "").strip().lower()
                     corrected_label = (cls.get("corrected_label") or raw_label).strip().lower()
-                    detection_id = cls.get("detection_id")  # v2.8: If available
+                    
+                    # v3.5: FIX - Use ORIGINAL det_id, not LLM's (LLM ignores our det_ids)
+                    # Match by index since order is preserved
+                    original_det_id = original_det_ids.get(idx)
+                    if not original_det_id:
+                        # Fallback: try to match by label if index doesn't work
+                        for i, item in enumerate(ambiguous_items):
+                            if item.get("label", "").lower() == raw_label and i not in [k for k, v in classifier_verdicts.items() if v]:
+                                original_det_id = item.get("det_id")
+                                break
+                    
+                    detection_id = original_det_id  # Use our det_id, not LLM's
                     gpt_confidence = cls.get("confidence", 0.5)
+                    
+                    # v3.4: Get verdict and bbox_visible (with backward compat for is_junk)
+                    verdict = cls.get("verdict", "").upper()
+                    bbox_visible = cls.get("bbox_visible", True)
+                    
+                    # Backward compat: convert is_junk to verdict if no verdict provided
+                    if not verdict:
+                        if cls.get("is_junk") == False:
+                            verdict = "DENIED"
+                        elif gpt_confidence >= 0.8:
+                            verdict = "CONFIRMED"
+                        else:
+                            verdict = "UNCERTAIN"
                     
                     # v2.7: Normalize with safe fallback
                     norm_raw = canonicalize_synonym(raw_label) or raw_label
@@ -4731,12 +5080,25 @@ Return JSON array ONLY. No explanation."""
                     gpt_corrected_map[raw_label] = corrected_label
                     gpt_corrected_map[norm_raw] = corrected_label
                     
-                    # Skip if Gemini says this isn't junk (background object)
-                    if cls.get("is_junk") == False:
+                    # v3.5: Store verdict keyed by ORIGINAL det_id (not LLM's)
+                    if original_det_id:
+                        classifier_verdicts[original_det_id] = {
+                            "verdict": verdict,
+                            "bbox_visible": bool(bbox_visible),
+                            "confidence": gpt_confidence,
+                            "label": raw_label
+                        }
+                        print(f"📐 v3.5: Mapped verdict {verdict} to original det_id={original_det_id[:8]}... (label={raw_label})")
+                    else:
+                        print(f"⚠️ v3.5: Could not map verdict for {raw_label} - no matching det_id")
+                    
+                    # v3.4: DENIED items are skipped (like old is_junk=false)
+                    # UNCERTAIN and CONFIRMED are NOT skipped - handled in geometry loop
+                    if verdict == "DENIED":
                         # v2.8: Check if low-impact item - don't skip unless high confidence
                         is_low_impact = raw_label in LOW_IMPACT_LABELS or norm_raw in LOW_IMPACT_LABELS
                         if is_low_impact and gpt_confidence < 0.8:
-                            vlog(f"⚠️ v2.8: Keeping low-impact {raw_label} despite GPT skip (conf={gpt_confidence:.2f})")
+                            vlog(f"⚠️ v3.4: Keeping low-impact {raw_label} despite DENIED (conf={gpt_confidence:.2f})")
                             # Don't skip - continue to category storage
                         else:
                             # v2.8: Skip by detection_id if available
@@ -4746,12 +5108,12 @@ Return JSON array ONLY. No explanation."""
                             # v2.7: Add ALL label variants to skip set
                             gemini_skip_labels.update({raw_label, corrected_label, norm_raw, norm_corr})
                             
-                            # v2.8.1: REMOVED category propagation - it caused over-skipping
-                            # Skip only applies to the specific label GPT flagged, not whole category
                             skipped_category = cls.get("category", "").lower()
-                            
-                            print(f"🚫 v2.8.1 Skip: raw={raw_label}, corr={corrected_label}, cat={skipped_category}")
+                            print(f"🚫 v3.4 DENIED: det={original_det_id}, raw={raw_label}, bbox_visible={bbox_visible}")
                             continue
+                    else:
+                        # v3.4: Log UNCERTAIN/CONFIRMED for tracking
+                        vlog(f"✅ v3.4 {verdict}: det={original_det_id}, label={raw_label}, bbox_visible={bbox_visible}, conf={gpt_confidence:.2f}")
                     
                     # Store category (keyed by all variants for lookup)
                     gemma_categories[raw_label] = cls.get("category", "furniture")
@@ -4769,10 +5131,14 @@ Return JSON array ONLY. No explanation."""
                     if cls.get("add_on_flags"):
                         gemma_add_ons.extend(cls["add_on_flags"])
                         print(f"➕ Gemini detected add-ons for {raw_label}: {cls['add_on_flags']}")
+                
+                # v3.4: Store classifier verdicts for geometry loop
+                detections["classifier_verdicts"] = classifier_verdicts
+                print(f"📊 v3.4: Stored {len(classifier_verdicts)} classifier verdicts (CONFIRMED: {sum(1 for v in classifier_verdicts.values() if v['verdict']=='CONFIRMED')}, UNCERTAIN: {sum(1 for v in classifier_verdicts.values() if v['verdict']=='UNCERTAIN')})")
             
             # 2a.5 Apply Canonical Label System (Recommendation 4)
             # This normalizes all labels and applies proper volumes from catalog
-            print("📝 Applying canonical label system...")
+            vlog("📝 Applying canonical label system...")
             catalog_items = catalog_volume.get("items", [])
             
             # v2.3 FIX: Apply synonym canonicalization BEFORE volume lookup
@@ -4799,9 +5165,9 @@ Return JSON array ONLY. No explanation."""
                 {"bbox": det.get("bbox"), "label": det.get("label", "").lower(), "priced": True}
                 for det in all_detections if det.get("bbox")
             ]
-            print(f"📐 v2.8.1: Saved {len(fused_detection_bboxes)} bboxes from all_detections")
+            vlog(f"📐 v2.8.1: Saved {len(fused_detection_bboxes)} bboxes from all_detections")
             
-            print("🔒 v2.6: Finalizing detection list BEFORE volume assignment...")
+            vlog("🔒 v2.6: Finalizing detection list BEFORE volume assignment...")
             catalog_items = finalize_detections(
                 catalog_items, 
                 skip_ids=None,
@@ -4822,7 +5188,7 @@ Return JSON array ONLY. No explanation."""
             catalog_volume["items"] = catalog_items
             
             # 2a.6 v3.3: Normalize bboxes + DBSCAN Spatial Clustering
-            print("📦 Running v3.3: bbox normalization + DBSCAN clustering...")
+            vlog("📦 Running v3.3: bbox normalization + DBSCAN clustering...")
             # Get image dimensions
             img_width = 1024
             img_height = 768
@@ -4845,7 +5211,7 @@ Return JSON array ONLY. No explanation."""
             catalog_items = vision_worker.calculate_cluster_volumes_v33(catalog_items, img_width, img_height)
             
             # 2a.7 v3.3: Mode-aware pile remainder
-            print("📊 Calculating pile remainder (v3.3 mode-aware)...")
+            vlog("📊 Calculating pile remainder (v3.3 mode-aware)...")
             depth_stats = None
             for r in all_vision_results:
                 if r.get("depth_stats"):
@@ -4873,11 +5239,11 @@ Return JSON array ONLY. No explanation."""
                     if normalized and normalized not in bbox_lookup:
                         bbox_lookup[normalized] = det["bbox"]
             
-            print(f"📐 v2.9: bbox_lookup has {len(bbox_lookup)} keys")
+            vlog(f"📐 v2.9: bbox_lookup has {len(bbox_lookup)} keys")
             
             # v3.0: Get bbox_registry from detections (stable det_id→bbox mapping)
             bbox_registry = detections.get("bbox_registry", {})
-            print(f"📐 v3.0: bbox_registry has {len(bbox_registry)} det_ids")
+            vlog(f"📐 v3.0: bbox_registry has {len(bbox_registry)} det_ids")
             
             for item in catalog_items:
                 if not item.get("bbox"):
@@ -4891,10 +5257,117 @@ Return JSON array ONLY. No explanation."""
                         canonical = item.get("canonical_label", "").lower()
                         item["bbox"] = bbox_lookup.get(label) or bbox_lookup.get(canonical)
             
-            # Step 2: Build billable items from FINALIZED catalog_items
+            # ==================== v3.3: GEOMETRY/PRICING SPLIT ====================
+            # v3.4: Now also considers classifier verdicts (CONFIRMED/UNCERTAIN/DENIED)
+            # Step 2a: Build GEOMETRY set (all junk with bboxes, regardless of pricing)
+            # This is used for occupancy/coverage calculation
+            geometry_items = []
+            evidence_blocked = []
+            
+            # v3.4: Get classifier verdicts from detections
+            classifier_verdicts = detections.get("classifier_verdicts", {})
+            uncertain_geometry_count = 0
+            
+            for item in catalog_items:
+                canonical = item.get("canonical_label", item.get("label", "")).lower()
+                det_id = item.get("det_id")
+                
+                # v3.4: Apply classifier verdict if available
+                verdict_info = classifier_verdicts.get(det_id, {}) if det_id else {}
+                verdict = verdict_info.get("verdict", "")
+                llm_bbox_visible = verdict_info.get("bbox_visible", True)
+                
+                # v3.4.1: CRITICAL FIX - Cross-check bbox_visible with our actual detection
+                # If WE have a valid bbox for this item, override LLM's bbox_visible=False
+                # The LLM is unreliable at determining if bboxes are visible
+                has_our_bbox = item.get("bbox") is not None and len(item.get("bbox", [])) >= 4
+                bbox_visible = llm_bbox_visible if not has_our_bbox else True
+                
+                if verdict:
+                    item["classifier_verdict"] = verdict.lower()
+                    item["bbox_visible"] = bool(bbox_visible)  # Ensure native Python bool
+                
+                # v3.4.2: CRITICAL INVARIANT - DENIED handling depends on mode
+                # In PILE mode: DENIED means "don't price" but item still represents physical mass
+                # In SINGLE_ITEM mode: DENIED means "exclude entirely"
+                if verdict == "DENIED":
+                    if mode == "pile":
+                        # PILE MODE: DENIED items contribute to geometry (footprint) but NOT pricing
+                        # This prevents coverage collapse - the mass is still there!
+                        item["priced"] = False
+                        if has_our_bbox:
+                            item["geometry"] = True
+                            print(f"📐 v3.4.2: {canonical} DENIED but pile mode + bbox → geometry only")
+                        else:
+                            item["geometry"] = False
+                            item["exclusion_reason"] = "denied_no_bbox"
+                        # Don't continue - let it flow through for geometry inclusion check
+                    else:
+                        # SINGLE_ITEM MODE: DENIED means exclude entirely
+                        if has_our_bbox:
+                            vlog(f"⚠️ v3.4.1: {canonical} DENIED but has bbox → demoting to UNCERTAIN")
+                            verdict = "UNCERTAIN"
+                            item["classifier_verdict"] = "uncertain"
+                        else:
+                            item["priced"] = False
+                            item["geometry"] = False
+                            item["exclusion_reason"] = "classifier_denied"
+                            continue
+                
+                # v3.4: UNCERTAIN items without bbox_visible are excluded (E0)
+                # But if WE have a bbox, they should contribute to geometry
+                if verdict == "UNCERTAIN" and not bbox_visible and not has_our_bbox:
+                    item["priced"] = False
+                    item["geometry"] = False
+                    item["exclusion_reason"] = "uncertain_no_bbox_visible"
+                    print(f"🚫 v3.4: {canonical} UNCERTAIN + no bbox_visible → excluded (E0)")
+                    continue
+                
+                # v3.4: UNCERTAIN items WITH bbox_visible → geometry only, not priced
+                if verdict == "UNCERTAIN":
+                    item["priced"] = False
+                    item["geometry"] = True
+                    uncertain_geometry_count += 1
+                    # Don't continue - still needs other checks below
+                
+                # v3.3: EVIDENCE INVARIANT - high-value items without bbox are INVISIBLE
+                if canonical in EVIDENCE_REQUIRED_LABELS:
+                    if not item.get("bbox"):
+                        print(f"🚫 v3.3 EVIDENCE_BLOCK: {canonical} has no bbox → excluded from geometry AND pricing")
+                        item["priced"] = False
+                        item["geometry"] = False
+                        item["evidence_blocked"] = True
+                        evidence_blocked.append(canonical)
+                        continue
+                
+                # Skip true background items
+                if item.get("is_background"):
+                    continue
+                if not item.get("is_junk", True):
+                    continue
+                if not item.get("bbox"):
+                    continue
+                
+                # Include in geometry set (even if priced=False from UNCERTAIN)
+                item["geometry"] = True
+                geometry_items.append(item)
+            
+            if uncertain_geometry_count > 0:
+                print(f"📐 v3.4: {uncertain_geometry_count} UNCERTAIN items included in geometry (not priced)")
+            
+            if evidence_blocked:
+                print(f"🚫 v3.3: {len(evidence_blocked)} high-value items blocked for lack of evidence: {evidence_blocked}")
+            
+            # Calculate geometry-based coverage (broader than billable coverage)
+            geometry_coverage = vision_worker.calculate_union_coverage(geometry_items, img_width, img_height)
+            print(f"📐 v3.3 GEOMETRY: {len(geometry_items)} items → coverage={geometry_coverage:.1%}")
+            
+            # Step 2b: Build BILLABLE items (pricing set) - narrower than geometry
             billable_items = []
             for item in catalog_items:
                 if item.get("priced") == False:
+                    continue
+                if item.get("evidence_blocked"):
                     continue
                 if not item.get("is_junk", True):
                     continue
@@ -4909,9 +5382,10 @@ Return JSON array ONLY. No explanation."""
                     continue  # Only skip low-impact in non-pile modes
                 billable_items.append(item)
             
-            print(f"📐 v2.8.2: {len(billable_items)}/{len(catalog_items)} finalized items billable for coverage")
-            coverage = vision_worker.calculate_union_coverage(billable_items, img_width, img_height)
-            print(f"📐 v2.8.2: Coverage from {len(billable_items)} finalized billable items: {coverage:.1%}")
+            print(f"📐 v3.3: {len(billable_items)} billable vs {len(geometry_items)} geometry items")
+            # Use GEOMETRY coverage for occupancy (not billable)
+            coverage = geometry_coverage
+            vlog(f"📐 v3.3: Using geometry coverage={coverage:.1%} for occupancy calculation")
             
             # Line 5: Coverage Inputs List
             coverage_used = [item.get("canonical_label", item.get("label", "?")) for item in billable_items]
@@ -4924,8 +5398,8 @@ Return JSON array ONLY. No explanation."""
                         "low_impact" if item.get("canonical_label", "").lower() in LOW_IMPACT_LABELS else (
                         "background" if item.get("is_background") else "other")))
                     coverage_skipped.append(f"{label}({reason})")
-            print(f"📐 COVERAGE_USED: {coverage_used}")
-            print(f"📐 COVERAGE_SKIPPED: {coverage_skipped}")
+            vlog(f"📐 COVERAGE_USED: {coverage_used}")
+            vlog(f"📐 COVERAGE_SKIPPED: {coverage_skipped}")
             
             # v2.8.2: Coverage sanity check
             if coverage == 0 and len(billable_items) > 0:
@@ -4975,7 +5449,7 @@ Return JSON array ONLY. No explanation."""
             )
             
             # Line 6: Remainder Formula Inputs
-            print(f"📊 REMAINDER_INPUTS: coverage={coverage:.1%} | residual={residual:.1%} | item_vol={total_item_vol:.2f} | debris_bucket={debris_bucket_vol:.2f}")
+            vlog(f"📊 REMAINDER_INPUTS: coverage={coverage:.1%} | residual={residual:.1%} | item_vol={total_item_vol:.2f} | debris_bucket={debris_bucket_vol:.2f}")
             
             if vision_worker.should_activate_remainder(mode, residual, catalog_items, anchor_present, depth_stats):
                 pile_remainder = vision_worker.estimate_pile_remainder_v31(catalog_items, img_width, img_height, total_item_vol, depth_stats)
@@ -4997,24 +5471,26 @@ Return JSON array ONLY. No explanation."""
                     pile_remainder["raw_remainder_yards"] = raw_remainder
             else:
                 pile_remainder = {"remainder_yards": 0, "activated": False, "residual_pct": residual}
-                print(f"   📊 Remainder skipped (mode={mode}, residual={residual:.1%})")
+                vlog(f"   📊 Remainder skipped (mode={mode}, residual={residual:.1%})")
             
             # Final total (legacy v3.3 - kept for logging only)
             remainder_vol = pile_remainder.get("remainder_yards", 0)
             total_with_remainder_legacy = total_item_vol + remainder_vol
             
-            print(f"   📊 Legacy v3.3: items={total_item_vol:.2f} + remainder={remainder_vol:.2f} = {total_with_remainder_legacy:.2f} yd³")
+            vlog(f"   📊 Legacy v3.3: items={total_item_vol:.2f} + remainder={remainder_vol:.2f} = {total_with_remainder_legacy:.2f} yd³")
             
             # ==================== v3.2 TWO-LANE ESTIMATOR (AUTHORITATIVE) ====================
             # In pile mode: occupancy-PRIMARY, catalog-secondary
-            # This is the ONLY source of truth for pile mode volume
+            # v3.3: With remainder fallback for collapsed coverage
             
             # Lane A: Occupancy volume (footprint × height × fill)
+            # v3.3: Use geometry_items for occupancy, not all_detections
             anchor_inches = detections.get("anchor_scale_inches")
-            V_occ = vision_worker.compute_occupancy_volume(all_detections, depth_stats, img_width, img_height, anchor_inches)
+            V_occ = vision_worker.compute_occupancy_volume(geometry_items, depth_stats, img_width, img_height, anchor_inches)
             
             # Bulk mass volume (expanded BULK_MASS_LABELS)
-            bulk_clutter = vision_worker.compute_bulk_clutter_volume(all_detections, img_width, img_height)
+            # v3.3: Also use geometry_items
+            bulk_clutter = vision_worker.compute_bulk_clutter_volume(geometry_items, img_width, img_height)
             
             # Lane B: Catalog volume (confirmed discrete items)
             V_items = vision_worker.compute_catalog_volume_v30(catalog_items)
@@ -5022,19 +5498,34 @@ Return JSON array ONLY. No explanation."""
             # Two-lane selection: max with scene-appropriate clamping
             lane_result = vision_worker.compute_final_volume_v30(V_occ, V_items, mode, bulk_clutter)
             
-            # v3.2 CRITICAL: In pile mode, two-lane result is AUTHORITATIVE
-            # Never revert to legacy line-item sum
+            # v3.3: REMAINDER FALLBACK for collapsed coverage
+            # When detection is sparse, remainder is the safety net
             if mode == "pile":
-                total_with_remainder = lane_result["V_final"]
-                print(f"   ✅ v3.2 AUTHORITATIVE: {lane_result['V_final']:.2f} yd³ (occupancy-primary)")
+                two_lane_vol = lane_result["V_final"]
+                legacy_remainder_vol = total_with_remainder_legacy  # Computed above
+                
+                # Check for coverage collapse conditions
+                coverage_collapsed = coverage < COVERAGE_COLLAPSE_THRESHOLD
+                residual_exploded = residual > RESIDUAL_EXPLOSION_THRESHOLD
+                
+                if coverage_collapsed or residual_exploded:
+                    # Coverage collapsed - use max of two-lane and legacy remainder
+                    total_with_remainder = max(two_lane_vol, legacy_remainder_vol)
+                    collapse_reason = f"coverage={coverage:.1%}<{COVERAGE_COLLAPSE_THRESHOLD:.0%}" if coverage_collapsed else f"residual={residual:.1%}>{RESIDUAL_EXPLOSION_THRESHOLD:.0%}"
+                    print(f"   ⚠️ v3.3 FALLBACK: {collapse_reason} → using max(two_lane={two_lane_vol:.2f}, legacy={legacy_remainder_vol:.2f}) = {total_with_remainder:.2f} yd³")
+                else:
+                    # Normal path - two-lane is authoritative
+                    total_with_remainder = two_lane_vol
+                    print(f"   ✅ v3.3 AUTHORITATIVE: {two_lane_vol:.2f} yd³ (occupancy-primary, coverage={coverage:.1%})")
             else:
                 # Single-item mode: catalog-primary with sanity cap
                 total_with_remainder = min(lane_result["V_items"], 8.0)
-                print(f"   ✅ v3.2 Single-item: {total_with_remainder:.2f} yd³ (catalog-primary)")
+                print(f"   ✅ v3.3 Single-item: {total_with_remainder:.2f} yd³ (catalog-primary)")
             
             # Store lane breakdown for transparency
             catalog_volume["v30_lanes"] = lane_result
-            # ==================== END v3.0 ====================
+            catalog_volume["v33_fallback_used"] = (coverage < COVERAGE_COLLAPSE_THRESHOLD or residual > RESIDUAL_EXPLOSION_THRESHOLD) if mode == "pile" else False
+            # ==================== END v3.3 ====================
             
             # Phase 8: Auto-lock with hash
             pipeline_hash = vision_worker.finalize_volumes(catalog_items, pile_remainder)
@@ -5117,9 +5608,16 @@ Return JSON array ONLY. No explanation."""
                 billable_vol += missed_vol
                 print(f"➕ Added missed items volume: +{missed_vol:.2f} yd³")
             
-            # Use billable volume if we have item breakdown, else apply default 1.1×
-            if billable_vol > 0:
+            # v3.3: Use total_with_remainder as authoritative (includes fallback logic)
+            # This was computed earlier with two-lane estimator + remainder fallback
+            v33_authoritative = catalog_volume.get("total_volume_yards", 0)
+            if v33_authoritative > 0:
+                # v3.3 is authoritative - it includes occupancy estimation and fallback
+                final_vol = v33_authoritative
+                print(f"📊 v3.3 AUTHORITATIVE: Using {final_vol:.2f} yd³ (from two-lane/fallback)")
+            elif billable_vol > 0:
                 final_vol = billable_vol
+                print(f"📊 Legacy: Using billable_vol={final_vol:.2f} yd³")
             else:
                 final_vol = raw_vol * 1.1  # Fallback multiplier
             
@@ -5238,6 +5736,16 @@ Return JSON array ONLY. No explanation."""
             assert final_min <= final_estimate <= final_max, \
                 f"Invariant violated: {final_estimate} not in [{final_min}, {final_max}]"
             
+            # v3.3 EVIDENCE INVARIANT CHECK
+            # Verify no EVIDENCE_REQUIRED items are priced without bboxes
+            for item in catalog_items:
+                canonical = item.get("canonical_label", item.get("label", "")).lower()
+                if canonical in EVIDENCE_REQUIRED_LABELS and item.get("priced") == True:
+                    if not item.get("bbox"):
+                        print(f"⚠️ v3.3 INVARIANT WARNING: {canonical} is priced but has no bbox - forcing unpriced")
+                        item["priced"] = False
+                        item["invariant_corrected"] = True
+            
             # ==================== FINAL LOGGING BLOCKS ====================
             # Block 1: Finalized Billable Items Table
             print("\n" + "="*60)
@@ -5325,7 +5833,23 @@ Return JSON array ONLY. No explanation."""
                     "gdino_count": detections.get("gdino_count", 0),
                     "new_discoveries": len([d for d in detections.get("detections", []) if d.get("source") == "grounding_dino_new"]),
                     "priority_overrides": len([d for d in detections.get("detections", []) if d.get("source") == "grounding_dino" and d.get("original_florence_label")]),
-                    "gdino_tiers_used": list(set(d.get("tier", "unknown") for d in detections.get("detections", []) if d.get("source", "").startswith("grounding")))
+                    "gdino_tiers_used": list(set(d.get("tier", "unknown") for d in detections.get("detections", []) if d.get("source", "").startswith("grounding"))),
+                    # v3.3: Geometry/pricing split metrics
+                    "v33_geometry_count": len(geometry_items),
+                    "v33_billable_count": len(billable_items),
+                    "v33_evidence_blocked": evidence_blocked,
+                    "v33_geometry_coverage": geometry_coverage,
+                    "v33_fallback_used": catalog_volume.get("v33_fallback_used", False),
+                    "v33_coverage_threshold": COVERAGE_COLLAPSE_THRESHOLD,
+                    "v33_residual_threshold": RESIDUAL_EXPLOSION_THRESHOLD,
+                    # v3.4: Classifier verdict metrics
+                    "v34_verdict_counts": {
+                        "confirmed": sum(1 for i in catalog_items if i.get("classifier_verdict") == "confirmed"),
+                        "uncertain": sum(1 for i in catalog_items if i.get("classifier_verdict") == "uncertain"),
+                        "denied": sum(1 for i in catalog_items if i.get("exclusion_reason") == "classifier_denied"),
+                        "uncertain_no_bbox": sum(1 for i in catalog_items if i.get("exclusion_reason") == "uncertain_no_bbox_visible")
+                    },
+                    "v34_uncertain_in_geometry": uncertain_geometry_count
                 }
             }
             
@@ -5675,7 +6199,22 @@ class handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps(result).encode('utf-8'))
+            
+            # Custom encoder to handle numpy types
+            class NumpyEncoder(json.JSONEncoder):
+                def default(self, obj):
+                    import numpy as np
+                    if isinstance(obj, np.bool_):
+                        return bool(obj)
+                    if isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64)):
+                        return int(obj)
+                    if isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
+                        return float(obj)
+                    if isinstance(obj, np.ndarray):
+                        return obj.tolist()
+                    return super().default(obj)
+            
+            self.wfile.write(json.dumps(result, cls=NumpyEncoder).encode('utf-8'))
             
         except Exception as e:
             print(f"Server Error: {e}")
