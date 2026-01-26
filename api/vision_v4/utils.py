@@ -56,6 +56,46 @@ def base64_to_replicate_file(b64_string: str) -> str:
     return f"data:image/jpeg;base64,{b64_string}"
 
 
+def extract_replicate_url(output) -> str:
+    """
+    Extract URL string from Replicate output.
+    Handles: str, FileOutput, list, dict, iterator.
+    Returns URL string or None.
+    """
+    # Already a string URL
+    if isinstance(output, str):
+        return output
+    
+    # FileOutput object - try common attributes
+    if hasattr(output, 'url'):
+        return str(output.url)
+    if hasattr(output, 'urls') and isinstance(output.urls, dict):
+        return output.urls.get('get') or output.urls.get('stream')
+    
+    # Dict output
+    if isinstance(output, dict):
+        return output.get('output') or output.get('mask') or output.get('url')
+    
+    # List or iterator - get first item and recurse
+    if hasattr(output, '__iter__') and not isinstance(output, (str, dict)):
+        try:
+            items = list(output)
+            if items:
+                return extract_replicate_url(items[0])
+        except:
+            pass
+    
+    # Last resort: str() if it looks like a URL
+    try:
+        s = str(output)
+        if s.startswith('http'):
+            return s
+    except:
+        pass
+    
+    return None
+
+
 def load_image_from_base64(b64_string: str):
     """Load PIL Image from base64 string."""
     from PIL import Image, ImageOps  # Lazy import

@@ -7,7 +7,7 @@ Each proposal gets its OWN Lang-SAM call - no global mask pool matching.
 
 from typing import List
 from .constants import LANG_SAM_VERSION
-from .utils import base64_to_replicate_file, bbox_area_ratio, vlog
+from .utils import base64_to_replicate_file, bbox_area_ratio, extract_replicate_url, vlog
 
 
 def run_item_segmentation(
@@ -48,20 +48,11 @@ def run_item_segmentation(
             input={
                 "image": img_file,
                 "text_prompt": text_prompt,
-                # Note: If Lang-SAM supports bbox hints, add them here
             }
         )
         
-        # Parse mask URL from output
-        mask_url = None
-        if isinstance(output, str):
-            mask_url = output
-        elif isinstance(output, dict):
-            mask_url = output.get("output") or output.get("mask")
-        elif hasattr(output, "__iter__"):
-            outputs = list(output)
-            if outputs:
-                mask_url = outputs[0] if isinstance(outputs[0], str) else None
+        # Parse mask URL using robust helper
+        mask_url = extract_replicate_url(output)
         
         if mask_url:
             # Calculate mask area ratio

@@ -7,7 +7,7 @@ This is critical for stable remainder mask computation.
 
 from typing import Optional
 from .constants import LANG_SAM_VERSION, PILE_PROMPTS
-from .utils import base64_to_replicate_file, vlog
+from .utils import base64_to_replicate_file, extract_replicate_url, vlog
 
 
 def run_pile_segmentation(image: dict) -> dict:
@@ -41,17 +41,9 @@ def run_pile_segmentation(image: dict) -> dict:
             }
         )
         
-        # Parse output - Lang-SAM returns mask image URL
-        mask_url = None
-        if isinstance(output, str):
-            mask_url = output
-        elif isinstance(output, dict):
-            mask_url = output.get("output") or output.get("mask")
-        elif hasattr(output, "__iter__"):
-            # Sometimes returns iterator/generator
-            outputs = list(output)
-            if outputs:
-                mask_url = outputs[0] if isinstance(outputs[0], str) else None
+        # Parse output using robust helper
+        mask_url = extract_replicate_url(output)
+        vlog(f"   DEBUG: output type={type(output)}, extracted={mask_url is not None}")
         
         if mask_url:
             vlog(f"   ✅ Pile mask obtained: {mask_url[:60]}...")
