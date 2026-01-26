@@ -1,69 +1,109 @@
 """
-v4.0 Volume Engine (Step 10)
+v4.0 Volume Engine (Step 10) - REWRITE
 
-Three-estimator ensemble for robust volume computation:
-- V_bulk: Bulk volume from pile coverage with dynamic K
-- V_catalog: Discrete items + quantified countables with weighted subtraction
-- V_occ: Remainder-based occupancy volume
+Lane A = Bulk baseline from pile coverage (not remainder)
+Lane B = Discrete big items + Countable bulk quantities
+
+Key changes:
+- Use median(pile_ratio) * K for bulk baseline
+- Count quantities for boxes/bags/totes instead of fusing to 2 items
+- No double-counting: bulk-first policy
 """
 
 from typing import List
+from statistics import median
 from .constants import (
     CATALOG_VOLUMES, 
     DEFAULT_VOLUME,
-    PILE_LABELS,
     PRICING_TIERS
 )
 from .utils import vlog
 
 
 # ==============================================================================
-# PILE CONSTITUENT CLASSIFICATION
+# CONSTANTS
 # ==============================================================================
 
-# Items that are "pile constituents" - low subtraction weight
-PILE_CONSTITUENTS = {
-    # Soft bulk
-    "bags", "trash bag", "garbage bag", "clothing",
-    # Fragment bulk
-    "cardboard", "boxes", "paper", "debris",
-    # Stack bulk  
-    "bins", "totes", "plastic storage tote",
-    # Yard bulk
-    "branches", "leaves", "yard waste", "brush"
+# Bulk multiplier and cap
+K_BULK = 12       # pile_ratio * K_BULK = bulk volume
+K_MAX = 10        # Max bulk volume per image (prevents outliers)
+
+# Quantity caps for countable bulk
+QTY_CAP = {
+    "boxes": 30,
+    "bags": 25,
+    "totes": 12,
+    "tires": 20,
 }
 
-# Truly discrete items - high subtraction weight
+# Discrete big items (counted individually via catalog)
 DISCRETE_ITEMS = {
     "couch", "sofa", "mattress", "refrigerator", "freezer",
     "washer", "dryer", "tv", "piano", "pool table", "hot tub",
-    "table", "desk", "dresser", "chair"
+    "table", "desk", "dresser", "chair", "speaker", "subwoofer",
+    "exercise equipment", "treadmill", "scooter", "motorcycle"
 }
 
-# Countable items - use quantity estimation
-COUNTABLE_ITEMS = {
-    "bags": 0.02,      # Typical mask area ratio per bag
-    "boxes": 0.025,    # Typical mask area ratio per box
-    "totes": 0.03,     # Typical mask area ratio per tote
-    "tires": 0.015,    # Typical mask area ratio per tire
-    "chairs": 0.04,    # Typical mask area ratio per chair
+# Countable bulk items (counted by quantity estimation)
+COUNTABLE_BULK = {
+    "bags", "boxes", "totes", "tires"
+}
+
+# Typical mask area ratio per item (for quantity estimation)
+TYPICAL_MASK_AREA = {
+    "boxes": 0.025,
+    "bags": 0.02,
+    "totes": 0.03,
+    "tires": 0.015,
 }
 
 
-def get_subtraction_weight(label: str) -> float:
+# ==============================================================================
+# LANE A: BULK BASELINE FROM PILE COVERAGE
+# ==============================================================================
+
+def compute_lane_a_bulk(pile_masks: dict) -> dict:
     """
-    Get weighted subtraction factor for an item.
-    Low (0.1-0.4) for pile constituents, high (0.8-1.0) for discrete.
-    """
-    label_lower = label.lower()
+    Lane A = Bulk baseline from pile coverage using MEDIAN.
     
-    if label_lower in PILE_CONSTITUENTS or any(p in label_lower for p in PILE_CONSTITUENTS):
-        return 0.2  # Low subtraction - don't erase pile
-    elif label_lower in DISCRETE_ITEMS or any(d in label_lower for d in DISCRETE_ITEMS):
-        return 0.9  # High subtraction - truly discrete
-    else:
-        return 0.5  # Default moderate subtraction
+    Formula: median(clamp(pile_ratio_i * K, 0, K_max))
+    
+    This is NOT remainder-based. It's direct pile coverage → volume.
+    """
+    if not pile_masks:
+        return {"total": 0.0, "pile_ratios": [], "per_image": {}}
+    
+    per_image_bulk = {}
+    pile_ratios = []
+    
+    for image_id, pile_result in pile_masks.items():
+        pile_ratio = pile_result.get("pile_area_ratio", 0)
+        pile_ratios.append(pile_ratio)
+        
+        # Compute bulk volume for this image
+        bulk_yd = min(pile_ratio * K_BULK, K_MAX)  # Clamp to K_max
+        per_image_bulk[image_id] = {
+            "pile_ratio": pile_ratio,
+            "bulk_yd": round(bulk_yd, 2)
+        }
+    
+    # Use MEDIAN across images (beats outliers)
+    median_pile_ratio = median(pile_ratios) if pile_ratios else 0
+    bulk_volume = min(median_pile_ratio * K_BULK, K_MAX)
+    
+    return {
+        "total": round(bulk_volume, 2),
+        "median_pile_ratio": round(median_pile_ratio, 4),
+        "pile_ratios": pile_ratios,
+        "K": K_BULK,
+        "K_max": K_MAX,
+        "per_image": per_image_bulk
+    }
 
+
+# ==============================================================================
+# LANE B: DISCRETE ITEMS + COUNTABLE BULK QUANTITIES
+# ==============================================================================
 
 def get_catalog_volume(canonical_label: str, size_bucket: str) -> float:
     """Look up volume from catalog."""
@@ -71,228 +111,186 @@ def get_catalog_volume(canonical_label: str, size_bucket: str) -> float:
     return CATALOG_VOLUMES.get(key, DEFAULT_VOLUME)
 
 
-# ==============================================================================
-# V_BULK: Bulk Volume from Pile Coverage
-# ==============================================================================
-
-def compute_v_bulk(pile_ratio: float, avg_bbox_ratio: float) -> dict:
+def compute_discrete_items_volume(fused_items: List[dict]) -> dict:
     """
-    Compute V_bulk: Bulk volume from pile coverage.
-    Uses dynamic K based on scene scale.
-    
-    Args:
-        pile_ratio: Average pile mask coverage (0-1)
-        avg_bbox_ratio: Average bbox size of detected items (scene scale signal)
-        
-    Returns:
-        Dict with bulk volume estimate
-    """
-    # Dynamic K based on scene scale
-    # Smaller avg bbox = camera is farther = larger scene = higher K
-    if avg_bbox_ratio < 0.02:
-        K = 15  # Far shot, large scene
-    elif avg_bbox_ratio < 0.05:
-        K = 12  # Medium distance
-    else:
-        K = 8   # Close-up, small scene
-    
-    # V_bulk = pile_ratio * K
-    v_bulk = pile_ratio * K
-    
-    return {
-        "total": round(v_bulk, 2),
-        "pile_ratio": pile_ratio,
-        "K": K,
-        "scene_scale": "far" if avg_bbox_ratio < 0.02 else ("medium" if avg_bbox_ratio < 0.05 else "close")
-    }
-
-
-# ==============================================================================
-# V_CATALOG: Discrete Items + Quantified Countables
-# ==============================================================================
-
-def compute_v_catalog(fused_items: List[dict]) -> dict:
-    """
-    Compute V_catalog: Catalog volume from discrete items.
-    Applies category-specific volumes.
+    Compute volume for truly discrete big items.
+    Uses catalog lookup, no quantity estimation.
     """
     total_volume = 0.0
-    item_volumes = []
+    items = []
     
     for item in fused_items:
-        label = item.get("canonical_label", "unknown")
-        size = item.get("size_bucket", "medium")
-        category = item.get("category", "furniture")
+        label = item.get("canonical_label", "unknown").lower()
         
-        # Get base volume
-        base_vol = get_catalog_volume(label, size)
+        # Only count discrete items here
+        if label not in DISCRETE_ITEMS and not any(d in label for d in DISCRETE_ITEMS):
+            continue
+        
+        size = item.get("size_bucket", "medium")
+        vol = get_catalog_volume(label, size)
         
         # Apply category multipliers
+        category = item.get("category", "furniture")
         if category == "appliance":
-            base_vol *= 1.2
+            vol *= 1.15
         elif category == "hazmat":
-            base_vol *= 1.3
+            vol *= 1.25
         
-        total_volume += base_vol
-        item_volumes.append({
+        total_volume += vol
+        items.append({
             "label": label,
             "size": size,
-            "volume": round(base_vol, 2),
-            "proposal_id": item.get("proposal_id", "")
+            "volume": round(vol, 2)
         })
     
     return {
         "total": round(total_volume, 2),
-        "items": item_volumes,
-        "count": len(item_volumes)
+        "items": items,
+        "count": len(items)
     }
 
 
-# ==============================================================================
-# V_OCC: Remainder-Based Occupancy
-# ==============================================================================
-
-def compute_v_occ(remainder_stats: dict, fused_items: List[dict]) -> dict:
+def compute_countable_bulk_volume(fused_items: List[dict]) -> dict:
     """
-    Compute V_occ: Occupancy from remainder with weighted subtraction.
-    Pile constituents have low subtraction weight.
-    """
-    avg_pile_ratio = remainder_stats.get("avg_pile_ratio", 0)
+    Compute volume for countable bulk items using QUANTITY ESTIMATION.
     
-    # Weighted subtraction for items
-    weighted_item_coverage = 0.0
+    Formula:
+    - total_area = sum of all mask areas for class
+    - qty = clamp(round(total_area / typical_area), 1, qty_cap)
+    - volume = qty * catalog_volume
+    
+    This is the key to getting 6 yd³: count boxes/bags/totes properly!
+    """
+    # Group items by countable class
+    class_areas = {cls: [] for cls in COUNTABLE_BULK}
+    class_sizes = {cls: "medium" for cls in COUNTABLE_BULK}  # Track typical size
+    
     for item in fused_items:
-        label = item.get("canonical_label", "")
+        label = item.get("canonical_label", "unknown").lower()
         area_ratio = item.get("mask_area_ratio", 0)
-        weight = get_subtraction_weight(label)
-        weighted_item_coverage += area_ratio * weight
+        size = item.get("size_bucket", "medium")
+        
+        for cls in COUNTABLE_BULK:
+            if cls in label or label == cls:
+                class_areas[cls].append(area_ratio)
+                class_sizes[cls] = size  # Use last seen size
+                break
     
-    # Effective remainder with weighted subtraction
-    effective_remainder = max(0, avg_pile_ratio - weighted_item_coverage)
+    # Estimate quantities and volumes
+    quantities = {}
+    volumes = {}
+    details = []
     
-    # Scene priors
-    VISIBLE_SQFT_PER_IMAGE = 50
-    FILL_FACTOR = 0.55
+    for cls, areas in class_areas.items():
+        if not areas:
+            continue
+        
+        total_area = sum(areas)
+        typical_area = TYPICAL_MASK_AREA.get(cls, 0.025)
+        
+        # Estimate quantity
+        raw_qty = total_area / typical_area if typical_area > 0 else len(areas)
+        qty = max(1, min(round(raw_qty), QTY_CAP.get(cls, 20)))
+        
+        # At minimum, count the number of detected items
+        qty = max(qty, len(areas))
+        
+        # Get volume per item
+        size = class_sizes[cls]
+        vol_per = get_catalog_volume(cls, size)
+        total_vol = qty * vol_per
+        
+        quantities[cls] = qty
+        volumes[cls] = round(total_vol, 2)
+        
+        details.append({
+            "class": cls,
+            "detected_count": len(areas),
+            "estimated_qty": qty,
+            "total_area": round(total_area, 4),
+            "vol_per": vol_per,
+            "total_volume": round(total_vol, 2)
+        })
+        
+        vlog(f"   📦 {cls}: detected={len(areas)}, qty={qty}, vol={total_vol:.2f} yd³")
     
-    # Dynamic height based on pile size
-    if avg_pile_ratio > 0.40:
-        HEIGHT_PRIOR_FT = 3.5
-    elif avg_pile_ratio > 0.25:
-        HEIGHT_PRIOR_FT = 3.0
-    else:
-        HEIGHT_PRIOR_FT = 2.5
-    
-    # Calculate volume
-    covered_sqft = effective_remainder * VISIBLE_SQFT_PER_IMAGE
-    cubic_feet = covered_sqft * HEIGHT_PRIOR_FT * FILL_FACTOR
-    cubic_yards = cubic_feet / 27
+    total_volume = sum(volumes.values())
     
     return {
-        "total": round(cubic_yards, 2),
-        "pile_ratio": avg_pile_ratio,
-        "weighted_item_coverage": round(weighted_item_coverage, 4),
-        "effective_remainder": round(effective_remainder, 4),
-        "height_prior": HEIGHT_PRIOR_FT
+        "total": round(total_volume, 2),
+        "quantities": quantities,
+        "volumes": volumes,
+        "details": details
+    }
+
+
+def compute_lane_b(fused_items: List[dict]) -> dict:
+    """
+    Lane B = Discrete big items + Countable bulk quantities.
+    """
+    discrete = compute_discrete_items_volume(fused_items)
+    countable = compute_countable_bulk_volume(fused_items)
+    
+    total = discrete["total"] + countable["total"]
+    
+    return {
+        "total": round(total, 2),
+        "discrete_total": discrete["total"],
+        "countable_total": countable["total"],
+        "discrete_items": discrete["items"],
+        "discrete_count": discrete["count"],
+        "countable_details": countable["details"],
+        "quantities": countable["quantities"]
     }
 
 
 # ==============================================================================
-# ENSEMBLE: Intelligent Combination
+# FINAL ARBITRATION
 # ==============================================================================
 
-def compute_three_lane_volume(
+def compute_volume(
     fused_items: List[dict],
-    remainder_stats: dict,
-    pile_masks: dict = None
+    pile_masks: dict,
+    remainder_stats: dict = None
 ) -> dict:
     """
-    Three-estimator ensemble for robust volume computation.
+    Final volume computation with proper arbitration.
     
-    Intelligently combines:
-    - V_bulk: Pile coverage-based (good for messy piles)
-    - V_catalog: Discrete items (good for distinct items)
-    - V_occ: Weighted remainder (balanced approach)
+    If pile exists (median_pile_ratio >= 0.18):
+        final = laneA_bulk + discrete_items + min(countable, laneA_bulk * 0.6)
+    Else:
+        final = discrete_items + countable (pure catalog mode)
     """
-    vlog(f"📊 Computing three-estimator volume...")
+    vlog(f"📊 Computing volume (bulk-first policy)...")
     
-    # Get scene signals
-    avg_pile_ratio = remainder_stats.get("avg_pile_ratio", 0)
-    avg_items_ratio = remainder_stats.get("avg_items_ratio", 0)
+    # Lane A: Bulk baseline from pile coverage
+    lane_a = compute_lane_a_bulk(pile_masks)
+    vlog(f"   Lane A (Bulk): {lane_a['total']} yd³ (median_pile={lane_a['median_pile_ratio']*100:.1f}%, K={K_BULK})")
     
-    # Calculate average bbox ratio for scene scale
-    avg_bbox_ratio = 0.03  # Default
-    if fused_items:
-        bbox_ratios = [i.get("mask_area_ratio", 0.03) for i in fused_items]
-        avg_bbox_ratio = sum(bbox_ratios) / len(bbox_ratios)
+    # Lane B: Discrete + Countable
+    lane_b = compute_lane_b(fused_items)
+    vlog(f"   Lane B (Discrete): {lane_b['discrete_total']} yd³ ({lane_b['discrete_count']} items)")
+    vlog(f"   Lane B (Countable): {lane_b['countable_total']} yd³")
     
-    # Check for pile-like labels in items
-    has_pile_labels = any(
-        i.get("raw_label", "").lower() in PILE_LABELS or 
-        i.get("canonical_label", "").lower() in PILE_LABELS
-        for i in fused_items
-    )
+    # Arbitration
+    pile_exists = lane_a["median_pile_ratio"] >= 0.18
     
-    # Compute all three estimates
-    v_bulk = compute_v_bulk(avg_pile_ratio, avg_bbox_ratio)
-    v_catalog = compute_v_catalog(fused_items)
-    v_occ = compute_v_occ(remainder_stats, fused_items)
-    
-    vlog(f"   V_bulk: {v_bulk['total']} yd³ (K={v_bulk['K']}, pile={avg_pile_ratio*100:.1f}%)")
-    vlog(f"   V_catalog: {v_catalog['total']} yd³ ({v_catalog['count']} items)")
-    vlog(f"   V_occ: {v_occ['total']} yd³ (remainder={v_occ['effective_remainder']*100:.1f}%)")
-    
-    # Calculate constituent share (what fraction of Lane B is pile-internal items)
-    constituent_volume = 0.0
-    discrete_volume = 0.0
-    for item in v_catalog["items"]:
-        label = item.get("label", "")
-        vol = item.get("volume", 0)
-        if label.lower() in PILE_CONSTITUENTS or any(p in label.lower() for p in PILE_CONSTITUENTS):
-            constituent_volume += vol
-        else:
-            discrete_volume += vol
-    
-    total_catalog = v_catalog["total"]
-    constituent_share = constituent_volume / total_catalog if total_catalog > 0 else 0
-    
-    vlog(f"   Constituent: {constituent_volume:.2f} yd³ ({constituent_share*100:.0f}% of catalog)")
-    
-    # Scene signals for arbitration
-    pile_is_strong = avg_pile_ratio > 0.20
-    high_constituent = constituent_share > 0.50
-    discrete_is_clear = len(fused_items) >= 5 and discrete_volume > 1.5
-    
-    # Conditional arbitration
-    if pile_is_strong and high_constituent:
-        # Pile dominates, Lane B is mostly pile-internal → prefer Lane A + discrete only
-        # Downweight Lane B (only count discrete items at full value)
-        lane_b_adjusted = discrete_volume + (constituent_volume * 0.3)  # 30% of constituents
-        final_volume = max(v_bulk["total"], lane_b_adjusted)
-        # Add remainder adjustment
-        remainder_adjust = min(v_occ["total"] * 0.4, 1.5)
-        final_volume += remainder_adjust
-        dominant = "Bulk+Discrete"
-        vlog(f"   📦 Pile-dominant: bulk vs adjusted_catalog ({lane_b_adjusted:.2f}) + remainder")
-    
-    elif pile_is_strong:
-        # Pile is strong but items are mostly discrete → trust higher of bulk vs catalog
-        final_volume = max(v_bulk["total"], v_catalog["total"])
-        remainder_adjust = min(v_occ["total"] * 0.3, 1.0)
-        final_volume += remainder_adjust
-        dominant = "Bulk+Catalog"
-        vlog(f"   📦 Pile mode: max(bulk,catalog) + remainder_adj")
-    
-    elif discrete_is_clear:
-        # Clear discrete items, low pile → trust catalog
-        final_volume = v_catalog["total"]
-        dominant = "Catalog"
-        vlog(f"   📦 Discrete mode: catalog only")
-    
+    if pile_exists:
+        # Pile mode: bulk + discrete + capped countable
+        countable_cap = lane_a["total"] * 0.6
+        countable_contribution = min(lane_b["countable_total"], countable_cap)
+        
+        final_volume = lane_a["total"] + lane_b["discrete_total"] + countable_contribution
+        dominant = "Bulk+Hybrid"
+        
+        vlog(f"   📦 Pile mode: bulk({lane_a['total']}) + discrete({lane_b['discrete_total']}) + countable_capped({countable_contribution:.2f})")
     else:
-        # Sparse/unclear → take max of all three
-        final_volume = max(v_bulk["total"], v_catalog["total"], v_occ["total"])
-        dominant = "Ensemble-Max"
-        vlog(f"   📦 Sparse mode: max of all three")
+        # Catalog mode: discrete + countable
+        final_volume = lane_b["discrete_total"] + lane_b["countable_total"]
+        dominant = "Catalog"
+        countable_contribution = lane_b["countable_total"]
+        
+        vlog(f"   📦 Catalog mode: discrete + countable")
     
     # Apply minimum floor
     MIN_VOLUME = 0.5
@@ -305,22 +303,30 @@ def compute_three_lane_volume(
     mask_coverage_pct = (items_with_masks / len(fused_items) * 100) if fused_items else 0
     
     result = {
-        "v_bulk": v_bulk["total"],
-        "v_catalog": v_catalog["total"],
-        "v_occ": v_occ["total"],
-        "lane_a_occupancy": v_occ["total"],  # Backward compat
-        "lane_b_catalog": v_catalog["total"],  # Backward compat
         "final_volume": round(final_volume, 2),
         "dominant": dominant,
-        "pile_is_strong": pile_is_strong,
+        "pile_exists": pile_exists,
+        
+        # Lane A details
+        "lane_a_bulk": lane_a["total"],
+        "lane_a_occupancy": lane_a["total"],  # Backward compat
+        "median_pile_ratio": lane_a["median_pile_ratio"],
+        
+        # Lane B details
+        "lane_b_catalog": lane_b["total"],  # Backward compat
+        "lane_b_discrete": lane_b["discrete_total"],
+        "lane_b_countable": lane_b["countable_total"],
+        "countable_contribution": round(countable_contribution, 2),
+        "quantities": lane_b["quantities"],
+        
+        # Metrics
         "item_count": len(fused_items),
         "items_with_masks": items_with_masks,
         "mask_coverage_pct": round(mask_coverage_pct, 1),
-        "remainder_ratio": v_occ["effective_remainder"],
-        "scene_scale": v_bulk["scene_scale"],
-        "v_bulk_details": v_bulk,
-        "v_catalog_details": v_catalog,
-        "v_occ_details": v_occ
+        
+        # Full details
+        "lane_a_details": lane_a,
+        "lane_b_details": lane_b
     }
     
     vlog(f"   📦 Final: {result['final_volume']} yd³ (dominant={dominant})")
@@ -328,10 +334,22 @@ def compute_three_lane_volume(
     return result
 
 
-# Alias for backward compatibility
+# Backward-compatible aliases
 def compute_two_lane_volume(fused_items: List[dict], remainder_stats: dict) -> dict:
-    """Backward-compatible wrapper for compute_three_lane_volume."""
-    return compute_three_lane_volume(fused_items, remainder_stats)
+    """Backward-compatible wrapper."""
+    # Extract pile_masks from remainder_stats if available
+    pile_masks = remainder_stats.get("per_image", {})
+    if not pile_masks:
+        # Fake pile_masks from remainder_stats
+        pile_masks = {"img_0": {"pile_area_ratio": remainder_stats.get("avg_pile_ratio", 0)}}
+    return compute_volume(fused_items, pile_masks, remainder_stats)
+
+
+def compute_three_lane_volume(fused_items: List[dict], remainder_stats: dict, pile_masks: dict = None) -> dict:
+    """Backward-compatible wrapper."""
+    if pile_masks is None:
+        pile_masks = remainder_stats.get("per_image", {})
+    return compute_volume(fused_items, pile_masks, remainder_stats)
 
 
 def compute_pricing(volume: float) -> dict:
