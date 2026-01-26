@@ -17,16 +17,15 @@ export interface VolumeTier {
 }
 
 const VOLUME_TIERS: VolumeTier[] = [
-    { maxCuFt: 60, price: 99, label: 'Min Load' },
-    { maxCuFt: 80, price: 129, label: '1/6 Load' },
-    { maxCuFt: 120, price: 149, label: '1/4 Load' },
-    { maxCuFt: 180, price: 199, label: '3/8 Load' },
-    { maxCuFt: 240, price: 299, label: 'Half Load' },
-    { maxCuFt: 300, price: 329, label: '5/8 Load' },
-    { maxCuFt: 360, price: 379, label: '3/4 Load' },
-    { maxCuFt: 420, price: 435, label: '7/8 Load' },
-    { maxCuFt: 480, price: 549, label: 'Full Load' }, // Approx 480 cu ft for 12ft truck
-    { maxCuFt: 9999, price: 599, label: 'Overload' },
+    { maxCuFt: 13.5, price: 135, label: 'Minimum' },       // 0.0 - 0.5 yd³
+    { maxCuFt: 67.5, price: 255, label: '1/4 Load' },      // 0.5 - 2.5 yd³
+    { maxCuFt: 135, price: 285, label: 'Half Load' },      // 2.5 - 5.0 yd³
+    { maxCuFt: 202.5, price: 430, label: '5/8 Load' },     // 5.0 - 7.5 yd³
+    { maxCuFt: 270, price: 575, label: '3/4 Load' },       // 7.5 - 10.0 yd³
+    { maxCuFt: 337.5, price: 720, label: '7/8 Load' },     // 10.0 - 12.5 yd³
+    { maxCuFt: 405, price: 865, label: 'Full Load' },      // 12.5 - 15.0 yd³
+    { maxCuFt: 472.5, price: 1007, label: 'Oversize' },    // 15.0 - 17.5 yd³
+    { maxCuFt: 540, price: 1150, label: 'Max Load' },      // 17.5 - 20.0 yd³
 ];
 
 export function calculateJunkPrice(cubicFeet: number, surcharges: SurchargeItem[]): PriceBreakdown {
