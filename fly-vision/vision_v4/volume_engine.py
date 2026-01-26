@@ -59,6 +59,47 @@ TYPICAL_MASK_AREA = {
 
 
 # ==============================================================================
+# ITEMIZED LOGGING (Debug each fused item)
+# ==============================================================================
+
+def log_itemized_breakdown(fused_items: List[dict], lane_b: dict) -> None:
+    """
+    Log detailed breakdown of each fused item for debugging variance.
+    
+    This is the key to understanding why discrete volume changes between runs.
+    """
+    import json
+    
+    vlog(f"   📋 Itemized breakdown ({len(fused_items)} fused items):")
+    
+    # Build lookup for discrete items that contributed volume
+    discrete_labels = {item["label"] for item in lane_b.get("discrete_items", [])}
+    countable_classes = set(lane_b.get("quantities", {}).keys())
+    
+    for item in fused_items:
+        label = item.get("canonical_label", item.get("raw_label", "unknown")).lower()
+        conf = item.get("classifier_confidence", item.get("score", 0))
+        image_id = item.get("image_id", "?")[:8]
+        mask_source = "seg" if item.get("has_mask") else "bbox"
+        area = item.get("mask_area_ratio", 0)
+        lane = item.get("lane", "unknown")
+        lane_reason = item.get("lane_reason", "default")
+        
+        # Determine volume contribution
+        if label in discrete_labels:
+            vol_used = next((i["volume"] for i in lane_b["discrete_items"] if i["label"] == label), 0)
+            vol_lane = "discrete"
+        elif any(c in label for c in countable_classes):
+            vol_used = 0  # Countable uses aggregate qty
+            vol_lane = "countable"
+        else:
+            vol_used = 0
+            vol_lane = "none"
+        
+        vlog(f"      • {label}: {vol_used}yd³ | conf={conf:.2f} | {mask_source} | area={area:.3f} | lane={lane} | src={image_id}")
+
+
+# ==============================================================================
 # LANE A: BULK BASELINE FROM PILE COVERAGE
 # ==============================================================================
 
@@ -340,6 +381,9 @@ def compute_volume(
         "lane_a_details": lane_a,
         "lane_b_details": lane_b
     }
+    
+    # ITEMIZED LOGGING: Debug each fused item
+    log_itemized_breakdown(fused_items, lane_b)
     
     vlog(f"   📦 Final: {result['final_volume']} yd³ (dominant={dominant})")
     

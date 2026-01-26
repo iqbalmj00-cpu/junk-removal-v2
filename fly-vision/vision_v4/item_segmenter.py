@@ -2,6 +2,7 @@
 v4.0 Item Segmenter (Step 5)
 
 Optimized segmentation strategy:
+- STABLE MULTI-KEY SORT for deterministic selection
 - Skip segmentation for pile-like labels (save API calls)
 - Only segment high-value discrete items
 - Always fallback to bbox area if mask fails
@@ -20,6 +21,13 @@ SKIP_SEGMENTATION_LABELS = PILE_LABELS | {
 
 # Minimum bbox area ratio to bother segmenting (skip tiny items)
 MIN_AREA_FOR_SEGMENTATION = 0.01  # 1% of image
+
+# High-value discrete items that should be prioritized for segmentation
+HIGH_VALUE_ITEMS = {
+    "couch", "sofa", "mattress", "refrigerator", "freezer",
+    "washer", "dryer", "exercise equipment", "treadmill", "scooter",
+    "hot tub", "piano", "pool table", "safe", "motorcycle"
+}
 
 
 def should_segment_item(proposal: dict, image: dict) -> bool:
@@ -49,6 +57,46 @@ def should_segment_item(proposal: dict, image: dict) -> bool:
         return False
     
     return True
+
+
+def get_stable_sort_key(proposal: dict, image_map: dict) -> tuple:
+    """
+    Generate a DETERMINISTIC sort key for proposal selection.
+    
+    Key order:
+    1. High-value item bonus (discrete items get priority)
+    2. Confidence score (descending)
+    3. Bbox area (descending)
+    4. Class name (alphabetical)
+    5. Bbox coordinates (x1, y1) for determinism
+    6. Image index for cross-image stability
+    """
+    img = image_map.get(proposal["image_id"], {})
+    label = proposal.get("raw_label", "").lower()
+    score = proposal.get("score", 0.5)
+    bbox = proposal.get("bbox", [0, 0, 0, 0])
+    
+    # Compute area
+    width = img.get("width", 1)
+    height = img.get("height", 1)
+    area = bbox_area_ratio(bbox, width, height)
+    
+    # High-value items get priority bonus
+    is_high_value = 1 if any(hv in label for hv in HIGH_VALUE_ITEMS) else 0
+    
+    # Image index for stability
+    image_index = img.get("index", 0)
+    
+    return (
+        -is_high_value,     # High-value items first (negative for descending)
+        -score,              # Higher confidence first
+        -area,               # Larger items first
+        label,               # Alphabetical tie-break
+        bbox[0],             # X1 coordinate
+        bbox[1],             # Y1 coordinate
+        image_index,         # Image order
+        proposal.get("proposal_id", "")  # Final tie-break on ID
+    )
 
 
 def run_item_segmentation(
@@ -123,18 +171,9 @@ def segment_all_proposals(
 ) -> List[dict]:
     """
     Run item segmentation for TOP proposals only.
-    Limits API calls for latency/cost control.
+    Uses STABLE MULTI-KEY SORT for deterministic selection.
     """
     image_map = {img["image_id"]: img for img in images}
-    
-    # Sort by bbox area * score to prioritize high-value items
-    def score_proposal(p):
-        img = image_map.get(p["image_id"])
-        if not img:
-            return 0
-        bbox = p.get("bbox", [0, 0, 0, 0])
-        area = bbox_area_ratio(bbox, img["width"], img["height"])
-        return area * p.get("score", 0.5)
     
     # Limit segmentation to top N items (reduce latency from 29s)
     SEGMENT_LIMIT = 8
@@ -143,8 +182,12 @@ def segment_all_proposals(
     segmentable = [p for p in proposals if should_segment_item(p, image_map.get(p["image_id"], {}))]
     non_segmentable = [p for p in proposals if not should_segment_item(p, image_map.get(p["image_id"], {}))]
     
-    # Sort segmentable by priority and take top N
-    segmentable_sorted = sorted(segmentable, key=score_proposal, reverse=True)
+    # STABLE MULTI-KEY SORT (deterministic)
+    segmentable_sorted = sorted(
+        segmentable, 
+        key=lambda p: get_stable_sort_key(p, image_map)
+    )
+    
     to_segment = segmentable_sorted[:SEGMENT_LIMIT]
     to_skip = segmentable_sorted[SEGMENT_LIMIT:]
     
