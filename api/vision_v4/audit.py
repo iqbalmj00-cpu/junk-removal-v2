@@ -1,7 +1,7 @@
 """
 v4.0 GPT Audit (Step 11)
 
-Final validation and add-on detection using GPT-4o.
+Final validation and add-on detection using GPT-5-Pro via Replicate.
 Flags missing items only when there's evidence.
 """
 
@@ -11,13 +11,17 @@ from typing import List
 from .utils import vlog
 
 
+# Replicate model version for GPT-5-Pro
+GPT5_PRO_VERSION = "openai/gpt-5-pro"
+
+
 def run_gpt_audit(
     fused_items: List[dict],
     volumes: dict,
     trust_metrics: dict
 ) -> dict:
     """
-    Final audit and validation with GPT-4o.
+    Final audit and validation with GPT-5-Pro via Replicate.
     
     Responsibilities:
     - Validate item list is reasonable
@@ -33,10 +37,9 @@ def run_gpt_audit(
     Returns:
         Audit result dict
     """
-    import openai  # Lazy import
-    openai.api_key = os.environ.get("OPENAI_API_KEY")
+    import replicate  # Lazy import
     
-    vlog(f"🔍 Running GPT audit on {len(fused_items)} items...")
+    vlog(f"🔍 Running GPT-5-Pro audit on {len(fused_items)} items...")
     
     # Build audit input
     items_summary = []
@@ -75,9 +78,11 @@ AUDIT TASKS:
 3. Are there likely missing items? (Only flag if there's evidence from patterns)
 4. Rate your confidence in this quote (0.0-1.0)
 
-Return JSON:
+DO NOT GUESS. Only flag issues you have evidence for.
+
+Return ONLY valid JSON with this exact structure:
 {{
-  "validation": "PASS" | "REVIEW" | "FAIL",
+  "validation": "PASS" or "REVIEW" or "FAIL",
   "missing_items": [],
   "add_on_flags": [],
   "confidence": 0.0,
@@ -85,14 +90,29 @@ Return JSON:
 }}"""
 
     try:
-        response = openai.chat.completions.create(
-            model="gpt-5.2-2025-12-11",
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-            # Note: gpt-5 doesn't support temperature, uses default (1)
+        # Run GPT-5-Pro via Replicate
+        output = replicate.run(
+            GPT5_PRO_VERSION,
+            input={
+                "prompt": prompt,
+                "max_tokens": 500,
+            }
         )
         
-        result = json.loads(response.choices[0].message.content)
+        # Parse output - Replicate returns string or iterator
+        response_text = ""
+        if isinstance(output, str):
+            response_text = output
+        elif hasattr(output, "__iter__"):
+            response_text = "".join(list(output))
+        
+        # Clean up response (remove markdown code blocks if present)
+        response_text = response_text.strip()
+        if response_text.startswith("```"):
+            lines = response_text.split("\n")
+            response_text = "\n".join(lines[1:-1])
+        
+        result = json.loads(response_text)
         
         vlog(f"   ✅ Audit: {result.get('validation', 'unknown')} (conf={result.get('confidence', 0):.2f})")
         
