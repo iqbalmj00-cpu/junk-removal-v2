@@ -700,6 +700,14 @@ try:
     LOW_IMPACT_LABELS = {"boxes", "bags", "bag", "box", "misc", "unknown_small", "plastic_bag", "plastic bag"}
     LOW_IMPACT_MAX_VOLUME = 0.2  # Never price more than 0.2 yd³ per low-impact item
     
+    # v3.0: BULK CLUTTER LABELS - represent pile bulk, NOT individually priced
+    # These contribute to occupancy volume, not catalog volume
+    BULK_CLUTTER_LABELS = {
+        "bags", "boxes", "foam_cushions", "plastic_bag", "bag", "box",
+        "loose_items", "household_misc", "clutter", "mattress_topper",
+        "couch_cushions", "cushions", "foam", "debris"
+    }
+    
     def canonicalize_synonym(label: str, gemini_correction: str = None) -> str:
         """Aggressive synonym canonicalization."""
         label_lower = label.lower().strip()
@@ -745,8 +753,28 @@ try:
         """Fixed remainder trigger using residual, not coverage."""
         return residual >= REMAINDER_THRESHOLDS.get(mode, 0.30)
     
-    def cap_remainder_volume(remainder_vol: float, packed_vol: float) -> float:
-        """Cap remainder to prevent explosion."""
+    def cap_remainder_volume(remainder_vol: float, packed_vol: float, mode: str = "unknown") -> float:
+        """Cap remainder to prevent explosion.
+        
+        v2.9: In pile mode, don't cap against packed_sum (which can be tiny after filtering).
+        Use reasonable floor/ceiling instead.
+        """
+        # v2.9 FIX 3: In pile mode, use floor/ceiling instead of packed_sum ratio
+        if mode == "pile":
+            # Pile mode: remainder should be between 1.5-6.0 yd³
+            PILE_REMAINDER_FLOOR = 1.5
+            PILE_REMAINDER_CEILING = 6.0
+            
+            if remainder_vol > PILE_REMAINDER_CEILING:
+                print(f"⚠️ v2.9: Pile remainder capped: {remainder_vol:.2f} → {PILE_REMAINDER_CEILING:.2f} (ceiling)")
+                return PILE_REMAINDER_CEILING
+            elif remainder_vol < PILE_REMAINDER_FLOOR and packed_vol < 2.0:
+                # If packed is tiny AND remainder is tiny, use floor
+                print(f"⚠️ v2.9: Pile remainder floored: {remainder_vol:.2f} → {PILE_REMAINDER_FLOOR:.2f} (sparse detection)")
+                return PILE_REMAINDER_FLOOR
+            return remainder_vol
+        
+        # Non-pile mode: use original packed_sum ratio
         max_allowed = packed_vol * REMAINDER_CAP_FACTOR
         if remainder_vol > max_allowed:
             print(f"⚠️ Remainder capped: {remainder_vol:.2f} → {max_allowed:.2f} (max={REMAINDER_CAP_FACTOR}× packed)")
@@ -913,6 +941,70 @@ try:
         "safe": 2.0,
         "demo_heavy": 8.0,
     }
+    
+    # v3.0: HIGH INFLATION LABELS - require 2-of-3 confirmation to add volume
+    HIGH_INFLATION_LABELS = {
+        "washer", "dryer", "refrigerator", "appliance",
+        "tires", "tire_pile", "cable_spool_wood", "industrial_spool", "suspicious_spool",
+        "mixed_debris", "debris_pile", "metal_pipe", "scrap_metal"
+    }
+    
+    def check_2of3_confirmation(det: dict, all_detections: list, img_area: float = None) -> tuple:
+        """
+        v3.0: Require 2-of-3 signals for high-inflation labels.
+        
+        Signals:
+        1. Multi-model (Florence + DINO both detected it)
+        2. Multi-image persistence (seen in >1 image)
+        3. Large bbox area (>5% of image)
+        
+        Returns: (passed: bool, signals: int, add_on_flag: str or None)
+        """
+        label = det.get("canonical_label", det.get("label", "")).lower()
+        
+        if label not in HIGH_INFLATION_LABELS:
+            return True, 3, None  # Low-impact labels pass automatically
+        
+        signals = 0
+        signal_details = []
+        
+        # Signal 1: Multi-model (Florence + DINO)
+        sources = det.get("model_sources", [det.get("source", "unknown")])
+        if isinstance(sources, str):
+            sources = [sources]
+        unique_sources = set(s.lower() for s in sources)
+        if len(unique_sources) >= 2 or ("florence" in unique_sources and "grounding_dino" in unique_sources):
+            signals += 1
+            signal_details.append("multi_model")
+        
+        # Signal 2: Multi-image persistence
+        det_image_idx = det.get("image_index", -1)
+        same_label_count = sum(
+            1 for d in all_detections 
+            if d.get("canonical_label", d.get("label", "")).lower() == label 
+            and d.get("image_index", -2) != det_image_idx
+            and d.get("image_index", -2) >= 0
+        )
+        if same_label_count >= 1:
+            signals += 1
+            signal_details.append("multi_image")
+        
+        # Signal 3: Large bbox area (>5% of image)
+        bbox = det.get("bbox", [0, 0, 0, 0])
+        if len(bbox) >= 4:
+            bbox_area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            image_area = img_area or (1024 * 768)  # Default image size
+            if bbox_area >= 0.05 * image_area:
+                signals += 1
+                signal_details.append("large_bbox")
+        
+        passed = signals >= 2
+        add_on_flag = f"{label}_possible" if not passed else None
+        
+        if not passed:
+            print(f"⚠️ v3.0: {label} failed 2-of-3 ({signals}/3: {signal_details}) → add-on flag only")
+        
+        return passed, signals, add_on_flag
     
     def gate_high_impact_labels(detections: list) -> list:
         """v2.8.1: Gate high-impact labels - check all label forms."""
@@ -2646,8 +2738,18 @@ Now run the audit using the provided inputs. Output JSON only."""
             
             remainder = (footprint * height) / 27
             
-            # Two-part cap
-            max_remainder = max(total_item_vol * 0.5, 2.0)
+            # v2.9 FIX 2: Footprint-based floor when coverage is very low (sparse detection)
+            # If coverage < 10%, we likely missed most of the pile - use footprint estimate
+            if covered < 0.1:
+                # Estimate pile as ~10ft x 5ft x 3ft avg = ~5.5 yd³
+                # This is a reasonable floor for a visible curb pile
+                footprint_floor = 2.5  # Minimum remainder when detection is sparse
+                if remainder < footprint_floor:
+                    print(f"   📊 v2.9: Coverage very low ({covered:.1%}), applying footprint floor: {remainder:.2f} → {footprint_floor:.2f} yd³")
+                    remainder = footprint_floor
+            
+            # Two-part cap - but don't cap below footprint floor
+            max_remainder = max(total_item_vol * 0.5, 2.5)  # v2.9: raised floor from 2.0 to 2.5
             remainder = min(remainder, max_remainder)
             
             print(f"   📊 Pile Remainder v3.1: coverage={covered:.1%}, residual={residual_pct:.1%}, remainder={remainder:.2f} yd³")
@@ -2729,6 +2831,179 @@ Now run the audit using the provided inputs. Output JSON only."""
             
             coverage = np.sum(grid) / (UNION_GRID_SIZE ** 2)
             return coverage
+        
+        def compute_bulk_clutter_volume(self, detections: list, img_w: int, img_h: int) -> float:
+            """
+            v3.0: Compute volume from union of bulk clutter bboxes.
+            
+            Instead of guessing remainder, we measure the footprint of bags/boxes/foam
+            and estimate height to get actual volume.
+            
+            Returns volume in yd³.
+            """
+            import numpy as np
+            
+            # Filter to bulk clutter items only
+            clutter_detections = [
+                d for d in detections 
+                if d.get("canonical_label", d.get("label", "")).lower() in BULK_CLUTTER_LABELS
+                and d.get("bbox")
+            ]
+            
+            if not clutter_detections:
+                return 0.0
+            
+            # Calculate union footprint using grid
+            grid = np.zeros((UNION_GRID_SIZE, UNION_GRID_SIZE), dtype=bool)
+            scale_x = UNION_GRID_SIZE / img_w
+            scale_y = UNION_GRID_SIZE / img_h
+            
+            for det in clutter_detections:
+                bbox = self.normalize_bbox_v31(det.get("bbox"), img_w, img_h)
+                x1, y1, x2, y2 = bbox
+                
+                gx1 = max(0, int(x1 * scale_x))
+                gy1 = max(0, int(y1 * scale_y))
+                gx2 = min(UNION_GRID_SIZE, int(x2 * scale_x))
+                gy2 = min(UNION_GRID_SIZE, int(y2 * scale_y))
+                gx2 = max(gx2, gx1 + 1)
+                gy2 = max(gy2, gy1 + 1)
+                
+                grid[gy1:gy2, gx1:gx2] = True
+            
+            # Coverage = fraction of image covered by clutter
+            clutter_coverage = np.sum(grid) / (UNION_GRID_SIZE ** 2)
+            
+            # Assume scene is ~150 sqft (typical curb pile view)
+            footprint_sqft = clutter_coverage * 150
+            
+            # Average height for clutter: 2.5 ft
+            height_ft = 2.5
+            
+            volume_cuft = footprint_sqft * height_ft
+            volume_yd3 = volume_cuft / 27
+            
+            print(f"   📦 v3.0: Bulk clutter coverage={clutter_coverage:.1%}, footprint={footprint_sqft:.1f}sqft → {volume_yd3:.2f} yd³")
+            
+            return round(volume_yd3, 2)
+        
+        # ==================== V3.0: TWO-LANE ESTIMATOR ====================
+        
+        def compute_occupancy_volume(self, detections: list, depth_stats: dict,
+                                     img_w: int, img_h: int) -> float:
+            """
+            v3.0 Lane A: Occupancy Volume.
+            
+            Estimates pile volume from footprint × height.
+            This captures bulk even when individual items aren't detected.
+            """
+            import numpy as np
+            
+            # Get union footprint of ALL junk bboxes
+            junk_detections = [
+                d for d in detections 
+                if d.get("bbox") and d.get("is_junk", True)
+            ]
+            
+            if not junk_detections:
+                return 0.0
+            
+            # Calculate union footprint
+            grid = np.zeros((UNION_GRID_SIZE, UNION_GRID_SIZE), dtype=bool)
+            scale_x = UNION_GRID_SIZE / img_w
+            scale_y = UNION_GRID_SIZE / img_h
+            
+            for det in junk_detections:
+                bbox = self.normalize_bbox_v31(det.get("bbox"), img_w, img_h)
+                x1, y1, x2, y2 = bbox
+                
+                gx1 = max(0, int(x1 * scale_x))
+                gy1 = max(0, int(y1 * scale_y))
+                gx2 = min(UNION_GRID_SIZE, int(x2 * scale_x))
+                gy2 = min(UNION_GRID_SIZE, int(y2 * scale_y))
+                gx2 = max(gx2, gx1 + 1)
+                gy2 = max(gy2, gy1 + 1)
+                
+                grid[gy1:gy2, gx1:gx2] = True
+            
+            coverage = np.sum(grid) / (UNION_GRID_SIZE ** 2)
+            
+            # Assume scene is ~150 sqft (typical curb pile view)
+            footprint_sqft = coverage * 150
+            
+            # Estimate height from depth gradient (default 3.0 ft)
+            height_ft = 3.0
+            if depth_stats:
+                depth_range = depth_stats.get("range", depth_stats.get("max", 1.0) - depth_stats.get("min", 0.0))
+                if depth_range > 0.2:
+                    height_ft = min(depth_range * 6, 5.0)
+            
+            volume_cuft = footprint_sqft * height_ft
+            volume_yd3 = volume_cuft / 27
+            
+            print(f"   🏔️ v3.0 Lane A (Occupancy): coverage={coverage:.1%}, footprint={footprint_sqft:.1f}sqft, height={height_ft:.1f}ft → {volume_yd3:.2f} yd³")
+            
+            return round(volume_yd3, 2)
+        
+        def compute_catalog_volume_v30(self, catalog_items: list) -> float:
+            """
+            v3.0 Lane B: Catalog Volume.
+            
+            Sum of CONFIRMED discrete items only (high-confidence with bboxes).
+            """
+            confirmed = [
+                item for item in catalog_items
+                if item.get("priced") != False 
+                and item.get("bbox")
+                and not item.get("is_background")
+            ]
+            
+            total = sum(item.get("volume_yards", 0) for item in confirmed)
+            print(f"   📋 v3.0 Lane B (Catalog): {len(confirmed)} confirmed items → {total:.2f} yd³")
+            
+            return round(total, 2)
+        
+        def compute_final_volume_v30(self, V_occ: float, V_items: float, 
+                                      mode: str, bulk_clutter: float = 0.0) -> dict:
+            """
+            v3.0 Two-Lane Estimator: Final volume selection.
+            
+            Takes MAX of Lane A (Occupancy) and Lane B (Catalog),
+            with scene-appropriate clamping.
+            
+            Returns dict with lane breakdown for transparency.
+            """
+            # Add bulk clutter to occupancy
+            V_occ_total = V_occ + bulk_clutter
+            
+            # Take max of both lanes
+            V_raw = max(V_occ_total, V_items)
+            
+            # Scene-appropriate clamping
+            if mode == "pile":
+                # Curb pile: 2.0 - 15.0 yd³ range
+                V_final = max(2.0, min(V_raw, 15.0))
+                min_floor, max_ceiling = 2.0, 15.0
+            else:
+                # Single item mode: 0.5 - 8.0 yd³ range
+                V_final = max(0.5, min(V_raw, 8.0))
+                min_floor, max_ceiling = 0.5, 8.0
+            
+            dominant_lane = "Occupancy" if V_occ_total >= V_items else "Catalog"
+            
+            print(f"   🎯 v3.0 Final: Lane A={V_occ_total:.2f}, Lane B={V_items:.2f}, max={V_raw:.2f} → {V_final:.2f} yd³ (dominant={dominant_lane})")
+            
+            return {
+                "V_occ": V_occ,
+                "V_items": V_items,
+                "bulk_clutter": bulk_clutter,
+                "V_occ_total": V_occ_total,
+                "V_raw": V_raw,
+                "V_final": V_final,
+                "dominant_lane": dominant_lane,
+                "min_floor": min_floor,
+                "max_ceiling": max_ceiling
+            }
         
         # ==================== V3.3 FUNCTIONS ====================
         
@@ -3517,12 +3792,16 @@ Now run the audit using the provided inputs. Output JSON only."""
             """
             Merge detections from multiple images.
             Deduplicates by normalized label, keeping the largest bbox.
+            
+            v3.0: Assigns det_id to each detection and builds bbox_registry.
             """
-            fused = {"detections": [], "anchor_found": False, "anchor_scale_inches": None}
+            fused = {"detections": [], "anchor_found": False, "anchor_scale_inches": None, "bbox_registry": {}}
             seen_labels = {}  # normalized_label -> {"det": detection, "area": float}
+            bbox_registry = {}  # det_id -> bbox (stable mapping)
             
             for result in all_results:
                 dets = result.get("detections", {})
+                image_idx = result.get("image_index", 0)
                 
                 # Aggregate anchor across all images (first anchor wins)
                 if dets.get("anchor_found") and not fused["anchor_found"]:
@@ -3530,6 +3809,19 @@ Now run the audit using the provided inputs. Output JSON only."""
                     fused["anchor_scale_inches"] = dets.get("anchor_scale_inches")
                 
                 for det in dets.get("detections", []):
+                    # v3.0: Assign det_id if not already present
+                    if not det.get("det_id"):
+                        bbox = det.get("bbox", [0, 0, 0, 0])
+                        source = det.get("source", "unknown")
+                        det["det_id"] = generate_detection_id(image_idx, bbox, source)
+                    
+                    # v3.0: Store bbox in registry by det_id
+                    if det.get("bbox") and det.get("det_id"):
+                        bbox_registry[det["det_id"]] = det["bbox"]
+                    
+                    # v3.0: Track image_index for multi-image persistence checks
+                    det["image_index"] = image_idx
+                    
                     norm_label = self._normalize_label(det["label"])
                     bbox = det.get("bbox", [0, 0, 0, 0])
                     area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) if len(bbox) == 4 else 0
@@ -3538,7 +3830,9 @@ Now run the audit using the provided inputs. Output JSON only."""
                         seen_labels[norm_label] = {"det": det, "area": area}
             
             fused["detections"] = [v["det"] for v in seen_labels.values()]
+            fused["bbox_registry"] = bbox_registry  # v3.0: Store registry for later lookup
             print(f"🔗 Fusion: {len(seen_labels)} unique labels from {len(all_results)} images")
+            print(f"📦 v3.0: bbox_registry contains {len(bbox_registry)} det_ids")
             
             # Line 2: Fused Label Inventory
             from collections import Counter
@@ -4468,12 +4762,21 @@ Return JSON array ONLY. No explanation."""
             
             print(f"📐 v2.9: bbox_lookup has {len(bbox_lookup)} keys")
             
+            # v3.0: Get bbox_registry from detections (stable det_id→bbox mapping)
+            bbox_registry = detections.get("bbox_registry", {})
+            print(f"📐 v3.0: bbox_registry has {len(bbox_registry)} det_ids")
+            
             for item in catalog_items:
                 if not item.get("bbox"):
-                    label = (item.get("label") or "").strip().lower()
-                    canonical = item.get("canonical_label", "").lower()
-                    # Try to find bbox by label or canonical_label
-                    item["bbox"] = bbox_lookup.get(label) or bbox_lookup.get(canonical)
+                    # v3.0: Try det_id first (stable, doesn't break with canonicalization)
+                    det_id = item.get("det_id")
+                    if det_id and det_id in bbox_registry:
+                        item["bbox"] = bbox_registry[det_id]
+                    else:
+                        # Fallback to label matching
+                        label = (item.get("label") or "").strip().lower()
+                        canonical = item.get("canonical_label", "").lower()
+                        item["bbox"] = bbox_lookup.get(label) or bbox_lookup.get(canonical)
             
             # Step 2: Build billable items from FINALIZED catalog_items
             billable_items = []
@@ -4486,10 +4789,11 @@ Return JSON array ONLY. No explanation."""
                     continue
                 if not item.get("bbox"):
                     continue
-                # Exclude low-impact items from coverage (they don't represent pile space)
+                # v2.9 FIX 1: In pile mode, INCLUDE low-impact items for coverage
+                # They have bboxes and represent real pile space
                 canonical = item.get("canonical_label", "").lower()
-                if canonical in LOW_IMPACT_LABELS:
-                    continue
+                if mode != "pile" and canonical in LOW_IMPACT_LABELS:
+                    continue  # Only skip low-impact in non-pile modes
                 billable_items.append(item)
             
             print(f"📐 v2.8.2: {len(billable_items)}/{len(catalog_items)} finalized items billable for coverage")
@@ -4563,9 +4867,9 @@ Return JSON array ONLY. No explanation."""
             if vision_worker.should_activate_remainder(mode, residual, catalog_items, anchor_present, depth_stats):
                 pile_remainder = vision_worker.estimate_pile_remainder_v31(catalog_items, img_width, img_height, total_item_vol, depth_stats)
                 
-                # v2.3 FIX: Cap remainder volume
+                # v2.3 FIX: Cap remainder volume (v2.9: mode-aware)
                 raw_remainder = pile_remainder.get("remainder_yards", 0)
-                capped_remainder = cap_remainder_volume(raw_remainder, total_item_vol)
+                capped_remainder = cap_remainder_volume(raw_remainder, total_item_vol, mode=mode)
                 
                 # v2.5: Debris-remainder mutual exclusion
                 if debris_bucket_vol > 1.5:
@@ -4582,11 +4886,36 @@ Return JSON array ONLY. No explanation."""
                 pile_remainder = {"remainder_yards": 0, "activated": False, "residual_pct": residual}
                 print(f"   📊 Remainder skipped (mode={mode}, residual={residual:.1%})")
             
-            # Final total
+            # Final total (legacy v3.3)
             remainder_vol = pile_remainder.get("remainder_yards", 0)
             total_with_remainder = total_item_vol + remainder_vol
             
             print(f"   📊 Total volume (v3.3): items={total_item_vol:.2f} + remainder={remainder_vol:.2f} = {total_with_remainder:.2f} yd³")
+            
+            # ==================== v3.0 TWO-LANE ESTIMATOR ====================
+            # Compute both lanes and take max for robust estimation
+            
+            # Lane A: Occupancy volume (footprint × height)
+            V_occ = vision_worker.compute_occupancy_volume(all_detections, depth_stats, img_width, img_height)
+            
+            # Bulk clutter volume (bags, boxes, foam)
+            bulk_clutter = vision_worker.compute_bulk_clutter_volume(all_detections, img_width, img_height)
+            
+            # Lane B: Catalog volume (confirmed items)
+            V_items = vision_worker.compute_catalog_volume_v30(catalog_items)
+            
+            # Two-lane selection: take max with scene-appropriate clamping
+            lane_result = vision_worker.compute_final_volume_v30(V_occ, V_items, mode, bulk_clutter)
+            
+            # Use v3.0 result if it's significantly different (more robust)
+            v30_final = lane_result["V_final"]
+            if mode == "pile" and abs(v30_final - total_with_remainder) > 1.0:
+                print(f"   🔄 v3.0 override: {total_with_remainder:.2f} → {v30_final:.2f} yd³ (two-lane is more robust)")
+                total_with_remainder = v30_final
+            
+            # Store lane breakdown for transparency
+            catalog_volume["v30_lanes"] = lane_result
+            # ==================== END v3.0 ====================
             
             # Phase 8: Auto-lock with hash
             pipeline_hash = vision_worker.finalize_volumes(catalog_items, pile_remainder)
