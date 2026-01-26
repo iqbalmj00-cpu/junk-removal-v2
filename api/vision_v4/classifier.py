@@ -56,13 +56,18 @@ For EACH item, return:
 - proposal_id: (MUST match input EXACTLY - this is the join key)
 - verdict: CONFIRMED | UNCERTAIN | DENIED
   - CONFIRMED: Clearly a junk item to remove
-  - UNCERTAIN: Might be junk, needs review
-  - DENIED: Not junk or background element
+  - UNCERTAIN: Might be junk, could be billable - use when unsure
+  - DENIED: ONLY use for obvious non-junk (walls, floors, people, sky, cars)
 - canonical_label: Standardized catalog label (e.g., "bags", "couch", "boxes", "mattress")
 - category: furniture | appliance | debris | electronics | yard | hazmat | packaging
 - size_bucket: small | medium | large | xlarge
 - add_on_flags: Array of applicable flags ["ewaste", "heavy", "two_person_lift", "hazmat"]
 - confidence: 0.0-1.0 (your confidence in this classification)
+
+IMPORTANT RULES:
+- Trash bags and garbage bags are ALMOST ALWAYS billable junk. Use CONFIRMED or UNCERTAIN.
+- When in doubt between DENIED and UNCERTAIN, choose UNCERTAIN.
+- Only use DENIED for things that are clearly NOT junk (people, vehicles, walls, floors).
 
 Items to classify:
 {json.dumps(items_for_classifier, indent=2)}
