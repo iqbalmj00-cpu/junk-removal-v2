@@ -241,25 +241,55 @@ def compute_three_lane_volume(
     vlog(f"   V_catalog: {v_catalog['total']} yd³ ({v_catalog['count']} items)")
     vlog(f"   V_occ: {v_occ['total']} yd³ (remainder={v_occ['effective_remainder']*100:.1f}%)")
     
-    # Intelligent combination
-    pile_is_strong = avg_pile_ratio > 0.25 or has_pile_labels
-    discrete_is_clear = len(fused_items) >= 5 and v_catalog["total"] > 2.0
+    # Calculate constituent share (what fraction of Lane B is pile-internal items)
+    constituent_volume = 0.0
+    discrete_volume = 0.0
+    for item in v_catalog["items"]:
+        label = item.get("label", "")
+        vol = item.get("volume", 0)
+        if label.lower() in PILE_CONSTITUENTS or any(p in label.lower() for p in PILE_CONSTITUENTS):
+            constituent_volume += vol
+        else:
+            discrete_volume += vol
     
-    if pile_is_strong:
-        # Trust pile-based estimates
+    total_catalog = v_catalog["total"]
+    constituent_share = constituent_volume / total_catalog if total_catalog > 0 else 0
+    
+    vlog(f"   Constituent: {constituent_volume:.2f} yd³ ({constituent_share*100:.0f}% of catalog)")
+    
+    # Scene signals for arbitration
+    pile_is_strong = avg_pile_ratio > 0.20
+    high_constituent = constituent_share > 0.50
+    discrete_is_clear = len(fused_items) >= 5 and discrete_volume > 1.5
+    
+    # Conditional arbitration
+    if pile_is_strong and high_constituent:
+        # Pile dominates, Lane B is mostly pile-internal → prefer Lane A + discrete only
+        # Downweight Lane B (only count discrete items at full value)
+        lane_b_adjusted = discrete_volume + (constituent_volume * 0.3)  # 30% of constituents
+        final_volume = max(v_bulk["total"], lane_b_adjusted)
+        # Add remainder adjustment
+        remainder_adjust = min(v_occ["total"] * 0.4, 1.5)
+        final_volume += remainder_adjust
+        dominant = "Bulk+Discrete"
+        vlog(f"   📦 Pile-dominant: bulk vs adjusted_catalog ({lane_b_adjusted:.2f}) + remainder")
+    
+    elif pile_is_strong:
+        # Pile is strong but items are mostly discrete → trust higher of bulk vs catalog
         final_volume = max(v_bulk["total"], v_catalog["total"])
-        # Add small remainder adjustment
         remainder_adjust = min(v_occ["total"] * 0.3, 1.0)
         final_volume += remainder_adjust
         dominant = "Bulk+Catalog"
         vlog(f"   📦 Pile mode: max(bulk,catalog) + remainder_adj")
+    
     elif discrete_is_clear:
-        # Trust catalog
+        # Clear discrete items, low pile → trust catalog
         final_volume = v_catalog["total"]
         dominant = "Catalog"
         vlog(f"   📦 Discrete mode: catalog only")
+    
     else:
-        # Sparse detections, trust bulk with uncertainty
+        # Sparse/unclear → take max of all three
         final_volume = max(v_bulk["total"], v_catalog["total"], v_occ["total"])
         dominant = "Ensemble-Max"
         vlog(f"   📦 Sparse mode: max of all three")
