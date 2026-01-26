@@ -1,7 +1,7 @@
 """
 v4.0 GPT Audit (Step 11)
 
-Final validation and add-on detection using GPT-5-Pro via Replicate.
+Final validation and add-on detection using GPT-5 via OpenAI API.
 Flags missing items only when there's evidence.
 """
 
@@ -11,35 +11,24 @@ from typing import List
 from .utils import vlog
 
 
-# Replicate model version for GPT-5-Pro
-GPT5_PRO_VERSION = "openai/gpt-5-pro-2025-10-06"
-
-
 def run_gpt_audit(
     fused_items: List[dict],
     volumes: dict,
     trust_metrics: dict
 ) -> dict:
     """
-    Final audit and validation with GPT-5-Pro via Replicate.
+    Final audit and validation with GPT-5.
     
     Responsibilities:
     - Validate item list is reasonable
     - Flag missing items (ONLY if evidence exists)
     - Detect add-on requirements (e-waste, heavy, etc.)
     - Rate overall confidence
-    
-    Args:
-        fused_items: List of fused, classified items
-        volumes: Volume computation results
-        trust_metrics: Coverage and mask statistics
-        
-    Returns:
-        Audit result dict
     """
-    import replicate  # Lazy import
+    import openai
+    openai.api_key = os.environ.get("OPENAI_API_KEY")
     
-    vlog(f"🔍 Running GPT-5-Pro audit on {len(fused_items)} items...")
+    vlog(f"🔍 Running GPT-5 audit on {len(fused_items)} items...")
     
     # Build audit input
     items_summary = []
@@ -59,14 +48,14 @@ DETECTED ITEMS ({len(fused_items)} total):
 
 VOLUME CALCULATION:
 - Final volume: {volumes.get('final_volume', 0)} yd³
-- Lane A (Occupancy): {volumes.get('lane_a_occupancy', 0)} yd³
+- Lane A (Bulk): {volumes.get('lane_a_bulk', volumes.get('lane_a_occupancy', 0))} yd³
 - Lane B (Catalog): {volumes.get('lane_b_catalog', 0)} yd³
+- Quantities: {volumes.get('quantities', {})}
 - Dominant method: {volumes.get('dominant', 'unknown')}
 
 TRUST METRICS:
 - Coverage: {trust_metrics.get('mask_coverage_pct', 0)}%
 - Items with masks: {trust_metrics.get('items_with_masks', 0)}/{len(fused_items)}
-- Remainder ratio: {trust_metrics.get('remainder_ratio', 0)*100:.1f}%
 
 AUDIT TASKS:
 1. Are the detected items reasonable for a junk removal job?
@@ -90,39 +79,23 @@ Return ONLY valid JSON with this exact structure:
 }}"""
 
     try:
-        # Run GPT-5-Pro via Replicate
-        output = replicate.run(
-            GPT5_PRO_VERSION,
-            input={
-                "prompt": prompt,
-                "max_tokens": 500,
-            }
+        response = openai.chat.completions.create(
+            model="gpt-5-2025-08-07",  # Same as classifier
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
         )
         
-        # Parse output - Replicate returns string or iterator
-        response_text = ""
-        if isinstance(output, str):
-            response_text = output
-        elif hasattr(output, "__iter__"):
-            response_text = "".join(list(output))
-        
-        # Clean up response (remove markdown code blocks if present)
-        response_text = response_text.strip()
-        if response_text.startswith("```"):
-            lines = response_text.split("\n")
-            response_text = "\n".join(lines[1:-1])
-        
-        result = json.loads(response_text)
+        result = json.loads(response.choices[0].message.content)
         
         vlog(f"   ✅ Audit: {result.get('validation', 'unknown')} (conf={result.get('confidence', 0):.2f})")
         
-        # Safely log add-on flags (handle both strings and dicts)
+        # Safely log add-on flags
         if result.get("add_on_flags"):
             flags = result["add_on_flags"]
             flag_strs = [f.get("name", str(f)) if isinstance(f, dict) else str(f) for f in flags]
             vlog(f"   ➕ Add-ons: {', '.join(flag_strs)}")
         
-        # Safely log missing items (handle both strings and dicts)
+        # Safely log missing items
         if result.get("missing_items"):
             items = result["missing_items"]
             item_strs = [i.get("label", str(i)) if isinstance(i, dict) else str(i) for i in items]
