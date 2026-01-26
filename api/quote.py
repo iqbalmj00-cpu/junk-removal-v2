@@ -604,15 +604,16 @@ try:
     # Fix 2: Synonym canonicalization (deploy before clustering)
     # v2.5: REMOVED wheel → tires (causes double-count)
     SYNONYM_MAP = {
-        # Debris
-        "debris pile": "mixed_debris",
-        "debris": "mixed_debris",
-        "trash": "mixed_debris",
-        "garbage": "mixed_debris",
-        "junk pile": "mixed_debris",
-        # Spools - v2.5: only if confirmed, otherwise background
-        "wooden spool": "cable_spool_wood",
-        "industrial spool": "cable_spool_wood",
+        # Debris - v2.9 FIX A: Do NOT auto-promote to mixed_debris (causes inflation)
+        # Map to low-impact 'bags' unless construction is confirmed by Gemini
+        "debris pile": "bags",  # Was: mixed_debris
+        "debris": "bags",       # Was: mixed_debris
+        "trash": "bags",        # Was: mixed_debris
+        "garbage": "bags",      # Was: mixed_debris
+        "junk pile": "bags",    # Was: mixed_debris
+        # Spools - v2.9: Mark as suspicious, require confirmation
+        "wooden spool": "suspicious_spool",    # Was: cable_spool_wood
+        "industrial spool": "suspicious_spool", # Was: cable_spool_wood
         # Tires - v2.5: REMOVED wheel→tires (motorcycle wheels aren't tire piles)
         # "wheel": "tires",  # REMOVED - causes double-count
         "tire": "tires",
@@ -666,6 +667,8 @@ try:
         # v2.7: New conservative labels
         "wheel_unspecified": 0.15,  # v2.7: single wheel/rim, not tire stack
         "scrap_metal": 0.25,  # v2.7: small scrap pile
+        # v2.9: Suspicious labels - low volume until confirmed
+        "suspicious_spool": 0.15,  # v2.9: unconfirmed spool, very low
         # Unknown - v2.5: conservative fallbacks
         "unknown_large": 0.5,  # v2.5: was 2.0, now conservative
         "unknown_medium": 0.3,
@@ -857,12 +860,29 @@ try:
         return result
     
     # Fix 7: Volume sanity check before tiering
-    def sanity_check_volume(final_vol: float, packed_sum: float, footprint_sqft: float = None) -> float:
-        """Sanity check volume before tiering."""
+    # v2.9 FIX D: Don't blindly trust packed_sum - it may be polluted by hallucinations
+    def sanity_check_volume(final_vol: float, packed_sum: float, footprint_sqft: float = None,
+                            trusted_item_count: int = 0, total_item_count: int = 0) -> float:
+        """Sanity check volume before tiering.
+        
+        v2.9: Only trust packed_sum if it's based on validated detections.
+        """
+        # v2.9 FIX D: Check if packed_sum is trustworthy
+        trust_ratio = trusted_item_count / max(total_item_count, 1)
+        packed_sum_trusted = trust_ratio >= 0.5  # At least 50% of items have bboxes
+        
         # Check 1: final_vol should >= packed_sum * 0.8
+        # v2.9: Only apply this if packed_sum is trustworthy
         if packed_sum > 0 and final_vol < packed_sum * 0.8:
-            print(f"⚠️ SANITY: final_vol ({final_vol:.2f}) < packed_sum ({packed_sum:.2f}), forcing recompute")
-            return packed_sum
+            if packed_sum_trusted:
+                print(f"⚠️ SANITY: final_vol ({final_vol:.2f}) < packed_sum ({packed_sum:.2f}), forcing recompute [trusted]")
+                return packed_sum
+            else:
+                # packed_sum is NOT trustworthy (too many hallucinations), use conservative estimate
+                conservative = max(final_vol, packed_sum * 0.5)
+                print(f"⚠️ SANITY: final_vol ({final_vol:.2f}) < packed_sum ({packed_sum:.2f}), but packed_sum NOT trusted (trust={trust_ratio:.1%})")
+                print(f"   → Using conservative estimate: {conservative:.2f} yd³")
+                return conservative
         
         # Check 2: volume vs footprint sanity (if available)
         if footprint_sqft and footprint_sqft > 0:
@@ -1261,7 +1281,17 @@ try:
     }
     
     # Labels that require Gemma classification (ambiguous)
-    AMBIGUOUS_LABELS = ["pile", "debris", "unknown", "junk", "stuff", "items", "trash"]
+    # v2.9 FIX B: Added high-volume suspicious labels that need confirmation
+    AMBIGUOUS_LABELS = [
+        # Original ambiguous
+        "pile", "debris", "unknown", "junk", "stuff", "items", "trash",
+        # v2.9: High-volume labels that cause inflation if wrong
+        "washer", "dryer", "appliance", "refrigerator",
+        "tires", "tire", "tire pile",
+        "cable_spool_wood", "industrial spool", "wooden spool", "suspicious_spool",
+        "mixed_debris", "debris pile",
+        "metal pipe", "scrap_metal",
+    ]
     
     # Background objects to filter out (not junk items)
     BACKGROUND_LABELS = [
@@ -4419,11 +4449,24 @@ Return JSON array ONLY. No explanation."""
             # This restores v2.7.1 calibrated behavior: fewer items → lower coverage → higher remainder
             
             # Step 1: Attach bboxes to finalized catalog_items from all_detections
+            # v2.9 FIX C: Store BOTH raw label AND canonical label in lookup
             bbox_lookup = {}
             for det in all_detections:
-                label = (det.get("label") or "").strip().lower()
-                if det.get("bbox") and label not in bbox_lookup:
-                    bbox_lookup[label] = det["bbox"]
+                raw_label = (det.get("label") or "").strip().lower()
+                if det.get("bbox") and raw_label:
+                    # Store under raw label
+                    if raw_label not in bbox_lookup:
+                        bbox_lookup[raw_label] = det["bbox"]
+                    # Also store under canonical label
+                    canonical = canonicalize_synonym(raw_label) or raw_label
+                    if canonical and canonical not in bbox_lookup:
+                        bbox_lookup[canonical] = det["bbox"]
+                    # And under any normalized form
+                    normalized = det.get("normalized_label", "").lower()
+                    if normalized and normalized not in bbox_lookup:
+                        bbox_lookup[normalized] = det["bbox"]
+            
+            print(f"📐 v2.9: bbox_lookup has {len(bbox_lookup)} keys")
             
             for item in catalog_items:
                 if not item.get("bbox"):
@@ -4660,13 +4703,20 @@ Return JSON array ONLY. No explanation."""
                 for item in catalog_items
             )
             
+            # v2.9 FIX D: Count trusted items (those with bboxes) for sanity check
+            trusted_item_count = sum(1 for item in catalog_items if item.get("bbox"))
+            total_item_count = len(catalog_items)
+            
             # v2.2 HOTFIX: Volume stage logging
             catalog_vol = catalog_volume.get("net_volume", 0.0)
             remainder_vol = residual_pile.get("remainder_yards", 0)
             print(f"📊 Volume stages: catalog={catalog_vol:.2f}, packed={packed_sum:.2f}, remainder={remainder_vol:.2f}, final={final_vol:.2f}")
+            print(f"📊 Trust: {trusted_item_count}/{total_item_count} items have bboxes ({100*trusted_item_count/max(total_item_count,1):.0f}%)")
             
-            # v2.2 HOTFIX: Sanity check before tiering
-            final_vol = sanity_check_volume(final_vol, packed_sum)
+            # v2.2 HOTFIX: Sanity check before tiering (v2.9: with trust validation)
+            final_vol = sanity_check_volume(final_vol, packed_sum, 
+                                            trusted_item_count=trusted_item_count,
+                                            total_item_count=total_item_count)
             
             # 4. Add-on flags only (not priced by tool in v2.1)
             add_on_flags = {}
