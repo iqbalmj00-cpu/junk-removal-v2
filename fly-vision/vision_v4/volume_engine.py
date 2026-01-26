@@ -152,28 +152,28 @@ def compute_discrete_items_volume(fused_items: List[dict]) -> dict:
 
 def compute_countable_bulk_volume(fused_items: List[dict]) -> dict:
     """
-    Compute volume for countable bulk items using QUANTITY ESTIMATION.
+    Compute volume for countable bulk items using STABLE QUANTITY ESTIMATION.
     
-    Formula:
-    - total_area = sum of all mask areas for class
-    - qty = clamp(round(total_area / typical_area), 1, qty_cap)
-    - volume = qty * catalog_volume
-    
-    This is the key to getting 6 yd³: count boxes/bags/totes properly!
+    Stability fixes:
+    1. Freeze vol_per to "medium" (deterministic)
+    2. Cap qty to 3×detected+4 (prevents explosion)
+    3. Use median per-view estimation with floor of 1
     """
-    # Group items by countable class
-    class_areas = {cls: [] for cls in COUNTABLE_BULK}
-    class_sizes = {cls: "medium" for cls in COUNTABLE_BULK}  # Track typical size
+    from statistics import median as stat_median
+    
+    # Group items by countable class AND by image
+    class_areas_by_image = {cls: {} for cls in COUNTABLE_BULK}
     
     for item in fused_items:
         label = item.get("canonical_label", "unknown").lower()
         area_ratio = item.get("mask_area_ratio", 0)
-        size = item.get("size_bucket", "medium")
+        image_id = item.get("image_id", "unknown")
         
         for cls in COUNTABLE_BULK:
             if cls in label or label == cls:
-                class_areas[cls].append(area_ratio)
-                class_sizes[cls] = size  # Use last seen size
+                if image_id not in class_areas_by_image[cls]:
+                    class_areas_by_image[cls][image_id] = []
+                class_areas_by_image[cls][image_id].append(area_ratio)
                 break
     
     # Estimate quantities and volumes
@@ -181,23 +181,34 @@ def compute_countable_bulk_volume(fused_items: List[dict]) -> dict:
     volumes = {}
     details = []
     
-    for cls, areas in class_areas.items():
-        if not areas:
+    for cls, areas_by_image in class_areas_by_image.items():
+        if not areas_by_image:
             continue
         
-        total_area = sum(areas)
         typical_area = TYPICAL_MASK_AREA.get(cls, 0.025)
         
-        # Estimate quantity
-        raw_qty = total_area / typical_area if typical_area > 0 else len(areas)
-        qty = max(1, min(round(raw_qty), QTY_CAP.get(cls, 20)))
+        # FIX 3: Compute qty per view, then take MEDIAN
+        per_view_qty = []
+        total_detected = 0
         
-        # At minimum, count the number of detected items
-        qty = max(qty, len(areas))
+        for image_id, areas in areas_by_image.items():
+            view_area = sum(areas)
+            view_qty = view_area / typical_area if typical_area > 0 else len(areas)
+            per_view_qty.append(max(1, view_qty))  # Floor of 1 per view
+            total_detected += len(areas)
         
-        # Get volume per item
-        size = class_sizes[cls]
-        vol_per = get_catalog_volume(cls, size)
+        # Use median across views (not sum)
+        raw_qty = stat_median(per_view_qty) if per_view_qty else 1
+        
+        # FIX 2: Cap to 3×detected+4 (conservative)
+        detected_cap = total_detected * 3 + 4
+        qty = max(1, min(round(raw_qty), QTY_CAP.get(cls, 20), detected_cap))
+        
+        # Ensure at least detected count
+        qty = max(qty, min(total_detected, detected_cap))
+        
+        # FIX 1: Freeze vol_per to "medium" (deterministic)
+        vol_per = get_catalog_volume(cls, "medium")
         total_vol = qty * vol_per
         
         quantities[cls] = qty
@@ -205,14 +216,15 @@ def compute_countable_bulk_volume(fused_items: List[dict]) -> dict:
         
         details.append({
             "class": cls,
-            "detected_count": len(areas),
+            "detected_count": total_detected,
             "estimated_qty": qty,
-            "total_area": round(total_area, 4),
+            "per_view_qty": [round(q, 1) for q in per_view_qty],
+            "detected_cap": detected_cap,
             "vol_per": vol_per,
             "total_volume": round(total_vol, 2)
         })
         
-        vlog(f"   📦 {cls}: detected={len(areas)}, qty={qty}, vol={total_vol:.2f} yd³")
+        vlog(f"   📦 {cls}: detected={total_detected}, qty={qty} (cap={detected_cap}), vol={total_vol:.2f} yd³")
     
     total_volume = sum(volumes.values())
     
