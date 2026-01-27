@@ -5,9 +5,10 @@ Deduplicates items appearing in multiple images.
 Uses "KEEP IF SEEN" policy with deterministic duplicate resolution.
 
 Key principles:
-1. Any item with conf >= KEEP_THRESHOLD survives to dedup phase
-2. Only drop if PROVEN duplicate of another survivor
-3. Deterministic tie-break for consistent results
+1. INTRA-IMAGE DEDUP: Collapse same-label items in same image (bbox IoU > 0.50)
+2. Any item with conf >= KEEP_THRESHOLD survives to dedup phase
+3. Only drop if PROVEN duplicate of another survivor
+4. Deterministic tie-break for consistent results
 """
 
 from typing import List
@@ -19,6 +20,102 @@ KEEP_THRESHOLD = 0.30
 
 # Position bucket grid size (5x5 = 25 buckets)
 POSITION_GRID = 5
+
+# Intra-image dedup threshold (bbox IoU > this = same object)
+INTRA_IOU_THRESHOLD = 0.50
+
+
+def compute_bbox_iou(bbox1: List[float], bbox2: List[float]) -> float:
+    """
+    Compute Intersection over Union (IoU) for two bboxes.
+    
+    Bbox format: [x1, y1, x2, y2]
+    """
+    x1 = max(bbox1[0], bbox2[0])
+    y1 = max(bbox1[1], bbox2[1])
+    x2 = min(bbox1[2], bbox2[2])
+    y2 = min(bbox1[3], bbox2[3])
+    
+    # Intersection area
+    inter_width = max(0, x2 - x1)
+    inter_height = max(0, y2 - y1)
+    inter_area = inter_width * inter_height
+    
+    # Union area
+    area1 = (bbox1[2] - bbox1[0]) * (bbox1[3] - bbox1[1])
+    area2 = (bbox2[2] - bbox2[0]) * (bbox2[3] - bbox2[1])
+    union_area = area1 + area2 - inter_area
+    
+    if union_area <= 0:
+        return 0.0
+    
+    return inter_area / union_area
+
+
+def collapse_intra_image_duplicates(items: List[dict]) -> List[dict]:
+    """
+    Collapse duplicates within the same image.
+    
+    Rule: If two items have:
+    - Same image_id
+    - Same canonical_label (or raw_label)
+    - bbox IoU > INTRA_IOU_THRESHOLD
+    
+    Then keep only the higher-confidence one.
+    """
+    if not items:
+        return []
+    
+    # Group by (image_id, label)
+    groups = {}
+    for item in items:
+        label = item.get("canonical_label", item.get("raw_label", "unknown")).lower()
+        image_id = item.get("image_id", "unknown")
+        key = (image_id, label)
+        
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(item)
+    
+    # Collapse duplicates within each group
+    collapsed = []
+    total_dropped = 0
+    
+    for (image_id, label), group in groups.items():
+        if len(group) == 1:
+            collapsed.append(group[0])
+            continue
+        
+        # Sort by confidence (highest first)
+        group_sorted = sorted(group, key=lambda x: -x.get("classifier_confidence", x.get("score", 0)))
+        
+        # Keep list of surviving items
+        survivors = []
+        
+        for item in group_sorted:
+            is_duplicate = False
+            
+            for survivor in survivors:
+                iou = compute_bbox_iou(item.get("bbox", [0,0,0,0]), survivor.get("bbox", [0,0,0,0]))
+                
+                if iou > INTRA_IOU_THRESHOLD:
+                    # This is a duplicate of an existing survivor
+                    is_duplicate = True
+                    item["intra_dup_of"] = survivor.get("proposal_id", "unknown")
+                    item["intra_dup_iou"] = round(iou, 3)
+                    total_dropped += 1
+                    vlog(f"      🔄 INTRA_DUP: {label} (iou={iou:.2f}) dropped, keeping {survivor.get('proposal_id', '?')[:8]}")
+                    break
+            
+            if not is_duplicate:
+                survivors.append(item)
+        
+        collapsed.extend(survivors)
+    
+    if total_dropped > 0:
+        vlog(f"   🔄 Intra-image dedup: collapsed {total_dropped} duplicate(s)")
+    
+    return collapsed
 
 
 def get_fusion_sort_key(item: dict) -> tuple:
@@ -47,6 +144,7 @@ def fuse_across_images(classified_items: List[dict], images: List[dict]) -> List
     """
     Deduplicate items with KEEP-IF-SEEN policy.
     
+    Phase 0: Intra-image dedup (collapse same-label items with high bbox IoU)
     Phase 1: Retain all items with conf >= KEEP_THRESHOLD
     Phase 2: Only drop proven duplicates with deterministic tie-break
     
@@ -66,13 +164,20 @@ def fuse_across_images(classified_items: List[dict], images: List[dict]) -> List
     image_dims = {img["image_id"]: (img["width"], img["height"]) for img in images}
     
     # ===========================================================================
+    # PHASE 0: INTRA-IMAGE DEDUP (collapse same object detected twice in same image)
+    # ===========================================================================
+    
+    items_after_intra = collapse_intra_image_duplicates(classified_items)
+    vlog(f"   📦 After intra-image dedup: {len(classified_items)} → {len(items_after_intra)} items")
+    
+    # ===========================================================================
     # PHASE 1: RETENTION - Keep all items meeting threshold
     # ===========================================================================
     
     retained = []
     dropped_low_conf = []
     
-    for item in classified_items:
+    for item in items_after_intra:  # Use post-intra-dedup items
         conf = item.get("classifier_confidence", item.get("score", 0))
         
         if conf >= KEEP_THRESHOLD:

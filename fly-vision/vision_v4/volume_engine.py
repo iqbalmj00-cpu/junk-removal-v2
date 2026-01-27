@@ -100,45 +100,101 @@ def log_itemized_breakdown(fused_items: List[dict], lane_b: dict) -> None:
 
 
 # ==============================================================================
-# LANE A: BULK BASELINE FROM PILE COVERAGE
+# LANE A: BULK BASELINE FROM PILE COVERAGE (WITH SUBTRACTION)
 # ==============================================================================
 
-def compute_lane_a_bulk(pile_masks: dict) -> dict:
+# Threshold for "large segmented discrete" items to subtract from pile
+LARGE_DISCRETE_THRESHOLD = 0.05  # 5% of image
+
+
+def compute_large_discrete_per_image(fused_items: List[dict]) -> dict:
     """
-    Lane A = Bulk baseline from pile coverage using MEDIAN.
+    Compute total area of large segmented discrete items per image.
     
-    Formula: median(clamp(pile_ratio_i * K, 0, K_max))
+    Only includes items that are:
+    - lane == DISCRETE_ITEM
+    - has_mask == True (segmented, not bbox-only)
+    - mask_area_ratio >= LARGE_DISCRETE_THRESHOLD
     
-    This is NOT remainder-based. It's direct pile coverage → volume.
+    Returns: {image_id: total_large_discrete_ratio}
+    """
+    large_discrete_by_image = {}
+    
+    for item in fused_items:
+        image_id = item.get("image_id", "unknown")
+        lane = item.get("lane", "")
+        has_mask = item.get("has_mask", False)
+        area = item.get("mask_area_ratio", 0)
+        
+        # Only subtract segmented discrete items above threshold
+        if lane == "DISCRETE_ITEM" and has_mask and area >= LARGE_DISCRETE_THRESHOLD:
+            if image_id not in large_discrete_by_image:
+                large_discrete_by_image[image_id] = 0
+            large_discrete_by_image[image_id] += area
+    
+    return large_discrete_by_image
+
+
+def compute_lane_a_bulk(pile_masks: dict, fused_items: List[dict] = None) -> dict:
+    """
+    Lane A = Bulk baseline from RESIDUAL pile coverage using MEDIAN.
+    
+    Key change: Subtract large segmented discrete items per-image to prevent
+    double-counting items that are both in pile mask AND discrete lane.
+    
+    Formula: median(clamp(residual_ratio_i * K, 0, K_max))
+    where residual_ratio_i = pile_ratio_i - large_discrete_ratio_i
     """
     if not pile_masks:
-        return {"total": 0.0, "pile_ratios": [], "per_image": {}}
+        return {"total": 0.0, "pile_ratios": [], "residual_ratios": [], "per_image": {}}
+    
+    # Compute large discrete subtraction per image
+    large_discrete_by_image = compute_large_discrete_per_image(fused_items or [])
     
     per_image_bulk = {}
     pile_ratios = []
+    residual_ratios = []
     
     for image_id, pile_result in pile_masks.items():
         pile_ratio = pile_result.get("pile_area_ratio", 0)
         pile_ratios.append(pile_ratio)
         
-        # Compute bulk volume for this image
-        bulk_yd = min(pile_ratio * K_BULK, K_MAX)  # Clamp to K_max
+        # SUBTRACTION: Remove large discrete items from pile coverage
+        large_discrete_ratio = large_discrete_by_image.get(image_id, 0)
+        residual_ratio = max(0, pile_ratio - large_discrete_ratio)
+        residual_ratios.append(residual_ratio)
+        
+        # Compute bulk volume from RESIDUAL (not raw pile)
+        bulk_yd = min(residual_ratio * K_BULK, K_MAX)
+        
         per_image_bulk[image_id] = {
-            "pile_ratio": pile_ratio,
+            "pile_ratio": round(pile_ratio, 4),
+            "large_discrete_ratio": round(large_discrete_ratio, 4),
+            "residual_ratio": round(residual_ratio, 4),
             "bulk_yd": round(bulk_yd, 2)
         }
     
-    # Use MEDIAN across images (beats outliers)
+    # Use MEDIAN of RESIDUAL ratios (not raw pile)
     median_pile_ratio = median(pile_ratios) if pile_ratios else 0
-    bulk_volume = min(median_pile_ratio * K_BULK, K_MAX)
+    median_residual_ratio = median(residual_ratios) if residual_ratios else 0
+    bulk_volume = min(median_residual_ratio * K_BULK, K_MAX)
+    
+    # Log subtraction for debugging
+    vlog(f"   📐 Subtraction: raw_pile={median_pile_ratio*100:.1f}% → residual={median_residual_ratio*100:.1f}%")
+    if large_discrete_by_image:
+        for img_id, ratio in large_discrete_by_image.items():
+            vlog(f"      - {img_id[:8]}: subtracted {ratio*100:.1f}% large discrete")
     
     return {
         "total": round(bulk_volume, 2),
         "median_pile_ratio": round(median_pile_ratio, 4),
+        "median_residual_ratio": round(median_residual_ratio, 4),
         "pile_ratios": pile_ratios,
+        "residual_ratios": residual_ratios,
         "K": K_BULK,
         "K_max": K_MAX,
-        "per_image": per_image_bulk
+        "per_image": per_image_bulk,
+        "large_discrete_by_image": large_discrete_by_image
     }
 
 
@@ -146,19 +202,34 @@ def compute_lane_a_bulk(pile_masks: dict) -> dict:
 # LANE B: DISCRETE ITEMS + COUNTABLE BULK QUANTITIES
 # ==============================================================================
 
+# Pile-mode caps: Safety net for discrete items (prevents outlier blowups)
+# Applied when pile_mode=True to limit contribution from bulky detections
+PILE_MODE_DISCRETE_CAPS = {
+    "exercise equipment": 1.0,  # Max 1.0 yd³ total (even if detected multiple times)
+    "scooter": 0.5,
+    "treadmill": 1.5,
+    "motorcycle": 1.5,
+}
+
+
 def get_catalog_volume(canonical_label: str, size_bucket: str) -> float:
     """Look up volume from catalog."""
     key = (canonical_label.lower(), size_bucket.lower())
     return CATALOG_VOLUMES.get(key, DEFAULT_VOLUME)
 
 
-def compute_discrete_items_volume(fused_items: List[dict]) -> dict:
+def compute_discrete_items_volume(fused_items: List[dict], pile_mode: bool = False) -> dict:
     """
     Compute volume for truly discrete big items.
     Uses catalog lookup, no quantity estimation.
+    
+    When pile_mode=True, applies caps to prevent outlier blowups.
     """
     total_volume = 0.0
     items = []
+    
+    # Track volume per label for capping
+    volume_per_label = {}
     
     for item in fused_items:
         label = item.get("canonical_label", "unknown").lower()
@@ -177,17 +248,37 @@ def compute_discrete_items_volume(fused_items: List[dict]) -> dict:
         elif category == "hazmat":
             vol *= 1.25
         
+        # Track cumulative volume per label
+        if label not in volume_per_label:
+            volume_per_label[label] = 0
+        
+        # Apply pile-mode caps if enabled
+        if pile_mode and label in PILE_MODE_DISCRETE_CAPS:
+            cap = PILE_MODE_DISCRETE_CAPS[label]
+            remaining_cap = cap - volume_per_label[label]
+            
+            if remaining_cap <= 0:
+                vlog(f"      ⚠️ {label}: capped (already at {cap} yd³)")
+                continue  # Skip this item, already at cap
+            
+            if vol > remaining_cap:
+                vlog(f"      ⚠️ {label}: capped {vol:.2f} → {remaining_cap:.2f} yd³")
+                vol = remaining_cap
+        
+        volume_per_label[label] += vol
         total_volume += vol
         items.append({
             "label": label,
             "size": size,
-            "volume": round(vol, 2)
+            "volume": round(vol, 2),
+            "capped": pile_mode and label in PILE_MODE_DISCRETE_CAPS
         })
     
     return {
         "total": round(total_volume, 2),
         "items": items,
-        "count": len(items)
+        "count": len(items),
+        "volume_per_label": volume_per_label
     }
 
 
@@ -277,11 +368,13 @@ def compute_countable_bulk_volume(fused_items: List[dict]) -> dict:
     }
 
 
-def compute_lane_b(fused_items: List[dict]) -> dict:
+def compute_lane_b(fused_items: List[dict], pile_mode: bool = False) -> dict:
     """
     Lane B = Discrete big items + Countable bulk quantities.
+    
+    When pile_mode=True, applies caps to prevent outlier blowups.
     """
-    discrete = compute_discrete_items_volume(fused_items)
+    discrete = compute_discrete_items_volume(fused_items, pile_mode=pile_mode)
     countable = compute_countable_bulk_volume(fused_items)
     
     total = discrete["total"] + countable["total"]
@@ -293,7 +386,8 @@ def compute_lane_b(fused_items: List[dict]) -> dict:
         "discrete_items": discrete["items"],
         "discrete_count": discrete["count"],
         "countable_details": countable["details"],
-        "quantities": countable["quantities"]
+        "quantities": countable["quantities"],
+        "volume_per_label": discrete.get("volume_per_label", {})
     }
 
 
@@ -316,18 +410,19 @@ def compute_volume(
     """
     vlog(f"📊 Computing volume (bulk-first policy)...")
     
-    # Lane A: Bulk baseline from pile coverage
-    lane_a = compute_lane_a_bulk(pile_masks)
-    vlog(f"   Lane A (Bulk): {lane_a['total']} yd³ (median_pile={lane_a['median_pile_ratio']*100:.1f}%, K={K_BULK})")
+    # Lane A: Bulk baseline from RESIDUAL pile coverage (after subtracting large discrete)
+    lane_a = compute_lane_a_bulk(pile_masks, fused_items)
+    vlog(f"   Lane A (Bulk): {lane_a['total']} yd³ (residual={lane_a.get('median_residual_ratio', 0)*100:.1f}%, K={K_BULK})")
     
-    # Lane B: Discrete + Countable
-    lane_b = compute_lane_b(fused_items)
+    # Determine pile mode BEFORE computing lane B (for caps)
+    pile_exists = lane_a["median_pile_ratio"] >= 0.18
+    
+    # Lane B: Discrete + Countable (with pile-mode caps if applicable)
+    lane_b = compute_lane_b(fused_items, pile_mode=pile_exists)
     vlog(f"   Lane B (Discrete): {lane_b['discrete_total']} yd³ ({lane_b['discrete_count']} items)")
     vlog(f"   Lane B (Countable): {lane_b['countable_total']} yd³")
     
     # Arbitration
-    pile_exists = lane_a["median_pile_ratio"] >= 0.18
-    
     if pile_exists:
         # Pile mode: bulk + discrete + capped countable
         countable_cap = lane_a["total"] * 0.6
