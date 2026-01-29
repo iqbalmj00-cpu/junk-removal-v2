@@ -377,150 +377,153 @@ function BookPageContent() {
                     </div>
                 </div>
 
-                {/* Photo Guide - Exact Match to Reference */}
-                <div className="px-8 py-6 bg-slate-50 border-t border-slate-100">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">Photo Guide</h3>
+                {/* Photo Guide - Only show for Pile/Cleanout */}
+                {jobType === 'pile' && (
+                    <div className="px-8 py-6 bg-slate-50 border-t border-slate-100">
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-6">Photo Guide</h3>
 
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 xl:gap-12">
-                        {/* Left: 4 Perspectives */}
-                        <div>
-                            <h4 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-                                <Camera className="text-brand-orange" size={20} />
-                                THE 4 PERSPECTIVES
-                            </h4>
-                            <p className="text-sm text-slate-600 mb-6 leading-relaxed">
-                                Step back 6-10 feet. Ensure we can see the floor and the entire pile in context.
-                            </p>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center">
-                                {/* Left Angle */}
-                                <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 h-full flex flex-col justify-center">
-                                    <div className="h-10 flex items-center justify-center mb-1">
-                                        <Camera className="text-indigo-400 -rotate-12" size={28} />
+                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 xl:gap-12">
+                            {/* Left: 4 Perspectives */}
+                            <div>
+                                <h4 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
+                                    <Camera className="text-brand-orange" size={20} />
+                                    THE 4 PERSPECTIVES
+                                </h4>
+                                <p className="text-sm text-slate-600 mb-6 leading-relaxed">
+                                    Step back 6-10 feet. Ensure we can see the floor and the entire pile in context.
+                                </p>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-center">
+                                    {/* Left Angle */}
+                                    <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 h-full flex flex-col justify-center">
+                                        <div className="h-10 flex items-center justify-center mb-1">
+                                            <Camera className="text-indigo-400 -rotate-12" size={28} />
+                                        </div>
+                                        <span className="text-xs font-bold text-slate-700 block">Left Angle</span>
                                     </div>
-                                    <span className="text-xs font-bold text-slate-700 block">Left Angle</span>
-                                </div>
-                                {/* Front View - Required */}
-                                <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 relative h-full flex flex-col justify-center">
-                                    <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 bg-brand-orange text-white text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap shadow-sm z-10">Required</div>
-                                    <div className="h-10 flex items-center justify-center mb-1">
-                                        <Camera className="text-brand-orange" size={28} />
+                                    {/* Front View - Required */}
+                                    <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 relative h-full flex flex-col justify-center">
+                                        <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 bg-brand-orange text-white text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap shadow-sm z-10">Required</div>
+                                        <div className="h-10 flex items-center justify-center mb-1">
+                                            <Camera className="text-brand-orange" size={28} />
+                                        </div>
+                                        <span className="text-xs font-bold text-slate-700 block">Front View</span>
                                     </div>
-                                    <span className="text-xs font-bold text-slate-700 block">Front View</span>
-                                </div>
-                                {/* Right Angle */}
-                                <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 h-full flex flex-col justify-center">
-                                    <div className="h-10 flex items-center justify-center mb-1">
-                                        <Camera className="text-indigo-400 rotate-12" size={28} />
+                                    {/* Right Angle */}
+                                    <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 h-full flex flex-col justify-center">
+                                        <div className="h-10 flex items-center justify-center mb-1">
+                                            <Camera className="text-indigo-400 rotate-12" size={28} />
+                                        </div>
+                                        <span className="text-xs font-bold text-slate-700 block">Right Angle</span>
                                     </div>
-                                    <span className="text-xs font-bold text-slate-700 block">Right Angle</span>
-                                </div>
-                                {/* Back View - Required */}
-                                <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 relative h-full flex flex-col justify-center">
-                                    <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 bg-brand-orange text-white text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap shadow-sm z-10">Required</div>
-                                    <div className="h-10 flex items-center justify-center mb-1">
-                                        <Camera className="text-brand-orange" size={28} />
+                                    {/* Back View - Required */}
+                                    <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 relative h-full flex flex-col justify-center">
+                                        <div className="absolute -top-2 left-1/2 transform -translate-x-1/2 bg-brand-orange text-white text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap shadow-sm z-10">Required</div>
+                                        <div className="h-10 flex items-center justify-center mb-1">
+                                            <Camera className="text-brand-orange" size={28} />
+                                        </div>
+                                        <span className="text-xs font-bold text-slate-700 block">Back View</span>
                                     </div>
-                                    <span className="text-xs font-bold text-slate-700 block">Back View</span>
                                 </div>
                             </div>
-                        </div>
 
-                        {/* Right: Do This / Avoid This */}
-                        <div className="grid grid-cols-2 gap-6">
-                            {/* Do This */}
-                            <div>
-                                <h4 className="font-bold text-emerald-600 mb-4 flex items-center gap-2 text-sm uppercase">
-                                    <span className="bg-emerald-100 p-1 rounded-full flex items-center justify-center">
-                                        <CheckCircle size={14} className="text-emerald-600" />
-                                    </span>
-                                    Do This
-                                </h4>
-                                <ul className="space-y-3 text-sm text-slate-600">
-                                    <li className="flex items-start gap-2">
-                                        <CheckCircle className="text-emerald-500 mt-0.5 shrink-0" size={16} />
-                                        <span>Step back</span>
-                                    </li>
-                                    <li className="flex items-start gap-2">
-                                        <CheckCircle className="text-emerald-500 mt-0.5 shrink-0" size={16} />
-                                        <span>Chest height</span>
-                                    </li>
-                                    <li className="flex items-start gap-2">
-                                        <CheckCircle className="text-emerald-500 mt-0.5 shrink-0" size={16} />
-                                        <span>Keep level</span>
-                                    </li>
-                                    <li className="flex items-start gap-2">
-                                        <CheckCircle className="text-emerald-500 mt-0.5 shrink-0" size={16} />
-                                        <span>Good lighting</span>
-                                    </li>
-                                    <li className="flex items-start gap-2">
-                                        <CheckCircle className="text-emerald-500 mt-0.5 shrink-0" size={16} />
-                                        <span>Leave space</span>
-                                    </li>
-                                </ul>
-                            </div>
+                            {/* Right: Do This / Avoid This */}
+                            <div className="grid grid-cols-2 gap-6">
+                                {/* Do This */}
+                                <div>
+                                    <h4 className="font-bold text-emerald-600 mb-4 flex items-center gap-2 text-sm uppercase">
+                                        <span className="bg-emerald-100 p-1 rounded-full flex items-center justify-center">
+                                            <CheckCircle size={14} className="text-emerald-600" />
+                                        </span>
+                                        Do This
+                                    </h4>
+                                    <ul className="space-y-3 text-sm text-slate-600">
+                                        <li className="flex items-start gap-2">
+                                            <CheckCircle className="text-emerald-500 mt-0.5 shrink-0" size={16} />
+                                            <span>Step back</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <CheckCircle className="text-emerald-500 mt-0.5 shrink-0" size={16} />
+                                            <span>Chest height</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <CheckCircle className="text-emerald-500 mt-0.5 shrink-0" size={16} />
+                                            <span>Keep level</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <CheckCircle className="text-emerald-500 mt-0.5 shrink-0" size={16} />
+                                            <span>Good lighting</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <CheckCircle className="text-emerald-500 mt-0.5 shrink-0" size={16} />
+                                            <span>Leave space</span>
+                                        </li>
+                                    </ul>
+                                </div>
 
-                            {/* Avoid This */}
-                            <div>
-                                <h4 className="font-bold text-rose-600 mb-4 flex items-center gap-2 text-sm uppercase">
-                                    <span className="bg-rose-100 p-1 rounded-full flex items-center justify-center">
-                                        <XCircle size={14} className="text-rose-600" />
-                                    </span>
-                                    Avoid This
-                                </h4>
-                                <ul className="space-y-3 text-sm text-slate-600">
-                                    <li className="flex items-start gap-2">
-                                        <XCircle className="text-rose-500 mt-0.5 shrink-0" size={16} />
-                                        <span>Zooming in</span>
-                                    </li>
-                                    <li className="flex items-start gap-2">
-                                        <XCircle className="text-rose-500 mt-0.5 shrink-0" size={16} />
-                                        <span>Ultra-wide lens</span>
-                                    </li>
-                                    <li className="flex items-start gap-2">
-                                        <XCircle className="text-rose-500 mt-0.5 shrink-0" size={16} />
-                                        <span>Heavy tilt</span>
-                                    </li>
-                                    <li className="flex items-start gap-2">
-                                        <XCircle className="text-rose-500 mt-0.5 shrink-0" size={16} />
-                                        <span>Blurry photos</span>
-                                    </li>
-                                    <li className="flex items-start gap-2">
-                                        <XCircle className="text-rose-500 mt-0.5 shrink-0" size={16} />
-                                        <span>Cropping pile</span>
-                                    </li>
-                                </ul>
+                                {/* Avoid This */}
+                                <div>
+                                    <h4 className="font-bold text-rose-600 mb-4 flex items-center gap-2 text-sm uppercase">
+                                        <span className="bg-rose-100 p-1 rounded-full flex items-center justify-center">
+                                            <XCircle size={14} className="text-rose-600" />
+                                        </span>
+                                        Avoid This
+                                    </h4>
+                                    <ul className="space-y-3 text-sm text-slate-600">
+                                        <li className="flex items-start gap-2">
+                                            <XCircle className="text-rose-500 mt-0.5 shrink-0" size={16} />
+                                            <span>Zooming in</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <XCircle className="text-rose-500 mt-0.5 shrink-0" size={16} />
+                                            <span>Ultra-wide lens</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <XCircle className="text-rose-500 mt-0.5 shrink-0" size={16} />
+                                            <span>Heavy tilt</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <XCircle className="text-rose-500 mt-0.5 shrink-0" size={16} />
+                                            <span>Blurry photos</span>
+                                        </li>
+                                        <li className="flex items-start gap-2">
+                                            <XCircle className="text-rose-500 mt-0.5 shrink-0" size={16} />
+                                            <span>Cropping pile</span>
+                                        </li>
+                                    </ul>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
+                )}
 
-                {/* Calculate Price Button - Restored */}
-                <div className="p-10 bg-white border-t border-slate-100">
-                    {(() => {
-                        const minImages = jobType === 'single' ? 1 : 3;
-                        const currentCount = bookingData.selectedImages.length;
-                        const isReady = currentCount >= minImages;
-                        const remaining = minImages - currentCount;
+            {/* Calculate Price Button - Restored */}
+            <div className="p-10 bg-white border-t border-slate-100">
+                {(() => {
+                    const minImages = jobType === 'single' ? 1 : 3;
+                    const currentCount = bookingData.selectedImages.length;
+                    const isReady = currentCount >= minImages;
+                    const remaining = minImages - currentCount;
 
-                        return (
-                            <Button
-                                onClick={handleAnalyze}
-                                disabled={!isReady}
-                                className={`w-full h-16 text-xl font-bold rounded-xl shadow-xl transition-all ${isReady
-                                    ? 'bg-brand-orange hover:bg-orange-600 text-white shadow-orange-900/20'
-                                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                                    }`}
-                            >
-                                {!isReady && currentCount > 0
-                                    ? `Upload ${remaining} more photo${remaining > 1 ? 's' : ''}`
-                                    : 'CALCULATE PRICE'
-                                }
-                            </Button>
-                        );
-                    })()}
-                </div>
-
+                    return (
+                        <Button
+                            onClick={handleAnalyze}
+                            disabled={!isReady}
+                            className={`w-full h-16 text-xl font-bold rounded-xl shadow-xl transition-all ${isReady
+                                ? 'bg-brand-orange hover:bg-orange-600 text-white shadow-orange-900/20'
+                                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                }`}
+                        >
+                            {!isReady && currentCount > 0
+                                ? `Upload ${remaining} more photo${remaining > 1 ? 's' : ''}`
+                                : 'CALCULATE PRICE'
+                            }
+                        </Button>
+                    );
+                })()}
             </div>
+
+        </div>
         </div>
     );
 

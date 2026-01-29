@@ -197,14 +197,22 @@ def run_pipeline(base64_images: List[str], context: dict) -> dict:
         
         # Import and run the new pipeline
         from junk_pipeline.orchestrator import run_pipeline as run_junk_pipeline
+        from junk_pipeline.pricing import volume_to_price
         
         result = run_junk_pipeline(temp_paths)
         
+        # Get volume and convert to price
+        final_volume = result.get("final_volume_cy", 0)
+        min_price, base_price, max_price = volume_to_price(final_volume)
+        
         # Transform result to quote format expected by frontend
         quote = {
-            "final_volume_cy": result.get("final_volume_cy", 0),
+            "final_volume_cy": final_volume,
             "uncertainty_range": result.get("uncertainty_range", [0, 0]),
             "confidence_score": result.get("confidence_score", 0.5),
+            "min_price": min_price,
+            "max_price": max_price,
+            "base_price": base_price,
             "line_items": result.get("line_items", []),
             "flags": result.get("flags", []),
             "debug": result.get("debug", {}),
