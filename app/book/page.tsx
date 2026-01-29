@@ -497,7 +497,7 @@ function BookPageContent() {
                 </div>
                 )}
 
-            {/* Calculate Price Button - Restored */}
+            {/* Calculate Price Button */}
             <div className="p-10 bg-white border-t border-slate-100">
                 {(() => {
                     const minImages = jobType === 'single' ? 1 : 3;
