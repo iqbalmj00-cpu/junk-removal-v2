@@ -324,19 +324,6 @@ function BookPageContent() {
                             Pile / Cleanout
                         </button>
                     </div>
-
-                    {jobType === 'pile' && (
-                        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-md animate-in fade-in slide-in-from-top-2">
-                            <div className="flex items-start">
-                                <div className="text-blue-500 mr-3 mt-0.5">
-                                    <Info className="w-5 h-5" />
-                                </div>
-                                <p className="text-sm text-blue-700 leading-relaxed">
-                                    For loose piles, please upload <strong>3 photos</strong> from different angles (Left, Right, Center) for the best price.
-                                </p>
-                            </div>
-                        </div>
-                    )}
                     {/* Heavy Materials moved to booking-details page */}
                 </div>
                 {/* --- END NEW ALERT BOX --- */}
@@ -387,6 +374,81 @@ function BookPageContent() {
                             multiple
                             className="hidden"
                         />
+                    </div>
+                </div>
+
+                {/* Photo Guide - Matching Reference Design */}
+                <div className="px-8 py-6 bg-slate-50/80 border-t border-slate-100">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">📷 PHOTO GUIDE</p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        {/* Column 1: The 4 Perspectives */}
+                        <div>
+                            <h4 className="text-sm font-bold text-slate-800 flex items-center gap-1.5 mb-1">
+                                <span className="text-slate-400">◎</span> THE 4 PERSPECTIVES
+                            </h4>
+                            <p className="text-xs text-slate-500 mb-3">Step back 6-10 feet. Ensure we can see the floor and the entire pile in context.</p>
+                            <div className="flex gap-2">
+                                {/* Left Angle */}
+                                <div className="flex flex-col items-center">
+                                    <div className="w-12 h-12 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-400">
+                                        <span className="text-lg">📷</span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-500 mt-1">Left<br />Angle</span>
+                                </div>
+                                {/* Front View - Required */}
+                                <div className="flex flex-col items-center">
+                                    <div className="relative">
+                                        <span className="absolute -top-2 left-1/2 -translate-x-1/2 text-[8px] bg-orange-500 text-white px-1.5 py-0.5 rounded font-bold whitespace-nowrap">Required</span>
+                                        <div className="w-12 h-12 bg-white border-2 border-orange-400 rounded-lg flex items-center justify-center text-orange-500">
+                                            <span className="text-lg">📷</span>
+                                        </div>
+                                    </div>
+                                    <span className="text-[10px] text-slate-500 mt-1">Front<br />View</span>
+                                </div>
+                                {/* Right Angle - Required */}
+                                <div className="flex flex-col items-center">
+                                    <div className="relative">
+                                        <span className="absolute -top-2 left-1/2 -translate-x-1/2 text-[8px] bg-orange-500 text-white px-1.5 py-0.5 rounded font-bold whitespace-nowrap">Required</span>
+                                        <div className="w-12 h-12 bg-white border-2 border-orange-400 rounded-lg flex items-center justify-center text-orange-500">
+                                            <span className="text-lg">📷</span>
+                                        </div>
+                                    </div>
+                                    <span className="text-[10px] text-slate-500 mt-1">Right<br />Angle</span>
+                                </div>
+                                {/* Back View */}
+                                <div className="flex flex-col items-center">
+                                    <div className="w-12 h-12 bg-white border border-slate-200 rounded-lg flex items-center justify-center text-slate-400">
+                                        <span className="text-lg">📷</span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-500 mt-1">Back<br />View</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Column 2: Do This */}
+                        <div>
+                            <h4 className="text-sm font-bold text-green-600 mb-2">✓ DO THIS</h4>
+                            <ul className="text-xs text-slate-600 space-y-1.5">
+                                <li className="flex items-center gap-1.5"><span className="text-green-500">✓</span> Step back</li>
+                                <li className="flex items-center gap-1.5"><span className="text-green-500">✓</span> Chest height</li>
+                                <li className="flex items-center gap-1.5"><span className="text-green-500">✓</span> Keep level</li>
+                                <li className="flex items-center gap-1.5"><span className="text-green-500">✓</span> Good lighting</li>
+                                <li className="flex items-center gap-1.5"><span className="text-green-500">✓</span> Leave space</li>
+                            </ul>
+                        </div>
+
+                        {/* Column 3: Avoid This */}
+                        <div>
+                            <h4 className="text-sm font-bold text-red-500 mb-2">✗ AVOID THIS</h4>
+                            <ul className="text-xs text-slate-600 space-y-1.5">
+                                <li className="flex items-center gap-1.5"><span className="text-red-500">✗</span> Zooming in</li>
+                                <li className="flex items-center gap-1.5"><span className="text-red-500">✗</span> Ultra-wide lens</li>
+                                <li className="flex items-center gap-1.5"><span className="text-red-500">✗</span> Heavy tilt</li>
+                                <li className="flex items-center gap-1.5"><span className="text-red-500">✗</span> Blurry photos</li>
+                                <li className="flex items-center gap-1.5"><span className="text-red-500">✗</span> Cropping pile</li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
 

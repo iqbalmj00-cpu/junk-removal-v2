@@ -80,8 +80,8 @@ export async function POST(request: NextRequest) {
                         return NextResponse.json({
                             status: 'SUCCESS',
                             volume_yards: quote.final_volume_cy || quote.final_volume || quote.volume || 0,
-                            min_price: quote.uncertainty_range?.[0] || quote.min_price || 0,
-                            max_price: quote.uncertainty_range?.[1] || quote.max_price || 0,
+                            min_price: quote.min_price || 0,
+                            max_price: quote.max_price || 0,
                             price: quote.final_volume_cy || quote.final_volume || 0,
                             confidence: quote.confidence_score || 0.5,
                             items: quote.line_items || quote.items || [],
@@ -107,8 +107,8 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
                 status: 'SUCCESS',
                 volume_yards: quote.final_volume_cy || quote.final_volume || quote.volume || 0,
-                min_price: quote.uncertainty_range?.[0] || quote.min_price || 0,
-                max_price: quote.uncertainty_range?.[1] || quote.max_price || 0,
+                min_price: quote.min_price || 0,
+                max_price: quote.max_price || 0,
                 price: quote.final_volume_cy || quote.final_volume || 0,
                 confidence: quote.confidence_score || 0.5,
                 items: quote.line_items || quote.items || [],
