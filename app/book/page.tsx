@@ -494,36 +494,35 @@ function BookPageContent() {
                             </div>
                         </div>
                     </div>
-                </div>
                 )}
 
-            {/* Calculate Price Button */}
-            <div className="p-10 bg-white border-t border-slate-100">
-                {(() => {
-                    const minImages = jobType === 'single' ? 1 : 3;
-                    const currentCount = bookingData.selectedImages.length;
-                    const isReady = currentCount >= minImages;
-                    const remaining = minImages - currentCount;
+                {/* Calculate Price Button */}
+                <div className="p-10 bg-white border-t border-slate-100">
+                    {(() => {
+                        const minImages = jobType === 'single' ? 1 : 3;
+                        const currentCount = bookingData.selectedImages.length;
+                        const isReady = currentCount >= minImages;
+                        const remaining = minImages - currentCount;
 
-                    return (
-                        <Button
-                            onClick={handleAnalyze}
-                            disabled={!isReady}
-                            className={`w-full h-16 text-xl font-bold rounded-xl shadow-xl transition-all ${isReady
-                                ? 'bg-brand-orange hover:bg-orange-600 text-white shadow-orange-900/20'
-                                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                                }`}
-                        >
-                            {!isReady && currentCount > 0
-                                ? `Upload ${remaining} more photo${remaining > 1 ? 's' : ''}`
-                                : 'CALCULATE PRICE'
-                            }
-                        </Button>
-                    );
-                })()}
+                        return (
+                            <Button
+                                onClick={handleAnalyze}
+                                disabled={!isReady}
+                                className={`w-full h-16 text-xl font-bold rounded-xl shadow-xl transition-all ${isReady
+                                    ? 'bg-brand-orange hover:bg-orange-600 text-white shadow-orange-900/20'
+                                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                    }`}
+                            >
+                                {!isReady && currentCount > 0
+                                    ? `Upload ${remaining} more photo${remaining > 1 ? 's' : ''}`
+                                    : 'CALCULATE PRICE'
+                                }
+                            </Button>
+                        );
+                    })()}
+                </div>
+
             </div>
-
-        </div>
         </div>
     );
 
