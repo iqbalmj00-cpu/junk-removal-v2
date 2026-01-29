@@ -39,6 +39,8 @@ image = (
         "ultralytics>=8.3.0",  # YOLO11 for Lane A
         "einops>=0.7.0",  # Required by SAM3
         "decord>=0.6.0",  # Required by SAM3 for video
+        "pycocotools>=2.0.0",  # Required by SAM3
+        "supervision>=0.20.0",  # SAM3 visualization
     )
     # Install SAM3 from GitHub
     .run_commands("pip install git+https://github.com/facebookresearch/sam3.git")
