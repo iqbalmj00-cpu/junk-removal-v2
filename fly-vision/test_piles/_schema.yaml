@@ -1,0 +1,33 @@
+# Ground Truth Test Pile Schema
+#
+# Each YAML file represents a test case with:
+# - pile_id: Unique identifier
+# - category: Type of pile (bags, furniture, mixed, construction, yard_waste)
+# - ground_truth: Manual volume estimate with uncertainty range
+# - anchors: Known large items that should be detected
+# - pass_threshold: Acceptable error margin for this pile
+
+pile_id: "TEMPLATE"
+category: "mixed"
+
+ground_truth:
+  min_yd3: 5.0      # Lower bound (conservative)
+  likely_yd3: 6.5   # Most likely volume
+  max_yd3: 8.0      # Upper bound (generous)
+  truck_equivalent: "1/2"  # Visual reference
+
+anchors:
+  - label: "mattress"
+    count: 1
+    approx_yd3: 1.2
+  - label: "bags"
+    count: 10
+    approx_yd3: 2.5
+
+difficulty:
+  occlusion: "medium"      # none, low, medium, high
+  view_variance: "high"    # low, medium, high
+  segmentation_risk: "medium"
+
+notes: |
+  Optional description of why this pile is tricky or what it tests.

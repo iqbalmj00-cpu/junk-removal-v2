@@ -1,0 +1,27 @@
+# JUNKPILE1: Inflation case (dresser double-count, bags overcounted)
+pile_id: "JUNKPILE1"
+category: "furniture_heavy"
+
+ground_truth:
+  min_yd3: 4.0
+  likely_yd3: 5.0
+  max_yd3: 6.0
+  truck_equivalent: "1/2"
+
+anchors:
+  - label: "dresser"
+    count: 1
+    approx_yd3: 1.0
+  - label: "bags"
+    count: 8
+    approx_yd3: 2.0
+
+difficulty:
+  occlusion: "medium"
+  view_variance: "medium"
+  segmentation_risk: "high"
+
+notes: |
+  Known inflation case from logs. System was outputting ~10+ yd³.
+  Root causes: dresser detected as 2 items, bags qty inflated.
+  Tests: anchor dedup, qty caps.

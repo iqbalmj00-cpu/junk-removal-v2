@@ -1,0 +1,33 @@
+{
+    "pile_id": "JUNKPILE3",
+    "category": "furniture_heavy",
+    "ground_truth": {
+        "min_yd3": 7.0,
+        "likely_yd3": 8.0,
+        "max_yd3": 9.0,
+        "truck_equivalent": "3/4"
+    },
+    "anchors": [
+        {
+            "label": "mattress",
+            "count": 1,
+            "approx_yd3": 1.2
+        },
+        {
+            "label": "bookshelf",
+            "count": 1,
+            "approx_yd3": 1.0
+        },
+        {
+            "label": "bags",
+            "count": 12,
+            "approx_yd3": 3.0
+        }
+    ],
+    "difficulty": {
+        "occlusion": "medium",
+        "view_variance": "high",
+        "segmentation_risk": "medium"
+    },
+    "notes": "Deflation test. System output: 5.76 yd³. Tests: best-view estimator, bulky priors."
+}

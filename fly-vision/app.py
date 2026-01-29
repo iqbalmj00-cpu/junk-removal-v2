@@ -1,22 +1,30 @@
 """
-Fly.io Vision Pipeline Service
+Fly.io Vision Pipeline Service v2.0
 
-FastAPI server running the v4 vision pipeline.
+FastAPI server running the 7-stage 3D volumetric pipeline.
 - POST /process - accepts images, returns quote JSON
 - X-Internal-Token auth
 - Concurrency limiting
+- GPU scale-to-zero enabled
 """
 
 import os
 import asyncio
 import json
 import time
+import tempfile
+from pathlib import Path
 from typing import List, Optional
 from contextlib import asynccontextmanager
+import base64
 
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+# Register HEIC opener for iPhone photos
+import pillow_heif
+pillow_heif.register_heif_opener()
 
 # Concurrency semaphore (max 3 concurrent pipelines)
 MAX_CONCURRENT = 3
@@ -162,19 +170,55 @@ async def process_images(
 
 def run_pipeline(base64_images: List[str], context: dict) -> dict:
     """
-    Run the v4 vision pipeline synchronously.
+    Run the v2.0 7-stage 3D volumetric pipeline.
     
-    This imports the pipeline modules and runs them.
+    Converts base64 images to temp files, runs pipeline, cleans up.
     """
-    # Import here to avoid loading at module level
-    from vision_v4.orchestrator import process_quote_v4
+    temp_paths = []
     
-    mode = context.get("mode", "pile")
-    
-    # Run the pipeline
-    result = process_quote_v4(base64_images, mode=mode)
-    
-    return result
+    try:
+        # Convert base64 images to temp files (new pipeline expects file paths)
+        for i, b64 in enumerate(base64_images):
+            # Handle data URI format if present
+            if "," in b64:
+                b64 = b64.split(",", 1)[1]
+            
+            # Decode and save to temp file
+            img_data = base64.b64decode(b64)
+            
+            # Create temp file
+            fd, temp_path = tempfile.mkstemp(suffix=".jpg")
+            os.close(fd)
+            
+            with open(temp_path, "wb") as f:
+                f.write(img_data)
+            
+            temp_paths.append(temp_path)
+        
+        # Import and run the new pipeline
+        from junk_pipeline.orchestrator import run_pipeline as run_junk_pipeline
+        
+        result = run_junk_pipeline(temp_paths)
+        
+        # Transform result to quote format expected by frontend
+        quote = {
+            "final_volume_cy": result.get("final_volume_cy", 0),
+            "uncertainty_range": result.get("uncertainty_range", [0, 0]),
+            "confidence_score": result.get("confidence_score", 0.5),
+            "line_items": result.get("line_items", []),
+            "flags": result.get("flags", []),
+            "debug": result.get("debug", {}),
+        }
+        
+        return {"quote": quote, "debug": result.get("debug")}
+        
+    finally:
+        # Clean up temp files
+        for p in temp_paths:
+            try:
+                Path(p).unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 # ==============================================================================

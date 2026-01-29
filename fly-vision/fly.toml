@@ -1,7 +1,15 @@
+# Fly.io configuration for 3D volumetric pipeline
+# Scale-to-zero enabled
+
 app = "jamals-junk-vision"
 primary_region = "dfw"
 
 [build]
+
+[env]
+  DEPTH_PRO_MODE = "local"
+  HF_HOME = "/models"
+  TRANSFORMERS_CACHE = "/models"
 
 [http_service]
   internal_port = 8080
@@ -12,6 +20,9 @@ primary_region = "dfw"
   processes = ["app"]
 
 [[vm]]
-  cpu_kind = "shared"
-  cpus = 1
-  memory_mb = 512
+  size = "performance-4x"
+  memory = "8gb"
+
+[mounts]
+  source = "model_cache"
+  destination = "/models"

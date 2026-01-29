@@ -1,0 +1,26 @@
+{
+    "pile_id": "TEST1",
+    "category": "mixed",
+    "ground_truth": {
+        "min_yd3": 3.2,
+        "likely_yd3": 3.5,
+        "max_yd3": 4.0,
+        "truck_equivalent": "1/4"
+    },
+    "anchors": [
+        {
+            "label": "furniture",
+            "count": 1
+        },
+        {
+            "label": "boxes",
+            "count": 3
+        }
+    ],
+    "difficulty": {
+        "occlusion": "low",
+        "view_variance": "low",
+        "segmentation_risk": "low"
+    },
+    "notes": "Baseline test case. Items clearly visible, consistent views. Used to verify regression safety."
+}

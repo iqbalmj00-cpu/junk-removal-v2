@@ -1,0 +1,26 @@
+# JUNKPILE2: Dead-zone case (large items not accounted)
+pile_id: "JUNKPILE2"
+category: "mixed"
+
+ground_truth:
+  min_yd3: 5.0
+  likely_yd3: 6.5
+  max_yd3: 8.0
+  truck_equivalent: "1/2"
+
+anchors:
+  - label: "plastic storage tote"
+    count: 3
+    approx_yd3: 0.8
+  - label: "boxes"
+    count: 5
+
+difficulty:
+  occlusion: "high"
+  view_variance: "medium"
+  segmentation_risk: "high"
+
+notes: |
+  Dead-zone test case. Logs showed: "Not subtracting plastic storage tote 
+  (area=16.2%) - no volume accounted". Large visible area with 0 volume.
+  Tests: volume ownership invariant.

@@ -1,18 +1,28 @@
-# Fly.io Vision Pipeline Requirements
-# Pin versions for reproducibility
+# Fly.io Vision Pipeline v2.0 Requirements
+# 7-stage 3D volumetric pipeline with local GPU inference
 
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-pydantic==2.5.3
+# Core
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+python-multipart>=0.0.6
 
 # API clients
-openai==1.12.0
-replicate==0.23.1
-httpx==0.26.0
-requests==2.31.0
+openai>=1.12.0
+replicate>=0.23.0
+httpx>=0.26.0
+requests>=2.31.0
 
 # Image processing
-pillow==10.2.0
+pillow>=10.2.0
+pillow-heif>=0.13.0       # iPhone HEIC support
+numpy>=1.24.0
+scipy>=1.10.0
 
-# Redis client (for future queueing)
-# redis==5.0.1
+# ML/Deep Learning
+torch>=2.0.0
+transformers>=4.40.0       # Depth Pro, SegFormer
+timm>=0.9.0                # Vision model backbones
+
+# Optional: Foreman audit
+# openai is already included above
