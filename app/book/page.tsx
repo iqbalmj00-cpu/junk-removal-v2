@@ -142,6 +142,53 @@ function BookPageContent() {
         });
     };
 
+    // Generate and download ICS calendar file
+    const addToCalendar = () => {
+        const dateStr = bookingData.date || new Date().toISOString().split('T')[0];
+        const timeSlot = bookingData.timeSlot || '12pm - 4pm';
+        const address = bookingData.address || '123 Example St, City, ST';
+
+        // Parse time slot (e.g., "12pm - 4pm")
+        const startHour = timeSlot.includes('8am') ? 8 : timeSlot.includes('9am') ? 9 : 12;
+        const endHour = timeSlot.includes('12pm') ? 12 : timeSlot.includes('4pm') ? 16 : 17;
+
+        // Create date objects
+        const startDate = new Date(dateStr);
+        startDate.setHours(startHour, 0, 0);
+        const endDate = new Date(dateStr);
+        endDate.setHours(endHour, 0, 0);
+
+        // Format for ICS (YYYYMMDDTHHMMSS)
+        const formatICSDate = (d: Date) => {
+            return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+        };
+
+        const icsContent = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Jamal's Junk//Pickup Appointment//EN
+BEGIN:VEVENT
+UID:${Date.now()}@jamaeljunk.com
+DTSTAMP:${formatICSDate(new Date())}
+DTSTART:${formatICSDate(startDate)}
+DTEND:${formatICSDate(endDate)}
+SUMMARY:Junk Removal Pickup
+DESCRIPTION:Jamal's Junk removal team will arrive during your scheduled window. We'll call 15 minutes before arrival.
+LOCATION:${address}
+END:VEVENT
+END:VCALENDAR`;
+
+        // Create and download ICS file
+        const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'junk-pickup-appointment.ics';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
     const handleAnalyze = async () => {
         if (bookingData.selectedImages.length === 0) return;
         setLoadingState({ title: 'ADVANCED AI ANALYSIS...', subtitle: 'Compressing images for Vercel optimization...' });
@@ -742,7 +789,7 @@ function BookPageContent() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Button variant="outline" className="h-16 rounded-xl border-slate-300 text-slate-700 font-bold text-lg hover:bg-slate-50 transition-colors">
+                <Button onClick={addToCalendar} variant="outline" className="h-16 rounded-xl border-slate-300 text-slate-700 font-bold text-lg hover:bg-slate-50 transition-colors">
                     Add to Calendar
                 </Button>
                 <Link href="/" className="w-full">

@@ -102,11 +102,19 @@ def process(request: dict):
         # Run pipeline
         result = run_pipeline(temp_paths)
         
+        # Get volume and convert to price
+        from junk_pipeline.pricing import volume_to_price
+        final_volume = result.get("final_volume_cy", 0)
+        min_price, base_price, max_price = volume_to_price(final_volume)
+        
         # Build response
         quote = {
-            "final_volume_cy": result.get("final_volume_cy", 0),
+            "final_volume_cy": final_volume,
             "uncertainty_range": result.get("uncertainty_range", [0, 0]),
             "confidence_score": result.get("confidence_score", 0.5),
+            "min_price": min_price,
+            "max_price": max_price,
+            "base_price": base_price,
             "line_items": result.get("line_items", []),
             "flags": result.get("flags", []),
         }
