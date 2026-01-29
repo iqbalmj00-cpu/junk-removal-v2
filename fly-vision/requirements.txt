@@ -19,10 +19,14 @@ pillow-heif>=0.13.0       # iPhone HEIC support
 numpy>=1.24.0
 scipy>=1.10.0
 
-# ML/Deep Learning
-torch>=2.0.0
-transformers>=4.40.0       # Depth Pro, SegFormer
-timm>=0.9.0                # Vision model backbones
+# ML/Deep Learning (CPU-only to fit 8GB limit)
+--index-url https://download.pytorch.org/whl/cpu
+torch
+transformers>=4.40.0
+timm>=0.9.0
 
 # Optional: Foreman audit
 # openai is already included above
+
+# Local YOLO11 for Lane A detection
+ultralytics>=8.3.0

@@ -117,159 +117,126 @@ def _generate_instance_id(label: str, bbox: tuple, frame_id: str) -> str:
     return hashlib.md5(key.encode()).hexdigest()[:12]
 
 
-def _run_lane_a_yolo_seg(data_uri: str, frame_id: str) -> LaneAResult:
+def _run_lane_a_yolo_seg(data_uri: str, frame_id: str, working_pil=None) -> LaneAResult:
     """
-    Lane A: Instance Segmentation using YOLOv8-Seg.
+    Lane A: Instance Segmentation using LOCAL YOLO11-Seg.
     Detects high-value items and calibration anchors.
+    No Replicate API - runs on local GPU/MPS/CPU.
     """
-    import replicate
+    from .yolo11_runner import get_yolo11_runner, InstanceMask as YoloMask
+    import base64
+    from io import BytesIO
+    from PIL import Image
     
     result = LaneAResult()
     
     try:
-        # Run YOLO-World-XL for open-vocabulary detection
-        output = replicate.run(
-            "franz-biz/yolo-world-xl:fd1305d3fc19e81540542f51c2530cf8f393e28cc6ff4976337c3e2b75c7c292",
-            input={
-                "input_media": data_uri,
-                "confidence": 0.35,
-            }
-        )
-        
-        # Parse detections - output format varies by model
-        detections = []
-        if isinstance(output, dict) and "predictions" in output:
-            detections = output["predictions"]
-        elif isinstance(output, list):
-            detections = output
-            
-        for det in detections:
-            label = det.get("class", det.get("label", "")).lower().strip()
-            conf = det.get("confidence", det.get("score", 0.0))
-            
-            # Extract bbox
-            bbox_data = det.get("bbox", det.get("box", {}))
-            if isinstance(bbox_data, dict):
-                x1 = int(bbox_data.get("x1", bbox_data.get("xmin", 0)))
-                y1 = int(bbox_data.get("y1", bbox_data.get("ymin", 0)))
-                x2 = int(bbox_data.get("x2", bbox_data.get("xmax", 0)))
-                y2 = int(bbox_data.get("y2", bbox_data.get("ymax", 0)))
-            elif isinstance(bbox_data, (list, tuple)) and len(bbox_data) >= 4:
-                x1, y1, x2, y2 = int(bbox_data[0]), int(bbox_data[1]), int(bbox_data[2]), int(bbox_data[3])
+        # Get or decode image
+        if working_pil is not None:
+            image = working_pil
+        else:
+            # Decode from data URI
+            if "," in data_uri:
+                b64_data = data_uri.split(",", 1)[1]
             else:
-                continue
-                
-            bbox = (x1, y1, x2, y2)
-            instance_id = _generate_instance_id(label, bbox, frame_id)
+                b64_data = data_uri
+            
+            img_data = base64.b64decode(b64_data)
+            image = Image.open(BytesIO(img_data)).convert("RGB")
+        
+        # Run local YOLO11
+        runner = get_yolo11_runner()
+        detections = runner.detect(image, conf_threshold=0.35)
+        
+        # Convert YOLO11 detections to our InstanceMask format
+        for det in detections:
+            # Generate stable instance ID
+            instance_id = _generate_instance_id(det.label, det.bbox, frame_id)
             
             # Classify item type
-            is_high_value = any(hv in label for hv in HIGH_VALUE_ITEMS)
-            is_anchor = any(anchor in label for anchor in ANCHOR_ITEMS.keys())
+            label_lower = det.label.lower()
+            is_high_value = any(hv in label_lower for hv in HIGH_VALUE_ITEMS)
+            is_anchor = any(anchor in label_lower for anchor in ANCHOR_ITEMS.keys())
             
             mask = InstanceMask(
                 instance_id=instance_id,
-                label=label,
-                confidence=conf,
-                bbox=bbox,
-                mask_url=det.get("mask_url"),
+                label=det.label,
+                confidence=det.confidence,
+                bbox=tuple(int(x) for x in det.bbox),
+                mask_url=None,  # Local mask, no URL
+                mask_data=None,
+                area_ratio=det.area_ratio,
                 is_anchor=is_anchor,
                 is_high_value=is_high_value,
             )
             
+            # Store numpy mask for volume calculations
+            mask._mask_np = det.mask_np
+            
             result.instances.append(mask)
             if is_anchor:
                 result.anchors.append(mask)
+        
+        print(f"[Lane A] YOLO11 detected {len(result.instances)} items, {len(result.anchors)} anchors")
                 
     except Exception as e:
-        print(f"[Lane A] YOLO-Seg error: {e}")
+        print(f"[Lane A] YOLO11 error: {e}")
+        import traceback
+        traceback.print_exc()
         
     return result
 
 
-def _run_lane_b_bulk_segmentation(data_uri: str) -> LaneBResult:
+def _run_lane_b_bulk_segmentation(data_uri: str, working_pil=None) -> LaneBResult:
     """
-    Lane B: Bulk Segmentation using Lang-SAM.
-    Segments "junk" with negative prompting.
-    Downloads mask and applies dilation for recall bias.
+    Lane B: Bulk Segmentation using LOCAL SAM3.
+    Segments "junk" with text prompting.
+    No Replicate API - runs on local GPU/MPS/CPU.
     """
-    import replicate
-    import requests
+    from .sam3_runner import get_sam3_runner
+    import base64
     import numpy as np
     from PIL import Image
     from io import BytesIO
-    from scipy import ndimage
     
     result = LaneBResult()
     
     try:
-        # Use Lang-SAM for semantic segmentation
-        output = replicate.run(
-            "tmappdev/lang-segment-anything:891411c38a6ed2d44c004b7b9e44217df7a5b07848f29ddefd2e28bc7cbf93bc",
-            input={
-                "image": data_uri,
-                "text_prompt": "pile of junk, debris, garbage bags, cardboard boxes",
-            }
+        # Get or decode image
+        if working_pil is not None:
+            image = working_pil
+        else:
+            # Decode from data URI
+            if "," in data_uri:
+                b64_data = data_uri.split(",", 1)[1]
+            else:
+                b64_data = data_uri
+            
+            img_data = base64.b64decode(b64_data)
+            image = Image.open(BytesIO(img_data)).convert("RGB")
+        
+        # Run local SAM3
+        runner = get_sam3_runner()
+        sam_result = runner.segment(
+            image, 
+            prompt="pile of junk, debris, garbage bags, cardboard boxes"
         )
         
-        # Extract mask URL from output
-        mask_url = None
-        if isinstance(output, str):
-            mask_url = output
-        elif isinstance(output, dict):
-            mask_url = output.get("mask", output.get("output"))
-        elif hasattr(output, 'url'):
-            mask_url = output.url
-        elif isinstance(output, list) and output:
-            first = output[0]
-            if isinstance(first, str):
-                mask_url = first
-            elif hasattr(first, 'url'):
-                mask_url = first.url
-            elif isinstance(first, dict):
-                mask_url = first.get("mask")
-                
-        result.bulk_mask_url = mask_url
+        if sam_result.error:
+            print(f"[Lane B] SAM3 error: {sam_result.error}")
+            return result
         
-        # Download and parse mask
-        if mask_url:
-            try:
-                response = requests.get(mask_url, timeout=30)
-                response.raise_for_status()
-                result.bulk_mask_data = response.content
+        if sam_result.mask_np is not None:
+            result.bulk_mask_np = sam_result.mask_np
+            result.bulk_area_ratio = sam_result.area_ratio
+            print(f"[Lane B] SAM3 mask: {sam_result.mask_np.shape}, area={sam_result.area_ratio:.1%}, conf={sam_result.confidence:.2f}")
+        else:
+            print(f"[Lane B] SAM3 returned no mask")
                 
-                # Convert to numpy boolean mask
-                img = Image.open(BytesIO(response.content)).convert("L")
-                mask_np = np.array(img) > 127  # Binary threshold
-                
-                # Apply morphological dilation for recall bias (12px radius)
-                # This expands the mask to capture pile fringes
-                DILATION_RADIUS = 12
-                struct = ndimage.generate_binary_structure(2, 1)
-                dilated_mask = ndimage.binary_dilation(
-                    mask_np, 
-                    structure=struct, 
-                    iterations=DILATION_RADIUS
-                )
-                
-                # Keep only largest connected component (exclude secondary blobs)
-                labeled_array, num_features = ndimage.label(dilated_mask)
-                if num_features > 1:
-                    # Find sizes of each component
-                    component_sizes = ndimage.sum(dilated_mask, labeled_array, range(1, num_features + 1))
-                    largest_label = np.argmax(component_sizes) + 1  # Labels are 1-indexed
-                    dilated_mask = (labeled_array == largest_label)
-                    print(f"[Lane B] Kept largest component ({num_features} found, {component_sizes[largest_label-1]:.0f} vs {np.sum(component_sizes):.0f} total px)")
-                
-                result.bulk_mask_np = dilated_mask
-                result.bulk_area_ratio = float(np.sum(dilated_mask)) / dilated_mask.size
-                
-                print(f"[Lane B] Mask downloaded: {mask_np.shape}, area={result.bulk_area_ratio:.1%}")
-                
-            except Exception as e:
-                print(f"[Lane B] Mask download error: {e}")
-            
     except Exception as e:
-        print(f"[Lane B] Lang-SAM error: {e}")
+        print(f"[Lane B] SAM3 error: {e}")
+        import traceback
+        traceback.print_exc()
         
     return result
 
@@ -489,8 +456,8 @@ def run_perception(frame_id: str, data_uri: str, working_pil=None) -> Perception
         PerceptionResult with outputs from all lanes
     """
     # Run lanes (in production, run in parallel)
-    lane_a = _run_lane_a_yolo_seg(data_uri, frame_id)
-    lane_b = _run_lane_b_bulk_segmentation(data_uri)
+    lane_a = _run_lane_a_yolo_seg(data_uri, frame_id, working_pil=working_pil)
+    lane_b = _run_lane_b_bulk_segmentation(data_uri, working_pil=working_pil)
     lane_c = _run_lane_c_scene_classification(data_uri)
     
     # Lane D depends on Lane C scene type and needs the PIL image

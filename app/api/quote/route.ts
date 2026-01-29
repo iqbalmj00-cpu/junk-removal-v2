@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Fly.io endpoint
-const FLY_ENDPOINT = process.env.FLY_VISION_URL || 'https://jamals-junk-vision.fly.dev';
-const INTERNAL_TOKEN = process.env.INTERNAL_TOKEN || 'dev-token-change-me';
+// Modal endpoint (GPU-accelerated)
+const MODAL_ENDPOINT = process.env.MODAL_VISION_URL || 'https://iqbalmj00-cpu--junk-vision-process.modal.run';
 
-// Timeout for pipeline (3 minutes)
-const TIMEOUT_MS = 180_000;
+// Timeout for pipeline (5 minutes for first cold start with model downloads)
+const TIMEOUT_MS = 300_000;
 
 export async function POST(request: NextRequest) {
     const startTime = Date.now();
@@ -29,33 +28,28 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        console.log(`📥 Proxying ${images.length} images to Fly.io...`);
+        console.log(`📥 Proxying ${images.length} images to Modal...`);
 
-        // Format for Fly endpoint
-        const flyPayload = {
+        // Format for Modal endpoint
+        const payload = {
             images: images.map((img: string, i: number) => ({
                 id: `img_${i}`,
                 b64: img,
                 mime: 'image/jpeg'
             })),
-            context: {
-                mode: body.mode || 'pile',
-                debug: body.debug || false
-            }
         };
 
-        // Call Fly.io with timeout
+        // Call Modal with timeout
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
         try {
-            const response = await fetch(`${FLY_ENDPOINT}/process`, {
+            const response = await fetch(MODAL_ENDPOINT, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Internal-Token': INTERNAL_TOKEN,
                 },
-                body: JSON.stringify(flyPayload),
+                body: JSON.stringify(payload),
                 signal: controller.signal,
             });
 
@@ -63,18 +57,17 @@ export async function POST(request: NextRequest) {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error(`❌ Fly returned ${response.status}: ${errorText}`);
+                console.error(`❌ Modal returned ${response.status}: ${errorText}`);
 
                 // Retry once on 5xx
                 if (response.status >= 500) {
                     console.log('🔄 Retrying once...');
-                    const retryResponse = await fetch(`${FLY_ENDPOINT}/process`, {
+                    const retryResponse = await fetch(MODAL_ENDPOINT, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'X-Internal-Token': INTERNAL_TOKEN,
                         },
-                        body: JSON.stringify(flyPayload),
+                        body: JSON.stringify(payload),
                     });
 
                     if (retryResponse.ok) {
