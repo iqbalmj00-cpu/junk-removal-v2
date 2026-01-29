@@ -79,11 +79,13 @@ export async function POST(request: NextRequest) {
                         const quote = result.quote || result;
                         return NextResponse.json({
                             status: 'SUCCESS',
-                            volume_yards: quote.final_volume || quote.volume || 0,
-                            min_price: quote.pricing?.low_price || quote.min_price || 0,
-                            max_price: quote.pricing?.high_price || quote.max_price || 0,
-                            price: quote.pricing?.base_price || quote.price || 0,
-                            items: quote.items || [],
+                            volume_yards: quote.final_volume_cy || quote.final_volume || quote.volume || 0,
+                            min_price: quote.uncertainty_range?.[0] || quote.min_price || 0,
+                            max_price: quote.uncertainty_range?.[1] || quote.max_price || 0,
+                            price: quote.final_volume_cy || quote.final_volume || 0,
+                            confidence: quote.confidence_score || 0.5,
+                            items: quote.line_items || quote.items || [],
+                            flags: quote.flags || [],
                             audit: quote.audit || {}
                         });
                     }
@@ -99,16 +101,18 @@ export async function POST(request: NextRequest) {
             const elapsed = Date.now() - startTime;
             console.log(`✅ Quote complete in ${elapsed}ms`);
 
-            // Transform Fly response to frontend-expected format
+            // Transform Modal response to frontend-expected format
             const quote = result.quote || result;
 
             return NextResponse.json({
                 status: 'SUCCESS',
-                volume_yards: quote.final_volume || quote.volume || 0,
-                min_price: quote.pricing?.low_price || quote.min_price || 0,
-                max_price: quote.pricing?.high_price || quote.max_price || 0,
-                price: quote.pricing?.base_price || quote.price || 0,
-                items: quote.items || [],
+                volume_yards: quote.final_volume_cy || quote.final_volume || quote.volume || 0,
+                min_price: quote.uncertainty_range?.[0] || quote.min_price || 0,
+                max_price: quote.uncertainty_range?.[1] || quote.max_price || 0,
+                price: quote.final_volume_cy || quote.final_volume || 0,
+                confidence: quote.confidence_score || 0.5,
+                items: quote.line_items || quote.items || [],
+                flags: quote.flags || [],
                 audit: quote.audit || {}
             });
 

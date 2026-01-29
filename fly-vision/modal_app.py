@@ -37,6 +37,8 @@ image = (
         "transformers>=4.40.0",
         "timm>=0.9.0",
         "ultralytics>=8.3.0",  # YOLO11 for Lane A
+        "einops>=0.7.0",  # Required by SAM3
+        "decord>=0.6.0",  # Required by SAM3 for video
     )
     # Install SAM3 from GitHub
     .run_commands("pip install git+https://github.com/facebookresearch/sam3.git")
@@ -52,6 +54,7 @@ model_cache = modal.Volume.from_name("model-cache", create_if_missing=True)
     gpu="A10G",
     timeout=600,
     volumes={"/models": model_cache},
+    secrets=[modal.Secret.from_name("replicate-api-key")],  # For Lane C
 )
 @modal.fastapi_endpoint(method="POST")
 def process(request: dict):
