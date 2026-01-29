@@ -1,10 +1,10 @@
 """
 SAM3 Runner: Meta Segment Anything Model 3 for Bulk Segmentation
-Replaces Replicate Lang-SAM for Lane B
+Uses HuggingFace Transformers API (no GitHub install needed)
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
 import numpy as np
 from PIL import Image
 
@@ -21,8 +21,7 @@ class BulkMaskResult:
 class SAM3Runner:
     """
     Singleton SAM3 runner for text-prompted segmentation.
-    
-    Uses Meta's SAM3 for open-vocabulary segmentation.
+    Uses HuggingFace Transformers API.
     """
     _instance = None
     _model = None
@@ -39,9 +38,10 @@ class SAM3Runner:
             self._load_model()
     
     def _load_model(self):
-        """Load SAM3 model (downloads on first run)."""
+        """Load SAM3 model from HuggingFace."""
         try:
             import torch
+            from transformers import Sam3Processor, Sam3Model
             
             # Determine device
             if torch.cuda.is_available():
@@ -51,41 +51,60 @@ class SAM3Runner:
             else:
                 self._device = "cpu"
             
-            print(f"[SAM3] Loading model on {self._device}...")
+            print(f"[SAM3] Loading facebook/sam3 on {self._device}...")
             
-            # Import SAM3 components
-            from sam3.model_builder import build_sam3_image_model
-            from sam3.model.sam3_image_processor import Sam3Processor
-            
-            self._model = build_sam3_image_model()
-            self._model.to(self._device)
-            self._processor = Sam3Processor(self._model)
+            self._processor = Sam3Processor.from_pretrained("facebook/sam3")
+            self._model = Sam3Model.from_pretrained("facebook/sam3").to(self._device)
             
             print(f"[SAM3] Model loaded successfully")
             
         except ImportError as e:
-            print(f"[SAM3] SAM3 not installed: {e}")
-            print("[SAM3] Install with: pip install sam3")
+            print(f"[SAM3] Import error: {e}")
             self._model = None
             
         except Exception as e:
             print(f"[SAM3] Failed to load model: {e}")
+            import traceback
+            traceback.print_exc()
             self._model = None
+    
+    def _run_single_prompt(self, image: Image.Image, prompt: str, h: int, w: int):
+        """Run SAM3 with a single prompt, return masks and scores."""
+        import torch
+        
+        inputs = self._processor(
+            images=image, 
+            text=prompt, 
+            return_tensors="pt"
+        ).to(self._device)
+        
+        with torch.no_grad():
+            outputs = self._model(**inputs)
+        
+        # Use lower thresholds for better recall
+        results = self._processor.post_process_instance_segmentation(
+            outputs,
+            threshold=0.3,  # Lower threshold
+            mask_threshold=0.3,  # Lower mask threshold
+            target_sizes=inputs.get("original_sizes").tolist()
+        )[0]
+        
+        return results.get("masks", []), results.get("scores", [])
     
     def segment(
         self, 
         image: Image.Image, 
-        prompt: str = "pile of junk, debris, garbage bags, cardboard boxes"
+        prompts: List[str] = None
     ) -> BulkMaskResult:
         """
-        Run SAM3 text-prompted segmentation.
+        Run SAM3 text-prompted segmentation with multiple prompts.
         
         Args:
             image: PIL Image to process
-            prompt: Text prompt describing what to segment
+            prompts: List of text prompts to try (uses defaults if None)
             
         Returns:
-            BulkMaskResult with combined mask
+            BulkMaskResult with combined mask from all prompts
         """
         if self._model is None or self._processor is None:
             return BulkMaskResult(
@@ -94,6 +113,20 @@ class SAM3Runner:
                 confidence=0.0,
                 error="SAM3 model not loaded"
             )
+        
+        # Default prompts to try - broad categories that work for junk/debris
+        if prompts is None:
+            prompts = [
+                "pile",
+                "debris",
+                "branches",
+                "wood",
+                "leaves",
+                "brush",
+                "yard waste",
+                "trash",
+                "junk",
+            ]
         
         try:
             import torch
@@ -105,18 +138,48 @@ class SAM3Runner:
             
             h, w = image.height, image.width
             
-            # Run SAM3 with text prompt
-            inference_state = self._processor.set_image(image)
-            output = self._processor.set_text_prompt(
-                state=inference_state,
-                prompt=prompt
-            )
+            # Combine masks from all prompts
+            combined_mask = np.zeros((h, w), dtype=bool)
+            max_score = 0.0
+            total_masks_found = 0
             
-            # Extract masks
-            masks = output.get("masks", [])
-            scores = output.get("scores", [])
+            for prompt in prompts:
+                try:
+                    masks, scores = self._run_single_prompt(image, prompt, h, w)
+                    
+                    if len(masks) > 0:
+                        print(f"[SAM3] '{prompt}' found {len(masks)} masks")
+                        total_masks_found += len(masks)
+                        
+                        for i, mask in enumerate(masks):
+                            if isinstance(mask, torch.Tensor):
+                                mask = mask.cpu().numpy()
+                            
+                            # Ensure 2D
+                            if mask.ndim > 2:
+                                mask = mask.squeeze()
+                            
+                            # Resize if needed
+                            if mask.shape != (h, w):
+                                from PIL import Image as PILImage
+                                mask_pil = PILImage.fromarray((mask * 255).astype(np.uint8))
+                                mask_pil = mask_pil.resize((w, h), PILImage.NEAREST)
+                                mask = np.array(mask_pil) > 127
+                            
+                            combined_mask |= mask.astype(bool)
+                            
+                            if i < len(scores):
+                                score = scores[i]
+                                if isinstance(score, torch.Tensor):
+                                    score = float(score.cpu())
+                                max_score = max(max_score, score)
+                                
+                except Exception as e:
+                    print(f"[SAM3] Error with prompt '{prompt}': {e}")
+                    continue
             
-            if len(masks) == 0:
+            if total_masks_found == 0:
+                print(f"[SAM3] No masks found with any prompt")
                 return BulkMaskResult(
                     mask_np=np.zeros((h, w), dtype=bool),
                     area_ratio=0.0,
@@ -124,33 +187,8 @@ class SAM3Runner:
                     error=None
                 )
             
-            # Combine masks with score > 0.5
-            combined_mask = np.zeros((h, w), dtype=bool)
-            max_score = 0.0
-            
-            for i, (mask, score) in enumerate(zip(masks, scores)):
-                if isinstance(mask, torch.Tensor):
-                    mask = mask.cpu().numpy()
-                if isinstance(score, torch.Tensor):
-                    score = float(score.cpu())
-                
-                # Ensure mask is 2D
-                if mask.ndim > 2:
-                    mask = mask.squeeze()
-                
-                # Resize if needed
-                if mask.shape != (h, w):
-                    from PIL import Image as PILImage
-                    mask_pil = PILImage.fromarray((mask * 255).astype(np.uint8))
-                    mask_pil = mask_pil.resize((w, h), PILImage.NEAREST)
-                    mask = np.array(mask_pil) > 127
-                
-                if score > 0.5:
-                    combined_mask |= mask.astype(bool)
-                    max_score = max(max_score, score)
-            
-            # Apply morphological dilation for recall bias (12px radius)
-            DILATION_RADIUS = 12
+            # Apply morphological dilation for recall bias (8px radius)
+            DILATION_RADIUS = 8
             struct = ndimage.generate_binary_structure(2, 1)
             dilated_mask = ndimage.binary_dilation(
                 combined_mask, 
@@ -168,7 +206,7 @@ class SAM3Runner:
             # Calculate area ratio
             area_ratio = float(np.sum(dilated_mask)) / (h * w)
             
-            print(f"[SAM3] Segmented {len(masks)} regions, combined area={area_ratio:.1%}")
+            print(f"[SAM3] Combined {total_masks_found} regions, area={area_ratio:.1%}")
             
             return BulkMaskResult(
                 mask_np=dilated_mask,

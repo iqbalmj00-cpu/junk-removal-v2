@@ -189,11 +189,10 @@ def _run_lane_a_yolo_seg(data_uri: str, frame_id: str, working_pil=None) -> Lane
 
 def _run_lane_b_bulk_segmentation(data_uri: str, working_pil=None) -> LaneBResult:
     """
-    Lane B: Bulk Segmentation using LOCAL SAM3.
-    Segments "junk" with text prompting.
-    No Replicate API - runs on local GPU/MPS/CPU.
+    Lane B: Bulk Segmentation using LOCAL Grounding DINO + SAM2.
+    Same architecture as Lang-SAM but fully local GPU inference.
     """
-    from .sam3_runner import get_sam3_runner
+    from .grounded_sam_runner import get_grounded_sam_runner
     import base64
     import numpy as np
     from PIL import Image
@@ -215,26 +214,23 @@ def _run_lane_b_bulk_segmentation(data_uri: str, working_pil=None) -> LaneBResul
             img_data = base64.b64decode(b64_data)
             image = Image.open(BytesIO(img_data)).convert("RGB")
         
-        # Run local SAM3
-        runner = get_sam3_runner()
-        sam_result = runner.segment(
-            image, 
-            prompt="pile of junk, debris, garbage bags, cardboard boxes"
-        )
+        # Run local Grounding DINO + SAM2
+        runner = get_grounded_sam_runner()
+        seg_result = runner.segment(image)
         
-        if sam_result.error:
-            print(f"[Lane B] SAM3 error: {sam_result.error}")
+        if seg_result.error:
+            print(f"[Lane B] GroundedSAM error: {seg_result.error}")
             return result
         
-        if sam_result.mask_np is not None:
-            result.bulk_mask_np = sam_result.mask_np
-            result.bulk_area_ratio = sam_result.area_ratio
-            print(f"[Lane B] SAM3 mask: {sam_result.mask_np.shape}, area={sam_result.area_ratio:.1%}, conf={sam_result.confidence:.2f}")
+        if seg_result.mask_np is not None:
+            result.bulk_mask_np = seg_result.mask_np
+            result.bulk_area_ratio = seg_result.area_ratio
+            print(f"[Lane B] GroundedSAM mask: {seg_result.mask_np.shape}, area={seg_result.area_ratio:.1%}, conf={seg_result.confidence:.2f}")
         else:
-            print(f"[Lane B] SAM3 returned no mask")
+            print(f"[Lane B] GroundedSAM returned no mask")
                 
     except Exception as e:
-        print(f"[Lane B] SAM3 error: {e}")
+        print(f"[Lane B] GroundedSAM error: {e}")
         import traceback
         traceback.print_exc()
         

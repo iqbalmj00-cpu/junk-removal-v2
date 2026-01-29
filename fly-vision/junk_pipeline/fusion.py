@@ -198,7 +198,8 @@ def run_fusion(
     floor_qualities: dict[str, str],
     depth_confidences: dict[str, float],
     floor_flatness_p95s: Optional[dict[str, float]] = None,
-    inlier_ratios: Optional[dict[str, float]] = None
+    inlier_ratios: Optional[dict[str, float]] = None,
+    mask_coverages: Optional[dict[str, float]] = None
 ) -> FusionResult:
     """
     Stage 6 Entry Point: Weighted Trimmed Mean Fusion.
@@ -212,6 +213,7 @@ def run_fusion(
         depth_confidences: Dict of frame_id → depth confidence from Stage 3
         floor_flatness_p95s: Dict of frame_id → Yfl95 from Stage 3
         inlier_ratios: Dict of frame_id → RANSAC inlier ratio from Stage 3
+        mask_coverages: Dict of frame_id → bulk mask area ratio from Lane B
         
     Returns:
         FusionResult with final volume and uncertainty
@@ -230,6 +232,8 @@ def run_fusion(
         floor_flatness_p95s = {}
     if inlier_ratios is None:
         inlier_ratios = {}
+    if mask_coverages is None:
+        mask_coverages = {}
     
     # Step 1: Catastrophic filtering
     valid_results = []
@@ -240,8 +244,16 @@ def run_fusion(
         depth_c = depth_confidences.get(fr.frame_id, 0.8)
         yfl95 = floor_flatness_p95s.get(fr.frame_id, 0.20)
         inlier_r = inlier_ratios.get(fr.frame_id, 0.5)
+        mask_cov = mask_coverages.get(fr.frame_id, 1.0)  # Default to 1.0 if not provided
         
-        # Check for catastrophic failure
+        # NEW: Check for no-mask catastrophic (0% coverage = no segmentation)
+        if mask_cov < 0.01:  # Less than 1% mask coverage
+            result.rejected_frames.append(fr.frame_id)
+            result.rejection_reasons[fr.frame_id] = f"catastrophic:no_mask (coverage={mask_cov:.1%})"
+            print(f"[Fusion] DROPPED (no_mask): {fr.frame_id[:8]} - coverage={mask_cov:.1%}")
+            continue
+        
+        # Check for catastrophic failure (floor quality)
         is_cat, cat_reason = _is_catastrophic(floor_q, yfl95, inlier_r, depth_c)
         
         if is_cat:

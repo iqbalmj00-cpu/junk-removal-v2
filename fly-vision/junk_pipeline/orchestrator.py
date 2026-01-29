@@ -195,13 +195,16 @@ def run_pipeline(
     depth_confidences = {g.frame_id: g.depth_confidence_score for g in geometry_results}
     floor_flatness_p95s = {g.frame_id: g.floor_flatness_p95 for g in geometry_results}
     inlier_ratios = {g.frame_id: g.ground_plane.inlier_ratio if g.ground_plane else 0.0 for g in geometry_results}
+    # NEW: Pass mask coverages from Lane B to detect no-mask frames
+    mask_coverages = {p.frame_id: p.lane_b.bulk_area_ratio for p in perception_results}
     
     fusion = run_fusion(
         frame_results=volumetric_results,
         floor_qualities=floor_qualities,
         depth_confidences=depth_confidences,
         floor_flatness_p95s=floor_flatness_p95s,
-        inlier_ratios=inlier_ratios
+        inlier_ratios=inlier_ratios,
+        mask_coverages=mask_coverages
     )
     
     print(f"  → Valid frames: {len(fusion.valid_frames)}")

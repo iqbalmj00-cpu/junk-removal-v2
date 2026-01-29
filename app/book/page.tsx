@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { UploadCloud, CheckCircle, ArrowRight, Loader2, Calendar, User, Phone, MapPin, Mail, Building, ArrowUp, Bell, Receipt, Info } from 'lucide-react';
 import Link from 'next/link';
 import imageCompression from 'browser-image-compression';
+import heic2any from 'heic2any';
 
 // --- Pricing Engine ---
 // --- Pricing Engine ---
@@ -157,9 +158,28 @@ function BookPageContent() {
         try {
             const compressedBase64s: string[] = [];
 
-            // 2. Compress & Convert to Base64
-            for (const file of bookingData.selectedImages) {
+            // 2. Convert HEIC & Compress to Base64
+            for (let file of bookingData.selectedImages) {
                 try {
+                    // Convert HEIC/HEIF to JPEG first
+                    const isHeic = file.name.toLowerCase().endsWith('.heic') ||
+                        file.name.toLowerCase().endsWith('.heif') ||
+                        file.type === 'image/heic' ||
+                        file.type === 'image/heif';
+
+                    if (isHeic) {
+                        setLoadingState({ title: 'CONVERTING HEIC...', subtitle: 'Converting iPhone photo format...' });
+                        const convertedBlob = await heic2any({
+                            blob: file,
+                            toType: 'image/jpeg',
+                            quality: 0.9
+                        });
+                        // heic2any can return array for multi-image HEIC
+                        const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
+                        file = new File([blob], file.name.replace(/\.heic$/i, '.jpg').replace(/\.heif$/i, '.jpg'), { type: 'image/jpeg' });
+                    }
+
+                    setLoadingState({ title: 'COMPRESSING...', subtitle: 'Optimizing images for analysis...' });
                     const compressedFile = await imageCompression(file, options);
                     const base64 = await fileToBase64(compressedFile);
                     compressedBase64s.push(base64);
@@ -362,7 +382,7 @@ function BookPageContent() {
                             type="file"
                             ref={fileInputRef}
                             onChange={handleFileChange}
-                            accept="image/*"
+                            accept="image/*,.heic,.heif"
                             multiple
                             className="hidden"
                         />

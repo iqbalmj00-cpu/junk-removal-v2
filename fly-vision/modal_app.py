@@ -1,7 +1,7 @@
 """
 Modal Deployment for Junk Vision Pipeline
 GPU-accelerated 3D volumetric engine with scale-to-zero
-SAM3 requires Python 3.12 + PyTorch 2.7 + CUDA 12.6
+Uses Grounding DINO + SAM2 for bulk segmentation (same as Lang-SAM)
 """
 
 import modal
@@ -9,11 +9,11 @@ import modal
 # Create Modal app
 app = modal.App("junk-vision")
 
-# Define the container image with SAM3 requirements
+# Define the container image
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("libgl1", "libglib2.0-0", "git")
-    # Install PyTorch 2.7 with CUDA 12.6 (SAM3 requirement)
+    # Install PyTorch 2.7 with CUDA 12.6
     .pip_install(
         "torch==2.7.0",
         "torchvision",
@@ -34,16 +34,10 @@ image = (
         "pillow-heif>=0.13.0",
         "numpy>=1.24.0",
         "scipy>=1.10.0",
-        "transformers>=4.40.0",
+        "transformers>=4.47.0",  # Grounding DINO + SAM via HuggingFace
         "timm>=0.9.0",
         "ultralytics>=8.3.0",  # YOLO11 for Lane A
-        "einops>=0.7.0",  # Required by SAM3
-        "decord>=0.6.0",  # Required by SAM3 for video
-        "pycocotools>=2.0.0",  # Required by SAM3
-        "supervision>=0.20.0",  # SAM3 visualization
     )
-    # Install SAM3 from GitHub
-    .run_commands("pip install git+https://github.com/facebookresearch/sam3.git")
     .add_local_dir("junk_pipeline", remote_path="/root/junk_pipeline")
 )
 
@@ -56,7 +50,10 @@ model_cache = modal.Volume.from_name("model-cache", create_if_missing=True)
     gpu="A10G",
     timeout=600,
     volumes={"/models": model_cache},
-    secrets=[modal.Secret.from_name("replicate-api-key")],  # For Lane C
+    secrets=[
+        modal.Secret.from_name("replicate-api-key"),  # For Lane C
+        modal.Secret.from_name("huggingface-secret"),  # For SAM3
+    ],
 )
 @modal.fastapi_endpoint(method="POST")
 def process(request: dict):
