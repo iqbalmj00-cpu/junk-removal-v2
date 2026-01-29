@@ -180,7 +180,7 @@ function BookPageContent() {
                         file = new File([blob], file.name.replace(/\.heic$/i, '.jpg').replace(/\.heif$/i, '.jpg'), { type: 'image/jpeg' });
                     }
 
-                    setLoadingState({ title: 'COMPRESSING...', subtitle: 'Optimizing images for analysis...' });
+                    setLoadingState({ title: 'GETTING YOUR PRICE', subtitle: 'May take up to 2 minutes' });
                     const compressedFile = await imageCompression(file, options);
                     const base64 = await fileToBase64(compressedFile);
                     compressedBase64s.push(base64);
