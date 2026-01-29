@@ -199,6 +199,11 @@ function BookPageContent() {
             }));
 
             // 4. Call the Python Backend
+            // Set a timer to change loading text after 30 seconds
+            const loadingTimer = setTimeout(() => {
+                setLoadingState({ title: 'ALMOST DONE', subtitle: 'Thank you for your patience' });
+            }, 30000);
+
             const response = await fetch('/api/quote', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -209,6 +214,8 @@ function BookPageContent() {
                     mode: jobType  // Route to single item or pile engine
                 }),
             });
+
+            clearTimeout(loadingTimer); // Clear timer when response arrives
 
             if (!response.ok) {
                 const errData = await response.json();

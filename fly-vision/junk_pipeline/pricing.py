@@ -83,14 +83,15 @@ def get_price(volume: float) -> int:
 
 def volume_to_price(volume: float) -> Tuple[int, int, int]:
     """
-    Convert volume to price with ±15% range.
+    Convert volume to price with ±6% range, rounded to nearest $5.
     
     Returns: (min_price, base_price, max_price)
     """
     base = get_price(volume)
     
-    min_price = round(base * 0.85)
-    max_price = round(base * 1.15)
+    # ±6% range, rounded to nearest $5
+    min_price = round((base * 0.94) / 5) * 5
+    max_price = round((base * 1.06) / 5) * 5
     
     return min_price, base, max_price
 
