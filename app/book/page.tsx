@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/Button';
 import { UploadCloud, CheckCircle, ArrowRight, Loader2, Calendar, User, Phone, MapPin, Mail, Building, ArrowUp, Bell, Receipt, Info } from 'lucide-react';
 import Link from 'next/link';
 import imageCompression from 'browser-image-compression';
-import heic2any from 'heic2any';
 
 // --- Pricing Engine ---
 // --- Pricing Engine ---
@@ -169,6 +168,8 @@ function BookPageContent() {
 
                     if (isHeic) {
                         setLoadingState({ title: 'CONVERTING HEIC...', subtitle: 'Converting iPhone photo format...' });
+                        // Dynamic import to avoid SSR issues
+                        const heic2any = (await import('heic2any')).default;
                         const convertedBlob = await heic2any({
                             blob: file,
                             toType: 'image/jpeg',
