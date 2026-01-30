@@ -333,7 +333,7 @@ END:VCALENDAR`;
     const renderCalculator = () => (
         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
             <div className="text-center mb-10">
-                <h1 className="text-5xl font-extrabold text-slate-900 mb-4 tracking-tight">AI JUNK PRICING TOOL</h1>
+                <h1 className="text-5xl font-extrabold text-slate-900 mb-4 tracking-tight">JUNK PRICING TOOL</h1>
                 <p className="text-xl text-slate-500 font-light">
                     Upload photos for an instant quote.
                 </p>
