@@ -553,7 +553,7 @@ END:VCALENDAR`;
                 {/* Calculate Price Button */}
                 <div className="p-10 bg-white border-t border-slate-100">
                     {(() => {
-                        const minImages = jobType === 'single' ? 1 : 3;
+                        const minImages = jobType === 'single' ? 1 : 2;
                         const currentCount = bookingData.selectedImages.length;
                         const isReady = currentCount >= minImages;
                         const remaining = minImages - currentCount;
