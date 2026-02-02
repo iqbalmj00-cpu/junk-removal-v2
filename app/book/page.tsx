@@ -7,7 +7,8 @@ import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
 import { UploadCloud, CheckCircle, ArrowRight, Loader2, Calendar, User, Phone, MapPin, Mail, Building, ArrowUp, Bell, Receipt, Info, Camera, XCircle } from 'lucide-react';
 import Link from 'next/link';
-import imageCompression from 'browser-image-compression';
+// v6.7.2: Removed browser-image-compression - now uploading original files directly
+import exifr from 'exifr';
 
 // --- Pricing Engine ---
 // --- Pricing Engine ---
@@ -189,80 +190,78 @@ END:VCALENDAR`;
         URL.revokeObjectURL(url);
     };
 
+
     const handleAnalyze = async () => {
         if (bookingData.selectedImages.length === 0) return;
-        setLoadingState({ title: 'ADVANCED AI ANALYSIS...', subtitle: 'Compressing images for Vercel optimization...' });
+        setLoadingState({ title: 'ANALYZING PHOTOS...', subtitle: 'Uploading images to AI engine...' });
         setView('analyzing');
 
-        // 1. Compression Settings (Crucial for Vercel)
-        const options = {
-            maxSizeMB: 0.8,         // Squash to < 0.8MB
-            maxWidthOrHeight: 1024, // Resize for AI Vision
-            useWebWorker: true
-        };
+        // v6.7.2: Direct upload to Modal (bypasses Vercel 4.5MB limit)
+        const MODAL_ENDPOINT = 'https://iqbalmj00-cpu--junk-vision-fastapi-app.modal.run/upload';
 
         try {
-            const compressedBase64s: string[] = [];
+            setLoadingState({ title: 'PREPARING IMAGES...', subtitle: 'Extracting camera data...' });
 
-            // 2. Convert HEIC & Compress to Base64
-            for (let file of bookingData.selectedImages) {
+            // Build FormData with ORIGINAL files (no compression)
+            const formData = new FormData();
+
+            for (let i = 0; i < bookingData.selectedImages.length; i++) {
+                const file = bookingData.selectedImages[i];
+
+                // Extract EXIF from original bytes for optional frontend fallback
+                let extractedExif: {
+                    make?: string;
+                    model?: string;
+                    focalLength?: number;
+                    focalLength35mm?: number;
+                    imageWidth?: number;
+                    imageHeight?: number;
+                    orientation?: number;
+                } = {};
+
                 try {
-                    // Convert HEIC/HEIF to JPEG first
-                    const isHeic = file.name.toLowerCase().endsWith('.heic') ||
-                        file.name.toLowerCase().endsWith('.heif') ||
-                        file.type === 'image/heic' ||
-                        file.type === 'image/heif';
+                    const exif = await exifr.parse(file, {
+                        pick: ['Make', 'Model', 'FocalLength', 'FocalLengthIn35mmFilm',
+                            'ImageWidth', 'ImageHeight', 'ExifImageWidth', 'ExifImageHeight', 'Orientation']
+                    });
 
-                    if (isHeic) {
-                        setLoadingState({ title: 'CONVERTING HEIC...', subtitle: 'Converting iPhone photo format...' });
-                        // Dynamic import to avoid SSR issues
-                        const heic2any = (await import('heic2any')).default;
-                        const convertedBlob = await heic2any({
-                            blob: file,
-                            toType: 'image/jpeg',
-                            quality: 0.9
-                        });
-                        // heic2any can return array for multi-image HEIC
-                        const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
-                        file = new File([blob], file.name.replace(/\.heic$/i, '.jpg').replace(/\.heif$/i, '.jpg'), { type: 'image/jpeg' });
+                    if (exif) {
+                        extractedExif = {
+                            make: exif.Make,
+                            model: exif.Model,
+                            focalLength: exif.FocalLength,
+                            focalLength35mm: exif.FocalLengthIn35mmFilm,
+                            imageWidth: exif.ExifImageWidth || exif.ImageWidth,
+                            imageHeight: exif.ExifImageHeight || exif.ImageHeight,
+                            orientation: exif.Orientation
+                        };
+                        console.log(`[EXIF] Image ${i + 1}: ${extractedExif.make} ${extractedExif.model}, focal=${extractedExif.focalLength}mm`);
                     }
-
-                    setLoadingState({ title: 'GETTING YOUR PRICE', subtitle: 'May take up to 2 minutes' });
-                    const compressedFile = await imageCompression(file, options);
-                    const base64 = await fileToBase64(compressedFile);
-                    compressedBase64s.push(base64);
-                } catch (compressErr) {
-                    console.warn("Compression failed for a file, using original", compressErr);
-                    const originalBase64 = await fileToBase64(file);
-                    compressedBase64s.push(originalBase64);
+                } catch (exifErr) {
+                    console.warn(`[EXIF] Image ${i + 1}: Browser EXIF parse failed (server will extract)`, exifErr);
                 }
+
+                // Append ORIGINAL file (untouched bytes - HEIC stays HEIC!)
+                formData.append('files', file);
+                formData.append('exif', JSON.stringify(extractedExif));
+
+                console.log(`[UPLOAD] Image ${i + 1}: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
             }
 
-            // 3. Extract Metadata for Stable Fingerprinting
-            const metadata = bookingData.selectedImages.map(file => ({
-                name: file.name,
-                size: file.size,
-                lastModified: file.lastModified
-            }));
-
-            // 4. Call the Python Backend
-            // Set a timer to change loading text after 30 seconds
+            // Set loading timer
+            setLoadingState({ title: 'ANALYZING JUNK PILE...', subtitle: 'This may take 1-2 minutes for high-res photos' });
             const loadingTimer = setTimeout(() => {
                 setLoadingState({ title: 'ALMOST DONE', subtitle: 'Thank you for your patience' });
-            }, 30000);
+            }, 60000);  // Longer timeout for large files
 
-            const response = await fetch('/api/quote', {
+            // Direct POST to Modal (bypasses Vercel!)
+            console.log(`[UPLOAD] Sending ${bookingData.selectedImages.length} files to Modal...`);
+            const response = await fetch(MODAL_ENDPOINT, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    images: compressedBase64s,
-                    metadata: metadata,
-                    heavyMaterialLevel: heavyMaterialLevel,
-                    mode: jobType  // Route to single item or pile engine
-                }),
+                body: formData  // No Content-Type header - browser sets multipart boundary
             });
 
-            clearTimeout(loadingTimer); // Clear timer when response arrives
+            clearTimeout(loadingTimer);
 
             if (!response.ok) {
                 const errData = await response.json();
@@ -270,12 +269,14 @@ END:VCALENDAR`;
             }
 
             const data = await response.json();
-            console.log("API Quote Received:", data);
+            console.log("Modal Quote Received:", data);
 
-            // 4. Handle the "Consensus" Result
-            if (data.status === "SUCCESS") {
-                // SCENARIO A: Models Agree - Update State, NO ALERTS
-                const volumeYards = data.volume_yards || 3.5;
+            // v6.7.2: Handle Modal response format {quote: {...}}
+            const quote = data.quote;
+
+            if (quote && quote.final_volume_cy !== undefined) {
+                // SUCCESS: Got a valid quote from Modal
+                const volumeYards = quote.final_volume_cy || 0;
                 const volumeCuFt = volumeYards * 27;
 
                 // Sync state
@@ -286,11 +287,13 @@ END:VCALENDAR`;
 
                 // Set Range Price from Backend
                 setQuoteState({
-                    min: data.min_price || data.price, // Fallback if old API
-                    max: data.max_price || data.price,
+                    min: quote.min_price || 0,
+                    max: quote.max_price || 0,
                     volume: volumeYards,
-                    heavySurcharge: data.heavy_surcharge || 0
+                    heavySurcharge: 0  // TODO: heavy material detection
                 });
+
+                console.log(`[QUOTE] Volume: ${volumeYards.toFixed(2)} yd³, Price: $${quote.min_price}-$${quote.max_price}`);
 
                 // Transition Logic
                 setView('receipt');
@@ -300,15 +303,12 @@ END:VCALENDAR`;
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                 }, 100);
 
+            } else if (data.error) {
+                throw new Error(data.error);
             } else {
-                // SCENARIO B: SHADOW MODE (Models Disagree)
-                setLoadingState({ title: 'REVIEW REQUIRED', subtitle: 'Connecting to human specialist...' });
-                await new Promise(r => setTimeout(r, 1000));
-
-                alert(`⚠️ COMPLEX LOAD DETECTED\n\nOur AI models had conflicting estimates. A Human Specialist has been alerted and will text you an exact price in 5-10 minutes.`);
-
-                // Reset to calculator to allow re-upload or exit
-                setView('calculator');
+                // Unexpected response format
+                console.warn("Unexpected Modal response:", data);
+                throw new Error("Invalid response from analysis server");
             }
 
         } catch (error: any) {
