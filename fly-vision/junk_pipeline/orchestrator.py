@@ -19,7 +19,8 @@ from .output import build_output
 
 def run_pipeline(
     image_paths: list[str],
-    job_id: Optional[str] = None
+    job_id: Optional[str] = None,
+    exif_data: Optional[list[dict]] = None
 ) -> dict:
     """
     Run the complete 7-stage pipeline.
@@ -27,6 +28,7 @@ def run_pipeline(
     Args:
         image_paths: List of absolute paths to input images
         job_id: Optional job identifier (auto-generated if not provided)
+        exif_data: Optional list of frontend-extracted EXIF dicts
         
     Returns:
         Final JSON payload matching v2.0 schema
@@ -40,7 +42,7 @@ def run_pipeline(
     # STAGE 1: Hardened Ingestion
     # =========================================================================
     print("[Stage 1] Ingestion...")
-    ingestion_result = run_ingestion(image_paths)
+    ingestion_result = run_ingestion(image_paths, exif_data=exif_data)
     
     print(f"  → Valid frames: {len(ingestion_result.frames)}")
     print(f"  → Rejected: {len(ingestion_result.rejected_frames)}")
@@ -110,7 +112,8 @@ def run_pipeline(
             working_pil=working_pil,
             scene_type=perception.lane_c.scene_type,
             bulk_mask=perception.lane_b.bulk_mask_np,
-            floor_mask=floor_mask
+            floor_mask=floor_mask,
+            calibration_bundle=frame.calibration_bundle  # v6.7.2: EXIF intrinsics flow
         )
         geometry_results.append(geometry)
         
@@ -205,7 +208,11 @@ def run_pipeline(
             bulk_mask_np=mask_for_volumetrics,  # v8.7: Early-constrained mask
             ground_mask_np=ground_mask,  # Lane D (kept for compatibility)
             pixel_indices=pixel_indices,  # Correct point-to-pixel mapping
-            floor_flatness_p95=geometry.floor_flatness_p95  # From geometry RANSAC
+            floor_flatness_p95=geometry.floor_flatness_p95,  # From geometry RANSAC
+            # v8.5/v8.6: Support plane metrics
+            support_plane_selected=geometry.support_plane_selected,
+            sr_yfl95=geometry.sr_yfl95,
+            sr_inlier_ratio=geometry.sr_inlier_ratio
         )
         volumetric_results.append(vol_result)
         
@@ -225,6 +232,10 @@ def run_pipeline(
     inlier_ratios = {g.frame_id: g.ground_plane.inlier_ratio if g.ground_plane else 0.0 for g in geometry_results}
     # NEW: Pass mask coverages from Lane B to detect no-mask frames
     mask_coverages = {p.frame_id: p.lane_b.bulk_area_ratio for p in perception_results}
+    # v8.5: Support plane selection flags for fusion
+    support_plane_selected = {g.frame_id: g.support_plane_selected for g in geometry_results}
+    sr_inlier_ratios = {g.frame_id: g.sr_inlier_ratio for g in geometry_results}
+    sr_yfl95s = {g.frame_id: g.sr_yfl95 for g in geometry_results}
     
     fusion = run_fusion(
         frame_results=volumetric_results,
@@ -232,7 +243,11 @@ def run_pipeline(
         depth_confidences=depth_confidences,
         floor_flatness_p95s=floor_flatness_p95s,
         inlier_ratios=inlier_ratios,
-        mask_coverages=mask_coverages
+        mask_coverages=mask_coverages,
+        # v8.5: Support plane metrics
+        support_plane_selected=support_plane_selected,
+        sr_inlier_ratios=sr_inlier_ratios,
+        sr_yfl95s=sr_yfl95s
     )
     
     print(f"  → Valid frames: {len(fusion.valid_frames)}")
