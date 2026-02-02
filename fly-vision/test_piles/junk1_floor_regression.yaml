@@ -1,0 +1,85 @@
+# JUNK1: Multi-surface outdoor driveway (v8.3.3 regression baseline)
+# This test case validates floor detection, multi-plane RANSAC, and fusion behavior
+# in scenes with driveway + lawn + junk = multiple ground surfaces
+
+pile_id: "JUNK1_FLOOR_REGRESSION"
+category: "outdoor_mixed"
+version: "v8.3.3"
+created: "2026-02-02"
+
+# Frame SHA prefixes for this test
+frames:
+  - id: "43132619"
+    role: "primary_donor"
+    notes: "Best floor quality, single clean plane"
+  - id: "5214061b"
+    role: "multi_surface"
+    notes: "Two planes detected, neither passes gates cleanly"
+  - id: "9352b875"
+    role: "multi_surface"
+    notes: "Two planes, dominance rule should select higher-ratio plane"
+  - id: "f181eb6c"
+    role: "secondary_donor"
+    notes: "Under-segmented but clean floor"
+
+ground_truth:
+  min_yd3: 2.5
+  likely_yd3: 4.0
+  max_yd3: 5.0
+  notes: "~4 cu yd construction debris pile on driveway"
+
+# ============================================================================
+# REGRESSION INVARIANTS
+# These must ALWAYS pass. Failures = red flag / immediate investigation.
+# ============================================================================
+
+invariants:
+  # INV-1: At least one frame must have good floor quality
+  floor_quality:
+    rule: "At least 1 frame must have floor_quality='good' (inlier>=0.90, yfl95<0.08)"
+    min_good_frames: 1
+    check: |
+      count(frames where inlier_ratio >= 0.90 AND yfl95 < 0.08) >= 1
+
+  # INV-2: At least 2 frames eligible for fusion donors
+  donor_eligibility:
+    rule: "At least 2 frames must be eligible donors (MES score > 0.5)"
+    min_eligible_donors: 2
+    check: |
+      count(frames where mes_score > 0.5 AND NOT excluded) >= 2
+
+  # INV-3: V_ref must not anchor to clearly under-segmented frame
+  vref_selection:
+    rule: "V_ref must NOT be frame with bulk_area < 5% if another eligible frame has bulk_area > 15%"
+    check: |
+      IF exists(eligible_frame with bulk_area > 15%):
+        vref.bulk_area >= 10%
+
+  # INV-4: Fusion volume must be stable within reasonable band
+  fusion_stability:
+    rule: "Final volume must be within [2.0, 5.5] yd³ for this pile"
+    min_yd3: 2.0
+    max_yd3: 5.5
+
+  # INV-5: Multi-plane RANSAC must detect multiple surfaces
+  multi_plane_detection:
+    rule: "At least 1 frame must detect num_planes >= 2 when multi_surface_hint=True"
+    min_multi_plane_frames: 1
+    check: |
+      count(frames where is_multi_surface_hint AND num_planes_detected >= 2) >= 1
+
+# Expected outcomes (for monitoring, not hard failures)
+expected:
+  primary_donor: "43132619"
+  frames_with_good_floor: ["43132619"]
+  frames_with_multi_plane: ["5214061b", "9352b875"]
+  fusion_method: "union_blend"
+  confidence: "LOW"  # Due to multi-surface complexity
+
+notes: |
+  This is the v8.3.3 regression baseline for outdoor multi-surface scenes.
+  Key behaviors to preserve:
+  - multi_surface_hint correctly triggers geometry-only candidates
+  - Multi-plane RANSAC with dominance rule selects higher-ratio planes
+  - Floor confidence gates exclude low-quality floors from height/footprint
+  - Union-blend uses trusted-max anchored to a valid frame

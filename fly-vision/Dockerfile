@@ -3,9 +3,9 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system deps
+# Install system deps (including ExifTool for HEIC/JPEG metadata)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 gcc \
+    libgl1 libglib2.0-0 gcc libimage-exiftool-perl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps

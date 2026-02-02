@@ -30,12 +30,20 @@ export async function POST(request: NextRequest) {
 
         console.log(`📥 Proxying ${images.length} images to Modal...`);
 
+        // Extract EXIF data if provided
+        const exifData = body.exifData || [];
+        if (exifData.length > 0) {
+            const hasExif = exifData.some((e: any) => e.make || e.model || e.focalLength);
+            console.log(`📸 EXIF data: ${hasExif ? 'PRESENT' : 'empty'} for ${exifData.length} images`);
+        }
+
         // Format for Modal endpoint
         const payload = {
             images: images.map((img: string, i: number) => ({
                 id: `img_${i}`,
                 b64: img,
-                mime: 'image/jpeg'
+                mime: 'image/jpeg',
+                exif: exifData[i] || {}  // Attach EXIF to each image
             })),
         };
 
