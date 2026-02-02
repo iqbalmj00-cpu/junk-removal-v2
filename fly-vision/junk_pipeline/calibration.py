@@ -158,6 +158,15 @@ def run_calibration(
         CalibrationResult with scale factor and confidence
     """
     result = CalibrationResult(frame_id=frame_id)
+    reason_codes = []
+    
+    # Track why decisions are made
+    if not exif_available:
+        reason_codes.append("missing_exif")
+    if not intrinsics_available:
+        reason_codes.append("depthpro_intrinsics_unavailable")
+    if not anchors:
+        reason_codes.append("no_anchors_detected")
     
     # Try anchor consensus first (most accurate)
     if anchors and depth_map is not None:
@@ -199,6 +208,9 @@ def run_calibration(
         result.conflict_detected = conflict
         result.calibration_source = "anchor_consensus"
         result.confidence = "MEDIUM" if conflict else "HIGH"
+        if conflict:
+            reason_codes.append("anchor_conflict_detected")
+        _log_calibration_trace(result, f_px, image_width, image_height, reason_codes)
         return result
         
     # Fallback to EXIF intrinsics
@@ -206,6 +218,9 @@ def run_calibration(
         result.scale_factor = 1.0  # Trust the camera intrinsics
         result.calibration_source = "exif" if exif_available else "intrinsics"
         result.confidence = "MEDIUM"
+        if not exif_available:
+            reason_codes.append("exif_unavailable_using_intrinsics")
+        _log_calibration_trace(result, f_px, image_width, image_height, reason_codes)
         return result
         
     # Ultimate fallback: uncalibrated mode
@@ -214,5 +229,44 @@ def run_calibration(
     result.confidence = "LOW"
     result.conservative_billing = True
     result.review_required = True
+    reason_codes.append("uncalibrated_mode")
     
+    _log_calibration_trace(result, f_px, image_width, image_height, reason_codes)
     return result
+
+
+def _log_calibration_trace(
+    result: CalibrationResult,
+    f_px: float,
+    image_width: int,
+    image_height: int,
+    reason_codes: list
+):
+    """
+    v6.5.1: Calibration Trace logging.
+    
+    Explains WHY calibration chose exif vs intrinsics vs fallback.
+    """
+    # Compute cx, cy (assume principal point at center)
+    cx = image_width / 2.0
+    cy = image_height / 2.0
+    
+    print(f"\n[CALIB_TRACE] === Frame {result.frame_id[:8]} ===")
+    print(f"[CALIB_TRACE] Decision:")
+    print(f"  calib_mode_selected: {result.calibration_source}")
+    print(f"  reason_codes: {reason_codes}")
+    print(f"[CALIB_TRACE] Intrinsics Used:")
+    print(f"  fx: {f_px:.1f}")
+    print(f"  fy: {f_px:.1f}")
+    print(f"  cx: {cx:.1f}")
+    print(f"  cy: {cy:.1f}")
+    print(f"  f_px: {f_px:.1f}")
+    print(f"[CALIB_TRACE] Output:")
+    print(f"  scale_factor: {result.scale_factor:.4f}")
+    print(f"  confidence: {result.confidence}")
+    if result.anchor_measurements:
+        print(f"  anchors_used: {len(result.anchor_measurements)}")
+        for m in result.anchor_measurements:
+            print(f"    - {m.label}: expected={m.expected_size_m:.2f}m, measured={m.measured_size_m:.2f}m, scale={m.scale_factor:.3f}")
+    print(f"[CALIB_TRACE] ==============================\n")
+

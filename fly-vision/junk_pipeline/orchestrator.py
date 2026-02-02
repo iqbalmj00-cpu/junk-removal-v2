@@ -166,6 +166,34 @@ def run_pipeline(
         if perception.lane_d and perception.lane_d.ground_mask_np is not None:
             ground_mask = perception.lane_d.ground_mask_np
         
+        # =====================================================
+        # v8.7: EARLY MASK CONSTRAINT (Root Cause Fix #1)
+        # Erode contaminated masks BEFORE volumetrics integration.
+        # This prevents background noise from being integrated as volume.
+        # =====================================================
+        VERTICAL_PCT_THRESHOLD = 0.10  # >10% vertical pixels = contaminated
+        FAR_PCT_THRESHOLD = 0.15       # >15% far pixels = contaminated
+        EROSION_ITERATIONS = 5         # ~5px erosion removes fringe
+        
+        mask_for_volumetrics = perception.lane_b.bulk_mask_np
+        if mask_for_volumetrics is not None and np.sum(mask_for_volumetrics) > 0:
+            vertical_pct = getattr(perception.lane_b, 'vertical_pct', 0.0)
+            far_pct = getattr(perception.lane_b, 'far_pct', 0.0)
+            
+            if vertical_pct > VERTICAL_PCT_THRESHOLD or far_pct > FAR_PCT_THRESHOLD:
+                from scipy.ndimage import binary_erosion
+                eroded_mask = binary_erosion(mask_for_volumetrics, iterations=EROSION_ITERATIONS)
+                
+                # Safety: only use eroded if it preserves at least 10% of original mask
+                if np.sum(eroded_mask) > 0.10 * np.sum(mask_for_volumetrics):
+                    mask_for_volumetrics = eroded_mask
+                    print(f"[MASK_CONSTRAINT] ⚡ Eroded mask (vertical={vertical_pct:.2f}, far={far_pct:.2f}): "
+                          f"{np.sum(perception.lane_b.bulk_mask_np):,} → {np.sum(eroded_mask):,} pixels")
+                else:
+                    print(f"[MASK_CONSTRAINT] ⚠️ Erosion too aggressive, keeping original mask")
+            else:
+                print(f"[MASK_CONSTRAINT] ✓ Clean mask (vertical={vertical_pct:.2f}, far={far_pct:.2f})")
+        
         vol_result = run_volumetrics(
             frame_id=frame.metadata.image_id,
             instances=perception.lane_a.instances,
@@ -174,7 +202,7 @@ def run_pipeline(
             scale_factor=calibration.scale_factor,
             image_width=frame.metadata.width,
             image_height=frame.metadata.height,
-            bulk_mask_np=perception.lane_b.bulk_mask_np,  # Lane B for foreground
+            bulk_mask_np=mask_for_volumetrics,  # v8.7: Early-constrained mask
             ground_mask_np=ground_mask,  # Lane D (kept for compatibility)
             pixel_indices=pixel_indices,  # Correct point-to-pixel mapping
             floor_flatness_p95=geometry.floor_flatness_p95  # From geometry RANSAC

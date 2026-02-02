@@ -9,6 +9,14 @@ import numpy as np
 
 from .perception import InstanceMask
 
+# Imports for depth-aware point filtering
+from scipy.ndimage import label as scipy_label, binary_dilation
+try:
+    from sklearn.cluster import KMeans
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+
 
 # Grid parameters for volumetric integration
 GRID_CELL_SIZE_M = 0.10  # 10cm × 10cm cells
@@ -54,6 +62,480 @@ DISCRETE_VOLUME_CATALOG = {
 
 # Meters³ to Cubic Yards conversion
 M3_TO_CY = 1.30795
+
+# ============================================================================
+# DEPTH-AWARE POINT FILTERING (Background Removal)
+# Removes trees, fences, walls from masked point set
+# ============================================================================
+
+# Scene-aware Y_max caps (meters)
+Y_MAX_BY_SCENE = {
+    "residential": 2.5,
+    "outdoor_driveway": 2.5,
+    "construction": 4.0,
+    "demo": 4.0,
+    "cleanout": 3.5,
+    "indoor": 3.0,
+}
+Y_HARD_CAP = 6.0
+
+# Filter thresholds
+Z_SPLIT_MIN_SEPARATION = 2.0  # Minimum meters separation for Z-split
+Z_SPLIT_RELATIVE_THRESHOLD = 0.4  # Also require separation > 40% of near_median
+XZ_MIN_COMPONENT_AREA = 0.3  # m² - minimum to keep a component
+CONTAMINATION_Y_THRESHOLD = 3.0  # Y_max above this suggests background
+CONTAMINATION_MASK_THRESHOLD = 0.60  # mask_coverage above this suggests leak
+
+
+def _detect_contamination(Y_max: float, mask_coverage: float, depth_at_cap_pct: float = 0.0) -> tuple[bool, list[str]]:
+    """Detect if mask likely includes background contamination."""
+    signals = []
+    
+    if Y_max > CONTAMINATION_Y_THRESHOLD:
+        signals.append("tall_object")
+    if mask_coverage > CONTAMINATION_MASK_THRESHOLD:
+        signals.append("large_mask")
+    if depth_at_cap_pct > 0.20:
+        signals.append("far_background")
+    
+    return len(signals) > 0, signals
+
+
+def _z_cluster_split_sp_aware(
+    Z_vals: np.ndarray,
+    Y_vals: np.ndarray,
+    support_plane_selected: bool,
+    sr_yfl95: float,
+    sr_inlier_ratio: float = 0.0
+) -> tuple[np.ndarray, bool, float, str]:
+    """
+    Split points by Z, but choose cluster based on Support Plane consistency.
+    
+    Strategy:
+    - If no SP: use legacy near/far median logic
+    - If SP trusted: choose cluster whose Y-heights look like "pile above floor"
+    
+    Args:
+        Z_vals: Depth values
+        Y_vals: Height values (rectified, Y=0 is floor)
+        support_plane_selected: Whether a trusted support plane exists
+        sr_yfl95: Support ROI P95 residual (local floor noise)
+        sr_inlier_ratio: Support ROI inlier ratio
+    
+    Returns:
+        (keep_mask, split_applied, separation_m, mode_str)
+    """
+    if len(Z_vals) < 100:
+        return np.ones(len(Z_vals), dtype=bool), False, 0.0, 'skip'
+    
+    if not SKLEARN_AVAILABLE:
+        # Fallback to MAD-based splitting
+        Z_median = np.median(Z_vals)
+        Z_mad = np.median(np.abs(Z_vals - Z_median)) * 1.4826
+        near_mask = Z_vals <= Z_median + 2 * Z_mad
+        return near_mask, False, 0.0, 'fallback'
+    
+    km = KMeans(n_clusters=2, n_init=3, random_state=42)
+    # v8.6.2: Ensure no NaNs/Infs for KMeans
+    Z_clean = np.nan_to_num(Z_vals, nan=0.0, posinf=0.0, neginf=0.0)
+    km.fit(Z_clean.reshape(-1, 1))
+    
+    c0_med = np.median(Z_vals[km.labels_ == 0])
+    c1_med = np.median(Z_vals[km.labels_ == 1])
+    
+    near_label = 0 if c0_med < c1_med else 1
+    far_label = 1 - near_label
+    separation = abs(c1_med - c0_med)
+    
+    # Check if split is meaningful
+    near_med = min(c0_med, c1_med)
+    sep_threshold = max(Z_SPLIT_MIN_SEPARATION, Z_SPLIT_RELATIVE_THRESHOLD * near_med)
+    
+    if separation <= sep_threshold:
+        return np.ones(len(Z_vals), dtype=bool), False, separation, 'no_split'
+    
+    # === SUPPORT PLANE CONSISTENCY CHECK ===
+    # If SP is trusted, choose cluster based on pile-like heights
+    if support_plane_selected and sr_inlier_ratio >= 0.70:
+        # Compute pile-likeness score for each cluster
+        near_heights = Y_vals[km.labels_ == near_label]
+        far_heights = Y_vals[km.labels_ == far_label]
+        
+        # Pile-like signature: Y > 2*sr_yfl95 (above floor noise)
+        pile_threshold = max(2.0 * sr_yfl95, 0.05)
+        
+        # Score each cluster by:
+        # 1) % of points above pile threshold (pile presence)
+        # 2) P85 height (pile upper tail, robust to near-floor contamination)
+        near_pct_above = (near_heights > pile_threshold).sum() / max(len(near_heights), 1)
+        far_pct_above = (far_heights > pile_threshold).sum() / max(len(far_heights), 1)
+        
+        near_p85 = np.percentile(near_heights, 85)
+        far_p85 = np.percentile(far_heights, 85)
+        
+        # Pile-likeness score: combine % above + P85 height
+        near_score = near_pct_above * 0.6 + min(near_p85 / pile_threshold, 2.0) * 0.4
+        far_score = far_pct_above * 0.6 + min(far_p85 / pile_threshold, 2.0) * 0.4
+        
+        # Choose cluster with higher pile-likeness score
+        # v8.6.1: Lowered threshold 0.15 -> 0.05 to catch piles sharing cluster with floor
+        if near_score > far_score and near_pct_above > 0.05:
+            chosen_label = near_label
+            mode = 'sp_near'
+        elif far_score > near_score and far_pct_above > 0.05:
+            chosen_label = far_label
+            mode = 'sp_far'
+        elif near_pct_above > 0.05 or far_pct_above > 0.05:
+            # Both have pile signal - pick higher score
+            chosen_label = near_label if near_score >= far_score else far_label
+            mode = 'sp_both_elevated'
+        else:
+            # Neither has pile signal - legacy near logic
+            chosen_label = near_label
+            mode = 'sp_fallback_near'
+        
+        chosen_mask = km.labels_ == chosen_label
+        return chosen_mask, True, separation, mode
+    
+    # === LEGACY MODE (no SP) ===
+    near_mask = km.labels_ == near_label
+    return near_mask, True, separation, 'legacy_near'
+
+
+
+def _y_height_filter(Y_vals: np.ndarray, floor_noise: float, scene_type: str = "residential") -> tuple[np.ndarray, float, float]:
+    """Height band filter with scene-aware caps."""
+    Y_min = max(2.0 * floor_noise, 0.05)
+    Y_max = Y_MAX_BY_SCENE.get(scene_type, 2.5)
+    Y_max = min(Y_max, Y_HARD_CAP)
+    
+    height_mask = (Y_vals > Y_min) & (Y_vals < Y_max)
+    return height_mask, Y_min, Y_max
+
+
+def _xz_multicomponent_filter(X_vals: np.ndarray, Z_vals: np.ndarray, cell_size: float = 0.2) -> np.ndarray:
+    """Keep all connected components above minimum area threshold."""
+    if len(X_vals) < 10:
+        return np.ones(len(X_vals), dtype=bool)
+    
+    # Rasterize to grid
+    X_offset = X_vals - X_vals.min()
+    Z_offset = Z_vals - Z_vals.min()
+    X_bins = (X_offset / cell_size).astype(int)
+    Z_bins = (Z_offset / cell_size).astype(int)
+    
+    grid_w = X_bins.max() + 1 if len(X_bins) > 0 else 1
+    grid_h = Z_bins.max() + 1 if len(Z_bins) > 0 else 1
+    
+    grid = np.zeros((grid_h, grid_w), dtype=bool)
+    for i in range(len(X_vals)):
+        grid[Z_bins[i], X_bins[i]] = True
+    
+    labeled, n_comp = scipy_label(grid)
+    
+    if n_comp <= 1:
+        return np.ones(len(X_vals), dtype=bool)
+    
+    # Count cells per component, keep those above threshold
+    min_cells = int(XZ_MIN_COMPONENT_AREA / (cell_size ** 2))
+    valid_labels = []
+    for i in range(1, n_comp + 1):
+        if (labeled == i).sum() >= min_cells:
+            valid_labels.append(i)
+    
+    if not valid_labels:
+        # Keep largest if none meet threshold
+        sizes = [(labeled == i).sum() for i in range(1, n_comp + 1)]
+        valid_labels = [np.argmax(sizes) + 1]
+    
+    # Map back to points
+    point_labels = labeled[Z_bins, X_bins]
+    keep_mask = np.isin(point_labels, valid_labels)
+    return keep_mask
+
+
+def _check_plausibility(
+    points: np.ndarray, 
+    pile_threshold: float = 0.10,
+    min_footprint_m2: float = 0.25
+) -> tuple[bool, dict]:
+    """
+    Cheap plausibility check to prevent guardrail from rescuing wrong content.
+    
+    Checks:
+    1. Max height above small minimum (not all floor)
+    2. Non-trivial XY footprint (not just a thin strip)
+    3. Volume not absurdly low relative to footprint
+    
+    Args:
+        points: Nx3 filtered points
+        pile_threshold: Minimum elevation for pile presence
+        min_footprint_m2: Minimum XY footprint area
+    
+    Returns:
+        (is_plausible, diagnostics)
+    """
+    if len(points) < 50:
+        return False, {'reason': 'too_few_points'}
+    
+    X, Y, Z = points[:, 0], points[:, 1], points[:, 2]
+    
+    # Check 1: Max height above minimum
+    y_max = Y.max()
+    if y_max < pile_threshold:
+        return False, {'reason': 'no_elevation', 'y_max': y_max}
+    
+    # Check 2: XY footprint area (convex hull or bounding box)
+    x_span = X.max() - X.min()
+    z_span = Z.max() - Z.min()
+    footprint_area = x_span * z_span
+    
+    if footprint_area < min_footprint_m2:
+        return False, {'reason': 'tiny_footprint', 'area_m2': footprint_area}
+    
+    # Check 3: Estimated volume not absurdly low
+    # Quick volume estimate: mean height * footprint
+    y_mean = Y.mean()
+    quick_vol_m3 = y_mean * footprint_area
+    quick_vol_cy = quick_vol_m3 * 1.30795  # m³ → yd³
+    
+    if quick_vol_cy < 0.05:  # Less than 0.05 yd³ is suspiciously low
+        return False, {'reason': 'absurd_volume', 'vol_cy': quick_vol_cy}
+    
+    return True, {
+        'y_max': y_max,
+        'footprint_m2': footprint_area,
+        'quick_vol_cy': quick_vol_cy
+    }
+
+
+def _filter_masked_points(
+    points: np.ndarray,
+    floor_noise: float,
+    scene_type: str = "residential",
+    mask_coverage: float = 0.0,
+    depth_at_cap_pct: float = 0.0,
+    support_plane_selected: bool = False,
+    sr_yfl95: float = 0.20,
+    sr_inlier_ratio: float = 0.0
+) -> tuple[np.ndarray, dict]:
+    """
+    Filter 3D points with multi-stage fallback ladder.
+    
+    Mode hierarchy:
+    1. Normal mode (full chain, global metrics)
+    2. SP-aware mode (full chain, local metrics)
+    3. Minimal mode (Y-band only, conservative)
+    4. Unreliable (mark frame as non-donor)
+    
+    Args:
+        points: Nx3 array of rectified points (X=lateral, Y=height, Z=depth)
+        floor_noise: Floor flatness P95 from geometry
+        scene_type: Scene classification for Y_max selection
+        mask_coverage: Fraction of image covered by mask
+        depth_at_cap_pct: Fraction of points at depth cap (10m)
+        support_plane_selected: Whether a trusted support plane exists
+        sr_yfl95: Support ROI P95 residual (local floor noise)
+        sr_inlier_ratio: Support ROI inlier ratio
+    
+    Returns:
+        keep_mask: Boolean mask of points to keep
+        stats: Diagnostic dictionary
+    """
+    n_before = len(points)
+    if n_before < 50:
+        return np.ones(n_before, dtype=bool), {
+            'n_before': n_before, 
+            'n_after': n_before, 
+            'filter_mode': 'skip',
+            'guardrail_triggered': False
+        }
+    
+    X, Y, Z = points[:, 0], points[:, 1], points[:, 2]
+    Y_max_raw = Y.max()
+    
+    # === STAGE 1: NORMAL MODE ===
+    contaminated, signals = _detect_contamination(Y_max_raw, mask_coverage, depth_at_cap_pct)
+    
+    if not contaminated:
+        # Light filter: Y-band only
+        y_mask, Y_min, Y_cap = _y_height_filter(Y, floor_noise, scene_type)
+        n_after = y_mask.sum()
+        return y_mask, {
+            'n_before': n_before,
+            'n_after': int(n_after),
+            'pct_retained': n_after / max(n_before, 1),
+            'filter_mode': 'light',
+            'z_split_applied': False,
+            'Y_cap': Y_cap,
+            'guardrail_triggered': False
+        }
+    
+    # Full filter pipeline
+    z_mask, z_applied, z_sep, z_mode = _z_cluster_split_sp_aware(
+        Z, Y, support_plane_selected, sr_yfl95, sr_inlier_ratio
+    )
+    n_after_z = z_mask.sum()
+    
+    # Y-Band
+    y_mask, Y_min, Y_cap = _y_height_filter(Y, floor_noise, scene_type)
+    n_after_y = y_mask.sum()
+    
+    # XZ Multi-Component
+    combined = z_mask & y_mask
+    n_after_combined = combined.sum()
+    
+    if combined.sum() > 50:
+        xz_mask = _xz_multicomponent_filter(X[combined], Z[combined])
+        final = np.zeros(n_before, dtype=bool)
+        combined_indices = np.where(combined)[0]
+        final[combined_indices[xz_mask]] = True
+        n_after_xz = xz_mask.sum()
+    else:
+        final = combined
+        n_after_xz = combined.sum()
+    
+    n_after = final.sum()
+    pct_retained = n_after / max(n_before, 1)
+    
+    # Stage-by-stage drop counters
+    stage_drops = {
+        'z_split_kept': int(n_after_z),
+        'z_split_dropped': n_before - n_after_z if z_applied else 0,
+        'y_band_kept': int(n_after_y),
+        'y_band_dropped': n_before - int(n_after_y),
+        'combined_kept': int(n_after_combined),
+        'xz_cluster_kept': int(n_after_xz),
+        'xz_cluster_dropped': n_after_combined - n_after_xz if n_after_combined > 50 else 0,
+    }
+    
+    # === COLLAPSE DETECTION ===
+    MIN_RETENTION_PCT = 0.05  # 5% minimum
+    
+    if pct_retained >= MIN_RETENTION_PCT:
+        # Normal mode succeeded
+        return final, {
+            'n_before': n_before,
+            'n_after': int(n_after),
+            'pct_retained': pct_retained,
+            'filter_mode': 'full',
+            'contamination_signals': signals,
+            'z_split_applied': z_applied,
+            'z_separation_m': z_sep,
+            'z_mode': z_mode,
+            'Y_cap': Y_cap,
+            'stage_drops': stage_drops,
+            'donor_eligible': True,
+            'guardrail_triggered': False
+        }
+    
+    # === COLLAPSE DETECTED ===
+    # Check if SP rescue is warranted
+    sp_trusted = (
+        support_plane_selected and 
+        sr_inlier_ratio >= 0.70 and 
+        sr_yfl95 <= 0.15
+    )
+    
+    if not sp_trusted:
+        # No trusted SP - mark as unreliable
+        return final, {
+            'n_before': n_before,
+            'n_after': int(n_after),
+            'pct_retained': pct_retained,
+            'filter_mode': 'unreliable',
+            'collapse_reason': 'no_sp_rescue',
+            'guardrail_triggered': True,
+            'guardrail_mode': 'unreliable',
+            'donor_eligible': False
+        }
+    
+    # === STAGE 2: SP-AWARE MODE ===
+    print(f"[VOL_FILTER] ⚠️ COLLAPSE GUARDRAIL: {pct_retained:.1%} < {MIN_RETENTION_PCT:.0%}", flush=True)
+    print(f"[VOL_FILTER] Retrying with SP-aware mode (sr={sr_inlier_ratio:.2f}, sr_p95={sr_yfl95:.3f})", flush=True)
+    
+    # Rerun with SP-aware thresholds
+    z_mask_sp, z_applied_sp, z_sep_sp, z_mode_sp = _z_cluster_split_sp_aware(
+        Z, Y, True, sr_yfl95, sr_inlier_ratio  # Force SP mode
+    )
+    y_mask_sp, _, _ = _y_height_filter(Y, sr_yfl95, scene_type)  # Use local noise
+    combined_sp = z_mask_sp & y_mask_sp
+    
+    if combined_sp.sum() > 50:
+        xz_mask_sp = _xz_multicomponent_filter(X[combined_sp], Z[combined_sp])
+        final_sp = np.zeros(n_before, dtype=bool)
+        combined_indices_sp = np.where(combined_sp)[0]
+        final_sp[combined_indices_sp[xz_mask_sp]] = True
+    else:
+        final_sp = combined_sp
+    
+    pct_retained_sp = final_sp.sum() / max(n_before, 1)
+    
+    if pct_retained_sp >= MIN_RETENTION_PCT:
+        # SP-aware mode retention OK - check plausibility
+        plausible, plaus_diag = _check_plausibility(final_points[final_sp])
+        
+        if plausible:
+            # SP-aware mode succeeded + plausible
+            print(f"[VOL_FILTER] ✓ SP-aware mode succeeded: {pct_retained_sp:.0%} retained, plausible", flush=True)
+            return final_sp, {
+                'n_before': n_before,
+                'n_after': int(final_sp.sum()),
+                'pct_retained': pct_retained_sp,
+                'filter_mode': 'sp_aware',
+                'z_mode': z_mode_sp,
+                'guardrail_triggered': True,
+                'guardrail_mode': 'sp_aware',
+                'plausibility': plaus_diag,
+                'donor_eligible': False  # Guardrail frames are non-donor
+            }
+        else:
+            # High retention but implausible - fall through to minimal
+            print(f"[VOL_FILTER] SP-aware mode retained {pct_retained_sp:.0%} but IMPLAUSIBLE: {plaus_diag.get('reason')}", flush=True)
+
+    
+    # === STAGE 3: MINIMAL MODE ===
+    print(f"[VOL_FILTER] SP-aware mode still collapsed ({pct_retained_sp:.1%}), using minimal mode", flush=True)
+    
+    # Conservative Y-band only, strict threshold
+    y_minimal, _, _ = _y_height_filter(Y, max(sr_yfl95, 0.08), scene_type)
+    pct_retained_min = y_minimal.sum() / max(n_before, 1)
+    
+    if pct_retained_min >= MIN_RETENTION_PCT:
+        # Minimal mode retention OK - check plausibility
+        plausible, plaus_diag = _check_plausibility(final_points[y_minimal])
+        
+        if plausible:
+            print(f"[VOL_FILTER] ✓ Minimal mode succeeded: {pct_retained_min:.0%} retained, plausible", flush=True)
+            return y_minimal, {
+                'n_before': n_before,
+                'n_after': int(y_minimal.sum()),
+                'pct_retained': pct_retained_min,
+                'filter_mode': 'minimal',
+                'guardrail_triggered': True,
+                'guardrail_mode': 'minimal',
+                'plausibility': plaus_diag,
+                'donor_eligible': False
+            }
+        else:
+            # High retention but implausible - mark unreliable
+            print(f"[VOL_FILTER] Minimal mode retained {pct_retained_min:.0%} but IMPLAUSIBLE: {plaus_diag.get('reason')}", flush=True)
+
+    
+    # === STAGE 4: UNRELIABLE ===
+    # Even minimal mode failed - mark as unreliable
+    print(f"[VOL_FILTER] ✗ All modes failed, frame marked unreliable", flush=True)
+    return final, {
+        'n_before': n_before,
+        'n_after': int(final.sum()),
+        'pct_retained': pct_retained,
+        'filter_mode': 'unreliable',
+        'collapse_reason': 'all_modes_failed',
+        'guardrail_triggered': True,
+        'guardrail_mode': 'unreliable',
+        'donor_eligible': False
+    }
+
 
 
 @dataclass
@@ -103,6 +585,7 @@ class VolumetricResult:
     grid_cells: list[GridCell] = field(default_factory=list)
     height_field_valid: bool = False
     diagnostics: Optional[VolumeDiagnostics] = None  # Failure diagnosis
+    filter_stats: Optional[dict] = None  # Depth-aware filter diagnostics
 
 
 def _lookup_catalog_volume(label: str) -> Optional[float]:
@@ -216,8 +699,13 @@ def _build_height_field(
     image_width: int = 0,
     image_height: int = 0,
     pixel_indices: Optional[np.ndarray] = None,  # Nx2 array of (row, col) for each point
-    floor_flatness_p95: float = 0.20  # From geometry - P95(|Y|) of RANSAC floor inliers
-) -> tuple[list[GridCell], float]:
+    floor_flatness_p95: float = 0.20,  # From geometry - P95(|Y|) of RANSAC floor inliers
+    scene_type: str = "residential",  # Scene classification for Y_max selection
+    mask_coverage: float = 0.0,  # Fraction of image covered by mask
+    support_plane_selected: bool = False,  # v8.6: Support plane trust signal
+    sr_yfl95: float = 0.20,  # v8.6: Support ROI P95 residual
+    sr_inlier_ratio: float = 0.0  # v8.6: Support ROI inlier ratio
+) -> tuple[list[GridCell], float, dict]:
     """
     Build a 2D height field grid from rectified point cloud.
     Uses MASK-FIRST foreground extraction when mask is available.
@@ -236,7 +724,7 @@ def _build_height_field(
     RECALL_PATCH_RADIUS_M = 0.7  # Include points within this distance of pile centroid
     
     if len(rectified_cloud) < 100:
-        return [], 0.0
+        return [], 0.0, {'filter_mode': 'skip', 'n_before': 0, 'n_after': 0, 'pct_retained': 0.0}
         
     # Scale points
     points = rectified_cloud * scale_factor
@@ -302,7 +790,43 @@ def _build_height_field(
         print(f"[Volumetrics] No mask - height filter: {len(final_points)} points above floor")
     
     if len(final_points) < 50:
-        return [], 0.0
+        return [], 0.0, {'filter_mode': 'skip', 'n_before': 0, 'n_after': 0}
+    
+    # ========== DEPTH-AWARE BACKGROUND FILTERING ==========
+    # Remove trees, fences, walls from masked point set
+    filter_mask, filter_stats = _filter_masked_points(
+        points=final_points,
+        floor_noise=floor_flatness_p95,
+        scene_type=scene_type,
+        mask_coverage=mask_coverage,
+        support_plane_selected=support_plane_selected,  # v8.6
+        sr_yfl95=sr_yfl95,  # v8.6
+        sr_inlier_ratio=sr_inlier_ratio  # v8.6
+    )
+    filtered_points = final_points[filter_mask]
+    
+    print(f"[VOL_FILTER] mode={filter_stats['filter_mode']}, "
+          f"{filter_stats['n_before']} → {filter_stats['n_after']} "
+          f"({filter_stats['pct_retained']:.0%} retained)")
+    if filter_stats.get('z_split_applied'):
+        print(f"[VOL_FILTER] Z-split: separation={filter_stats.get('z_separation_m', 0):.1f}m")
+    
+    # v6.8.0: Log per-stage drops if available
+    if 'stage_drops' in filter_stats:
+        sd = filter_stats['stage_drops']
+        print(f"[VOL_FILTER_STAGES] z_split={sd['z_split_kept']}/{filter_stats['n_before']}, "
+              f"y_band={sd['y_band_kept']}/{filter_stats['n_before']}, "
+              f"combined={sd['combined_kept']}, xz_cluster={sd['xz_cluster_kept']}")
+    
+    # Guard: if heavy filtering, flag for fusion
+    if filter_stats['pct_retained'] < 0.20:
+        print(f"[VOL_FILTER] ⚠️ Heavy filtering detected - frame may be unreliable")
+    
+    final_points = filtered_points
+    # ======================================================
+    
+    if len(final_points) < 50:
+        return [], 0.0, filter_stats
     
     # Determine grid bounds from final points
     x_min_grid, x_max_grid = np.min(final_points[:, 0]), np.max(final_points[:, 0])
@@ -514,7 +1038,7 @@ def _build_height_field(
     print(f"[VOL_DEBUG] scale_factor applied={scale_factor:.3f}")
     # === END DEBUG BLOCK ===
     
-    return cells, bulk_raw_cy
+    return cells, bulk_raw_cy, filter_stats
 
 
 def run_volumetrics(
@@ -528,7 +1052,17 @@ def run_volumetrics(
     bulk_mask_np: Optional[np.ndarray] = None,
     ground_mask_np: Optional[np.ndarray] = None,  # From Lane D SegFormer (kept for compatibility)
     pixel_indices: Optional[np.ndarray] = None,  # Nx2 array of (row, col) for each point
-    floor_flatness_p95: float = 0.20  # From geometry - P95(|Y|) of RANSAC floor inliers
+    floor_flatness_p95: float = 0.20,  # From geometry - P95(|Y|) of RANSAC floor inliers
+    scene_type: str = "residential",  # Scene classification for Y_max selection
+    mask_coverage: float = 0.0,  # Fraction of image covered by mask
+    # Mode config from GPT-4o router
+    z_split_strict: bool = False,  # Use stricter Z-split threshold
+    density_crop: bool = False,  # Enable density-based cropping
+    height_cap_m: float = 2.5,  # Maximum height cap in meters
+    # v8.6: Support plane metrics for filter collapse guardrail
+    support_plane_selected: bool = False,
+    sr_yfl95: float = 0.20,
+    sr_inlier_ratio: float = 0.0
 ) -> VolumetricResult:
     """
     Stage 5 Entry Point: Calculate truck-bed volume.
@@ -543,6 +1077,12 @@ def run_volumetrics(
         bulk_mask_np: Optional HxW boolean mask from Lane B (dilated for recall)
         ground_mask_np: Optional HxW boolean mask from Lane D (ground/floor from SegFormer)
         pixel_indices: Nx2 array of (row, col) pixel coordinates for each point
+        floor_flatness_p95: From geometry - P95(|Y|) of RANSAC floor inliers
+        scene_type: Scene classification for Y_max selection
+        mask_coverage: Fraction of image covered by mask
+        support_plane_selected: v8.6 - Whether a trusted support plane exists
+        sr_yfl95: v8.6 - Support ROI P95 residual (local floor noise)
+        sr_inlier_ratio: v8.6 - Support ROI inlier ratio
         
     Returns:
         VolumetricResult with bulk and discrete volumes
@@ -551,7 +1091,7 @@ def run_volumetrics(
     
     # Step A: Build height field from point cloud (MASK-FIRST when available)
     if rectified_cloud is not None and len(rectified_cloud) > 0:
-        cells, bulk_raw = _build_height_field(
+        cells, bulk_raw, filter_stats = _build_height_field(
             rectified_cloud, 
             scale_factor,
             bulk_mask=bulk_mask_np,
@@ -559,11 +1099,18 @@ def run_volumetrics(
             image_width=image_width,
             image_height=image_height,
             pixel_indices=pixel_indices,
-            floor_flatness_p95=floor_flatness_p95  # From geometry RANSAC
+            floor_flatness_p95=floor_flatness_p95,  # From geometry RANSAC
+            scene_type=scene_type,
+            mask_coverage=mask_coverage,
+            support_plane_selected=support_plane_selected,  # v8.6
+            sr_yfl95=sr_yfl95,  # v8.6
+            sr_inlier_ratio=sr_inlier_ratio  # v8.6
         )
         result.grid_cells = cells
         result.bulk_raw_cy = bulk_raw
         result.height_field_valid = True
+        # Store filter stats for fusion weight calculation
+        result.filter_stats = filter_stats
     else:
         result.bulk_raw_cy = 0.0
         result.height_field_valid = False

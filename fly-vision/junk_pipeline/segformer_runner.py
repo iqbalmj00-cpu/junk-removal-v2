@@ -18,8 +18,12 @@ import time
 class SegFormerResult:
     """Result from local SegFormer inference."""
     ground_mask: Optional[np.ndarray] = None  # (H, W) bool array
+    safe_bg_mask: Optional[np.ndarray] = None  # (H, W) bool - sky, building, fence, person, car
+    risky_bg_mask: Optional[np.ndarray] = None  # (H, W) bool - vegetation (conditional use)
     ground_area_pct: float = 0.0
     labels_found: list = None
+    safe_bg_labels: list = None  # Labels in safe_bg_mask
+    risky_bg_labels: list = None  # Labels in risky_bg_mask
     model_used: str = "none"
     inference_time_ms: float = 0.0
     error: Optional[str] = None
@@ -27,6 +31,10 @@ class SegFormerResult:
     def __post_init__(self):
         if self.labels_found is None:
             self.labels_found = []
+        if self.safe_bg_labels is None:
+            self.safe_bg_labels = []
+        if self.risky_bg_labels is None:
+            self.risky_bg_labels = []
 
 
 # Cityscapes class IDs for ground-like surfaces
@@ -35,6 +43,30 @@ CITYSCAPES_GROUND_CLASSES = {
     0: "road",
     1: "sidewalk", 
     9: "terrain",  # grass, soil, sand
+}
+
+# Cityscapes SAFE background classes (always subtract)
+CITYSCAPES_SAFE_BG = {
+    10: "sky",
+    11: "person",
+    12: "rider",
+    13: "car",
+    14: "truck",
+    15: "bus",
+    16: "train",
+    17: "motorcycle",
+    18: "bicycle",
+    2: "building",
+    3: "wall",
+    4: "fence",
+    5: "pole",
+    6: "traffic light",
+    7: "traffic sign",
+}
+
+# Cityscapes RISKY background classes (subtract only if NOT yard-waste)
+CITYSCAPES_RISKY_BG = {
+    8: "vegetation",  # Trees, bushes
 }
 
 # ADE20K floor-like classes (id -> label)
@@ -48,6 +80,12 @@ ADE20K_GROUND_CLASSES = {
     52: "path",
     # Note: IDs may vary, we'll also do label matching
 }
+
+# ADE SAFE background classes (always subtract)
+ADE_SAFE_BG_KEYWORDS = {"sky", "building", "wall", "fence", "person", "car", "truck", "bus", "pole", "signboard"}
+
+# ADE RISKY background classes (subtract only if NOT yard-waste)
+ADE_RISKY_BG_KEYWORDS = {"tree", "plant", "grass", "palm", "flower"}
 
 
 class SegFormerRunner:
@@ -184,7 +222,33 @@ class SegFormerRunner:
             result.ground_area_pct = 100.0 * np.mean(ground_mask)
             result.labels_found = labels_found
             
-            print(f"[SegFormerRunner] Cityscapes: {result.ground_area_pct:.1f}% ground, labels={labels_found}, {elapsed_ms:.0f}ms")
+            # Build SAFE background mask (sky, building, fence, person, car, etc.)
+            safe_bg_mask = np.zeros((h, w), dtype=bool)
+            safe_bg_labels = []
+            for class_id, label in CITYSCAPES_SAFE_BG.items():
+                class_mask = pred_classes == class_id
+                if np.any(class_mask):
+                    safe_bg_mask |= class_mask
+                    safe_bg_labels.append(label)
+            
+            result.safe_bg_mask = safe_bg_mask
+            result.safe_bg_labels = safe_bg_labels
+            
+            # Build RISKY background mask (vegetation - conditional use)
+            risky_bg_mask = np.zeros((h, w), dtype=bool)
+            risky_bg_labels = []
+            for class_id, label in CITYSCAPES_RISKY_BG.items():
+                class_mask = pred_classes == class_id
+                if np.any(class_mask):
+                    risky_bg_mask |= class_mask
+                    risky_bg_labels.append(label)
+            
+            result.risky_bg_mask = risky_bg_mask
+            result.risky_bg_labels = risky_bg_labels
+            
+            safe_pct = 100.0 * np.mean(safe_bg_mask)
+            risky_pct = 100.0 * np.mean(risky_bg_mask)
+            print(f"[SegFormerRunner] Cityscapes: {result.ground_area_pct:.1f}% ground, {safe_pct:.1f}% safe_bg, {risky_pct:.1f}% risky_bg, {elapsed_ms:.0f}ms")
             
         except Exception as e:
             result.error = str(e)
@@ -260,7 +324,37 @@ class SegFormerRunner:
             result.ground_area_pct = 100.0 * np.mean(ground_mask)
             result.labels_found = labels_found
             
-            print(f"[SegFormerRunner] ADE: {result.ground_area_pct:.1f}% ground, labels={labels_found}, {elapsed_ms:.0f}ms")
+            # Build SAFE background mask (sky, building, wall, fence, person, car, etc.)
+            safe_bg_mask = np.zeros((h, w), dtype=bool)
+            safe_bg_labels = []
+            for class_id, label in id2label.items():
+                label_lower = label.lower()
+                if any(kw in label_lower for kw in ADE_SAFE_BG_KEYWORDS):
+                    class_mask = pred_classes == class_id
+                    if np.any(class_mask):
+                        safe_bg_mask |= class_mask
+                        safe_bg_labels.append(label_lower)
+            
+            result.safe_bg_mask = safe_bg_mask
+            result.safe_bg_labels = safe_bg_labels
+            
+            # Build RISKY background mask (tree, plant, grass - conditional use)
+            risky_bg_mask = np.zeros((h, w), dtype=bool)
+            risky_bg_labels = []
+            for class_id, label in id2label.items():
+                label_lower = label.lower()
+                if any(kw in label_lower for kw in ADE_RISKY_BG_KEYWORDS):
+                    class_mask = pred_classes == class_id
+                    if np.any(class_mask):
+                        risky_bg_mask |= class_mask
+                        risky_bg_labels.append(label_lower)
+            
+            result.risky_bg_mask = risky_bg_mask
+            result.risky_bg_labels = risky_bg_labels
+            
+            safe_pct = 100.0 * np.mean(safe_bg_mask)
+            risky_pct = 100.0 * np.mean(risky_bg_mask)
+            print(f"[SegFormerRunner] ADE: {result.ground_area_pct:.1f}% ground, {safe_pct:.1f}% safe_bg, {risky_pct:.1f}% risky_bg, {elapsed_ms:.0f}ms")
             
         except Exception as e:
             result.error = str(e)
