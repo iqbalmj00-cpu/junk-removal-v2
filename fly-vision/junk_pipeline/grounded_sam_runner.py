@@ -539,6 +539,193 @@ class GroundedSAMRunner:
         
         return boxes, scores, labels
     
+    # =========================================================================
+    # v9.0: Separated Detection + Segmentation for Qwen Arbitration
+    # =========================================================================
+    
+    def run_detection(
+        self,
+        image: Image.Image,
+        prompts: List[str] = None
+    ) -> List[dict]:
+        """
+        v9.0: Run Grounding DINO detection only (no SAM2).
+        
+        Used by orchestrator to get candidate boxes before Qwen arbitration.
+        
+        Args:
+            image: PIL Image
+            prompts: Detection prompts (default: pile prompts)
+            
+        Returns:
+            List of candidate boxes:
+            [{"box": [x1, y1, x2, y2], "label": str, "confidence": float}, ...]
+        """
+        if self._gdino_model is None:
+            print("[GroundedSAM] Models not loaded - returning empty boxes")
+            return []
+        
+        # Ensure RGB
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        
+        # Primary prompts for junk/debris
+        primary_prompts = prompts if prompts else [
+            "pile of junk",
+            "debris pile",
+            "garbage bags",
+            "branches and wood",
+            "yard waste",
+            "trash pile",
+            "cardboard boxes",
+        ]
+        
+        # Fallback prompts if primary fails
+        fallback_prompts = [
+            "objects",
+            "stuff",
+            "items",
+            "material",
+            "clutter",
+        ]
+        
+        try:
+            print(f"[GroundedSAM] run_detection: trying primary prompts...")
+            boxes, scores, labels = self._run_detection(image, primary_prompts)
+            
+            if len(boxes) == 0:
+                print(f"[GroundedSAM] Primary failed, trying fallback prompts...")
+                boxes, scores, labels = self._run_detection(image, fallback_prompts)
+            
+            if len(boxes) == 0:
+                print(f"[GroundedSAM] run_detection: no boxes found")
+                return []
+            
+            # Convert to list of dicts
+            boxes_list = boxes.cpu().tolist()
+            scores_list = scores.cpu().tolist()
+            
+            result = []
+            for box, score, label in zip(boxes_list, scores_list, labels):
+                result.append({
+                    "box": box,
+                    "label": label,
+                    "confidence": float(score)
+                })
+            
+            print(f"[GroundedSAM] run_detection: found {len(result)} boxes")
+            for i, r in enumerate(result[:5]):  # Log first 5
+                print(f"  Box {i}: {r['label']} ({r['confidence']:.2f}) @ {[int(x) for x in r['box']]}")
+            
+            return result
+            
+        except Exception as e:
+            print(f"[GroundedSAM] run_detection error: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    def run_segmentation_on_box(
+        self,
+        image: Image.Image,
+        box: List[float],
+        mask_hint: Optional[np.ndarray] = None,  # v9.2: reference mask for guidance
+    ) -> np.ndarray:
+        """
+        v9.2: Run SAM2 segmentation on a single box prompt with optional mask hint.
+        
+        Used after Qwen arbitration selects the best box.
+        
+        Args:
+            image: PIL Image (full resolution)
+            box: Bounding box coordinates [x1, y1, x2, y2]
+            mask_hint: Optional binary mask from best frame to guide segmentation
+            
+        Returns:
+            Binary mask (H, W) dtype=bool for pile within box
+        """
+        if self._sam_model is None:
+            print("[GroundedSAM] SAM model not loaded")
+            h, w = image.height, image.width
+            return np.zeros((h, w), dtype=bool)
+        
+        # Ensure RGB
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        
+        h, w = image.height, image.width
+        
+        try:
+            import torch
+            from scipy import ndimage
+            
+            hint_str = " (with mask hint)" if mask_hint is not None else ""
+            print(f"[GroundedSAM] run_segmentation_on_box: box={[int(x) for x in box]}{hint_str}")
+            
+            # v9.2: Prepare mask hint if provided
+            mask_inputs = None
+            if mask_hint is not None:
+                # Resize hint to match image if needed
+                if mask_hint.shape != (h, w):
+                    from PIL import Image as PILImage
+                    hint_img = PILImage.fromarray((mask_hint * 255).astype(np.uint8))
+                    hint_img = hint_img.resize((w, h), PILImage.NEAREST)
+                    mask_hint = np.array(hint_img) > 127
+                
+                # Convert to tensor for SAM2 (1 x 1 x H x W)
+                mask_inputs = torch.from_numpy(mask_hint.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+            
+            # Run SAM2 with box prompt (and optional mask hint)
+            sam_inputs = self._sam_processor(
+                image,
+                input_boxes=[[[box]]],
+                return_tensors="pt"
+            ).to(self._device)
+            
+            # v9.2: Add mask_inputs if available
+            if mask_inputs is not None:
+                sam_inputs["mask_inputs"] = mask_inputs.to(self._device)
+            
+            with torch.no_grad():
+                sam_outputs = self._sam_model(**sam_inputs)
+            
+            masks = self._sam_processor.image_processor.post_process_masks(
+                sam_outputs.pred_masks.cpu(),
+                sam_inputs["original_sizes"].cpu(),
+                sam_inputs["reshaped_input_sizes"].cpu()
+            )[0]
+            
+            if len(masks) == 0:
+                print(f"[GroundedSAM] SAM returned no masks")
+                return np.zeros((h, w), dtype=bool)
+            
+            # Get best mask
+            mask = masks[0].squeeze().numpy()
+            if mask.ndim == 3:
+                mask = mask[0]
+            
+            binary_mask = mask > 0.5
+            
+            # Apply slight dilation (4px)
+            DILATION_RADIUS = 4
+            struct = ndimage.generate_binary_structure(2, 1)
+            dilated_mask = ndimage.binary_dilation(
+                binary_mask, 
+                structure=struct, 
+                iterations=DILATION_RADIUS
+            )
+            
+            area_pct = np.mean(dilated_mask) * 100
+            print(f"[GroundedSAM] run_segmentation_on_box: mask area={area_pct:.1f}%")
+            
+            return dilated_mask.astype(bool)
+            
+        except Exception as e:
+            print(f"[GroundedSAM] run_segmentation_on_box error: {e}")
+            import traceback
+            traceback.print_exc()
+            return np.zeros((h, w), dtype=bool)
+    
     def segment_cached(
         self,
         image: Image.Image,

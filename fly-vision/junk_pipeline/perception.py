@@ -381,11 +381,19 @@ def _run_segformer_model(jpeg_bytes: bytes, model_id: str, floor_labels: set, h:
         return None, 0.0, []
 
 
-def _run_lane_d_ground_mask(working_pil, scene_type: SceneType) -> LaneDResult:
+def _run_lane_d_ground_mask(
+    working_pil, 
+    scene_type: SceneType,
+    pile_mask: "np.ndarray" = None  # v9.0: Optional pile mask to blank
+) -> LaneDResult:
     """
     Lane D: Ground/Floor Mask using LOCAL SegFormer on MPS.
     Runs both Cityscapes and ADE20K locally, chooses best per-frame.
     Falls back to HF API only if local inference fails.
+    
+    v9.0: If pile_mask is provided, zero-out those pixels before
+    running SegFormer to prevent ground model from seeing pile
+    (prevents "earth hallucination" on organic debris).
     """
     import numpy as np
     from PIL import Image
@@ -399,6 +407,23 @@ def _run_lane_d_ground_mask(working_pil, scene_type: SceneType) -> LaneDResult:
             working_pil = working_pil.convert("RGB")
         
         h, w = working_pil.height, working_pil.width
+        
+        # v9.0: Blank pile region if mask provided
+        if pile_mask is not None and pile_mask.any():
+            img_array = np.array(working_pil)
+            # Resize pile_mask if needed
+            if pile_mask.shape != (h, w):
+                import cv2
+                pile_mask_resized = cv2.resize(
+                    pile_mask.astype(np.uint8), (w, h), 
+                    interpolation=cv2.INTER_NEAREST
+                ).astype(bool)
+            else:
+                pile_mask_resized = pile_mask
+            # Use neutral gray to avoid color bias
+            img_array[pile_mask_resized > 0] = [128, 128, 128]
+            working_pil = Image.fromarray(img_array)
+            print(f"[Lane D] v9.0: Pile blanked ({np.mean(pile_mask_resized)*100:.1f}% of image)")
         
         # Input debug
         print(f"[Lane D] input: {w}x{h}")
@@ -537,6 +562,40 @@ def run_perception(
         lane_b=lane_b,
         lane_c=lane_c,
         lane_d=lane_d,
+    )
+
+
+# =============================================================================
+# v9.0: PUBLIC GROUND DETECTION FUNCTION
+# =============================================================================
+
+def run_ground_detection(
+    working_pil,
+    scene_type: SceneType = None,
+    pile_mask: "np.ndarray" = None
+) -> LaneDResult:
+    """
+    v9.0: Public ground detection function for orchestrator.
+    
+    Runs SegFormer ground segmentation with optional pile blanking.
+    This function is called directly by the v9.0 orchestrator,
+    bypassing run_perception() for the Assembly-Line architecture.
+    
+    Args:
+        working_pil: PIL Image at working resolution
+        scene_type: Optional scene classification (defaults to UNKNOWN)
+        pile_mask: Optional pile mask to blank before running SegFormer
+        
+    Returns:
+        LaneDResult with ground_mask_np and metadata
+    """
+    if scene_type is None:
+        scene_type = SceneType.UNKNOWN
+    
+    return _run_lane_d_ground_mask(
+        working_pil=working_pil,
+        scene_type=scene_type,
+        pile_mask=pile_mask
     )
 
 

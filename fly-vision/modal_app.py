@@ -91,9 +91,11 @@ def fastapi_app():
         allow_origins=[
             "https://junkqt.com",
             "https://www.junkqt.com",
+            "https://jamals-junk-v2.vercel.app",
             "http://localhost:3000",
             "http://localhost:3001",
         ],
+        allow_origin_regex=r"https://jamals-junk-v2-.*\.vercel\.app",  # Preview deployments
         allow_credentials=True,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
