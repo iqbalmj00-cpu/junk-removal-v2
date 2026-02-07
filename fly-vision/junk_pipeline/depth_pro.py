@@ -1,23 +1,36 @@
 """
-Depth Pro Runner - Supports Local (HuggingFace) and Replicate API modes.
+Depth Pro Runner - Supports Local (Apple Original) and Replicate API modes.
 
 Mode selection:
   - Set env var DEPTH_PRO_MODE=replicate to use Replicate API
-  - Default: local HuggingFace inference (requires GPU)
+  - Default: local Apple ml-depth-pro inference (requires GPU)
+
+v11.0: Switched from HuggingFace port to Apple's original ml-depth-pro package.
+  Key advantage: supports passing known focal length (f_px) to produce correctly
+  scaled metric depth when EXIF intrinsics are available.
   
 Returns proper intrinsics (fx/fy/cx/cy) alongside metric depth.
 """
 
 import os
 import io
+import math
 import base64
 import numpy as np
 from PIL import Image
-from typing import Optional
+from typing import Optional, Union
 
 
 # Mode: 'local' or 'replicate'
 DEPTH_PRO_MODE = os.environ.get("DEPTH_PRO_MODE", "local").lower()
+
+# Checkpoint path for Apple's original model
+# Modal: baked into container image at build time
+# Local dev: override via env var or download to default path
+DEPTH_PRO_CHECKPOINT = os.environ.get(
+    "DEPTH_PRO_CHECKPOINT",
+    "/opt/depth_pro/depth_pro.pt"
+)
 
 
 class DepthProRunner:
@@ -25,8 +38,11 @@ class DepthProRunner:
     Runs Apple DepthPro for metric monocular depth estimation.
     
     Supports two backends:
-      - local: HuggingFace Transformers (requires GPU)
+      - local: Apple's original ml-depth-pro (requires GPU)
       - replicate: Replicate API (no GPU needed)
+    
+    v11.0: Local mode now uses Apple's original package which supports
+    passing known focal length (f_px) for EXIF-corrected metric depth.
     
     Returns:
       - depth_m: (H, W) float32 depth map in meters
@@ -47,9 +63,9 @@ class DepthProRunner:
             raise ValueError(f"Unknown DEPTH_PRO_MODE: {mode}. Use 'local' or 'replicate'.")
     
     def _init_local(self):
-        """Initialize local HuggingFace model."""
+        """Initialize Apple's original DepthPro model."""
         import torch
-        from transformers import DepthProImageProcessorFast, DepthProForDepthEstimation
+        import depth_pro
         
         # Prefer: CUDA > MPS (Apple Silicon) > CPU
         if torch.cuda.is_available():
@@ -60,21 +76,25 @@ class DepthProRunner:
             device = "cpu"
         
         self.device = torch.device(device)
-        print(f"[DepthPro] Loading LOCAL model on {self.device}...")
+        print(f"[DepthPro] Loading APPLE model on {self.device}...")
         
-        model_id = "apple/DepthPro-hf"
-        self.image_processor = DepthProImageProcessorFast.from_pretrained(model_id)
-        self.model = DepthProForDepthEstimation.from_pretrained(model_id).to(self.device)
+        # Configure checkpoint path
+        config = depth_pro.depth_pro.DEFAULT_MONODEPTH_CONFIG_DICT
+        config.checkpoint_uri = DEPTH_PRO_CHECKPOINT
+        
+        self.model, self.transform = depth_pro.create_model_and_transforms(
+            config=config, device=self.device
+        )
         self.model.eval()
         
-        print(f"[DepthPro] Model loaded successfully on {self.device}")
+        print(f"[DepthPro] Apple model loaded successfully on {self.device}")
     
     def _init_replicate(self):
         """Initialize Replicate API client."""
         print("[DepthPro] Using REPLICATE API mode")
         self.device = None
         self.model = None
-        self.image_processor = None
+        self.transform = None
     
     @classmethod
     def get_instance(cls) -> "DepthProRunner":
@@ -83,12 +103,17 @@ class DepthProRunner:
             cls._instance = cls()
         return cls._instance
     
-    def infer(self, image: Image.Image) -> dict:
+    def infer(self, image: Image.Image, f_px: Optional[float] = None) -> dict:
         """
         Run depth estimation on image.
         
         Args:
             image: PIL Image (RGB)
+            f_px: Optional known focal length in pixels (from EXIF/CalibrationBundle).
+                  When provided, DepthPro skips its own FOV estimation and uses this
+                  value to scale canonical inverse depth → metric depth. This produces
+                  correctly scaled depth when camera intrinsics are known.
+                  Must be in the same pixel space as the input image width.
         
         Returns:
             dict with:
@@ -98,44 +123,50 @@ class DepthProRunner:
               - size: (H, W) tuple
         """
         if self.mode == "local":
-            return self._infer_local(image)
+            return self._infer_local(image, f_px=f_px)
         else:
+            if f_px is not None:
+                print("[DepthPro] WARNING: Replicate mode does not support f_px override, ignoring")
             return self._infer_replicate(image)
     
-    def _infer_local(self, image: Image.Image) -> dict:
-        """Local HuggingFace inference."""
+    def _infer_local(self, image: Image.Image, f_px: Optional[float] = None) -> dict:
+        """
+        Apple DepthPro local inference.
+        
+        v11.0: Uses Apple's original API which supports passing known f_px.
+        When f_px is provided, the model's internal FOV estimation is bypassed
+        and the known focal length is used to scale depth → metric.
+        """
         import torch
         
         if image.mode != "RGB":
             image = image.convert("RGB")
         
+        # Apply Apple's preprocessing transform (PIL → normalized tensor)
+        image_tensor = self.transform(image)
+        
+        # Run inference with optional known focal length
+        # Apple's infer() calls f_px.squeeze(), so it must be a tensor, not a float
+        f_px_input = torch.tensor(f_px, dtype=torch.float32) if f_px is not None else None
         with torch.no_grad():
-            inputs = self.image_processor(images=image, return_tensors="pt").to(self.device)
-            outputs = self.model(**inputs)
-            
-            # Post-process to get depth at SAME resolution as input image
-            post = self.image_processor.post_process_depth_estimation(
-                outputs,
-                target_sizes=[(image.height, image.width)],
-            )[0]
+            prediction = self.model.infer(image_tensor, f_px=f_px_input)
         
-        depth_t = post["predicted_depth"]
-        depth_m = depth_t.detach().float().cpu().numpy().astype("float32")
+        depth = prediction["depth"].cpu().numpy().astype("float32")
+        focal_px = float(prediction["focallength_px"])
         
-        f_px = float(post["focal_length"])
-        H, W = depth_m.shape
+        H, W = depth.shape
         cx = (W - 1) / 2.0
         cy = (H - 1) / 2.0
         
-        fov = post.get("field_of_view", None)
-        if fov is not None:
-            fov = float(fov)
+        # Compute FOV from focal length
+        fov = 2 * math.degrees(math.atan(W / (2 * focal_px)))
         
-        print(f"[DepthPro] Output: {W}x{H}, f_px={f_px:.1f}, FOV={fov}°")
+        mode_str = "EXIF-provided" if f_px is not None else "model-estimated"
+        print(f"[DepthPro] Output: {W}x{H}, f_px={focal_px:.1f} ({mode_str}), FOV={fov:.1f}°")
         
         return {
-            "depth_m": depth_m,
-            "intrinsics": {"fx": f_px, "fy": f_px, "cx": cx, "cy": cy},
+            "depth_m": depth,
+            "intrinsics": {"fx": focal_px, "fy": focal_px, "cx": cx, "cy": cy},
             "field_of_view": fov,
             "size": (H, W),
         }

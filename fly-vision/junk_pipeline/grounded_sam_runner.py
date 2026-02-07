@@ -569,15 +569,19 @@ class GroundedSAMRunner:
         if image.mode != "RGB":
             image = image.convert("RGB")
         
-        # Primary prompts for junk/debris
+        # Primary prompts for junk/debris - all ground-specific to avoid tree canopy
         primary_prompts = prompts if prompts else [
-            "pile of junk",
-            "debris pile",
-            "garbage bags",
-            "branches and wood",
-            "yard waste",
-            "trash pile",
-            "cardboard boxes",
+            "pile of junk on the ground",
+            "debris pile on the ground",
+            "trash bags piled on the ground",
+            "garbage bags on curb",
+            "yard waste bags on curb",
+            "brush pile stacked on the ground",
+            "bundled branches for pickup on curb",
+            "palm fronds pile on the ground",
+            "cut logs stacked on the ground",
+            "firewood stack on the ground",
+            "cardboard boxes pile on the ground",
         ]
         
         # Fallback prompts if primary fails
@@ -864,15 +868,19 @@ class GroundedSAMRunner:
                 error="Models not loaded"
             )
         
-        # Primary prompts for junk/debris
+        # Primary prompts for junk/debris - all ground-specific to avoid tree canopy
         primary_prompts = prompts if prompts else [
-            "pile of junk",
-            "debris pile",
-            "garbage bags",
-            "branches and wood",
-            "yard waste",
-            "trash pile",
-            "cardboard boxes",
+            "pile of junk on the ground",
+            "debris pile on the ground",
+            "trash bags piled on the ground",
+            "garbage bags on curb",
+            "yard waste bags on curb",
+            "brush pile stacked on the ground",
+            "bundled branches for pickup on curb",
+            "palm fronds pile on the ground",
+            "cut logs stacked on the ground",
+            "firewood stack on the ground",
+            "cardboard boxes pile on the ground",
         ]
         
         # Fallback prompts if primary fails

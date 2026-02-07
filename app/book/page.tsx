@@ -279,6 +279,13 @@ END:VCALENDAR`;
                 const volumeYards = quote.final_volume_cy || 0;
                 const volumeCuFt = volumeYards * 27;
 
+                // Check if no junk was detected (volume = 0, price = 0)
+                if (volumeYards <= 0 || (quote.min_price === 0 && quote.max_price === 0)) {
+                    alert("We couldn't detect any junk in your photos. Please upload new images showing your junk pile clearly.");
+                    setView('calculator');
+                    return;
+                }
+
                 // Sync state
                 setBookingData(prev => ({
                     ...prev,

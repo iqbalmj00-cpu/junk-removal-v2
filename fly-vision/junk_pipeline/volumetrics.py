@@ -546,6 +546,8 @@ class GridCell:
     x_m: float  # World X coordinate
     z_m: float  # World Z coordinate (depth direction)
     heights: list[float] = field(default_factory=list)
+    mask_heights: list[float] = field(default_factory=list)    # v10.5: heights from mask points
+    recall_heights: list[float] = field(default_factory=list)  # v10.5: heights from recall points
     trimmed_height: float = 0.0
     owned_by: Optional[str] = None  # item_id if owned by discrete item
 
@@ -586,6 +588,30 @@ class VolumetricResult:
     height_field_valid: bool = False
     diagnostics: Optional[VolumeDiagnostics] = None  # Failure diagnosis
     filter_stats: Optional[dict] = None  # Depth-aware filter diagnostics
+    
+    # === v10.7: Canonical metrics for fusion (authoritative values) ===
+    # Footprint metrics (from selected footprint cells)
+    footprint_cells_selected: int = 0           # Count of cells in selected footprint
+    footprint_m2_selected: float = 0.0          # Area in m² of selected footprint
+    
+    # Volume metrics (from cells with height >= T_floor)
+    volume_cells_selected: int = 0              # Count of volume-contributing cells
+    volume_area_m2_selected: float = 0.0        # Area in m² of volume-contributing cells
+    
+    # Height metrics (computed over selected footprint cells)
+    height_p85_footprint: float = 0.0           # P85 height for consensus/cross-fusion
+    height_p95_footprint: float = 0.0           # P95 height for geometry noise ratio
+    mean_height_footprint: float = 0.0          # Mean height for diagnostics
+    
+    # Floor-overlap metrics (dual-ratio design)
+    leak_ratio_maskseed: float = 0.0            # Fraction of mask-seeded cells on floor (replaces ground_overlap_ratio)
+    skirt_ratio_selected: float = 0.0           # Fraction of footprint in [T_footprint, T_floor) band
+    
+    # Recall/capping diagnostics
+    recall_point_fraction: float = 0.0          # Fraction of points from recall (vs mask)
+    cells_using_mask_heights_frac: float = 0.0  # Fraction of cells that used mask_heights
+    height_cap_m: float = 0.0                   # The MAD-derived cap applied
+    pct_cells_clamped: float = 0.0              # Percentage of cells that hit the cap
 
 
 def _lookup_catalog_volume(label: str) -> Optional[float]:
@@ -705,7 +731,7 @@ def _build_height_field(
     support_plane_selected: bool = False,  # v8.6: Support plane trust signal
     sr_yfl95: float = 0.20,  # v8.6: Support ROI P95 residual
     sr_inlier_ratio: float = 0.0  # v8.6: Support ROI inlier ratio
-) -> tuple[list[GridCell], float, dict]:
+) -> tuple[list[GridCell], float, dict, dict]:
     """
     Build a 2D height field grid from rectified point cloud.
     Uses MASK-FIRST foreground extraction when mask is available.
@@ -717,44 +743,68 @@ def _build_height_field(
         image_width, image_height: For mask-to-point correspondence (deprecated, use pixel_indices)
         pixel_indices: Nx2 array of (row, col) for each point - REQUIRED for correct mask mapping
         
-    Returns (grid_cells, bulk_raw_volume_cy).
+    Returns:
+        (grid_cells, bulk_raw_volume_cy, filter_stats, canonical_metrics)
+        canonical_metrics contains authoritative footprint/height/leak metrics for fusion.
     """
     MIN_POINTS_PER_CELL = 8  # Minimum support for height calculation
     MAX_HEIGHT_M = 3.5  # Cap at 3.5m (~11.5ft) - raised from 2.0 to avoid compressing tall piles
     RECALL_PATCH_RADIUS_M = 0.7  # Include points within this distance of pile centroid
     
     if len(rectified_cloud) < 100:
-        return [], 0.0, {'filter_mode': 'skip', 'n_before': 0, 'n_after': 0, 'pct_retained': 0.0}
+        return [], 0.0, {'filter_mode': 'skip', 'n_before': 0, 'n_after': 0, 'pct_retained': 0.0}, {}
         
     # Scale points
     points = rectified_cloud * scale_factor
     n_points = len(points)
     
+    # v10.4: Log XYZ extents to verify scaling
+    if abs(scale_factor - 1.0) > 0.01:
+        x_range_raw = np.max(rectified_cloud[:, 0]) - np.min(rectified_cloud[:, 0])
+        z_range_raw = np.max(rectified_cloud[:, 2]) - np.min(rectified_cloud[:, 2])
+        y_max_raw = np.max(rectified_cloud[:, 1])
+        x_range_scaled = np.max(points[:, 0]) - np.min(points[:, 0])
+        z_range_scaled = np.max(points[:, 2]) - np.min(points[:, 2])
+        y_max_scaled = np.max(points[:, 1])
+        print(f"[SCALE_DIAG] scale_factor={scale_factor:.3f}")
+        print(f"[SCALE_DIAG] X_range: {x_range_raw:.2f}m → {x_range_scaled:.2f}m ({x_range_scaled/x_range_raw:.3f}x)")
+        print(f"[SCALE_DIAG] Z_range: {z_range_raw:.2f}m → {z_range_scaled:.2f}m ({z_range_scaled/z_range_raw:.3f}x)")
+        print(f"[SCALE_DIAG] Y_max: {y_max_raw:.2f}m → {y_max_scaled:.2f}m ({y_max_scaled/y_max_raw:.3f}x)")
+
+    
     # MASK-FIRST FOREGROUND SELECTION
     # If we have a bulk mask, use it as primary selector
+    # v10.3 FIX A: Track mask vs recall points separately - recall cannot create footprint
+    mask_point_indices = set()  # Track which points are from mask (for footprint)
+    
     if bulk_mask is not None and pixel_indices is not None:
         mask_h, mask_w = bulk_mask.shape
         depth_h, depth_w = image_height, image_width  # For coordinate scaling
         
-        # Use pixel_indices for correct point-to-pixel mapping
-        foreground_indices = []
+        # VECTORIZED mask lookup (10x+ faster than loop)
+        rows = pixel_indices[:, 0]
+        cols = pixel_indices[:, 1]
         
-        for idx in range(n_points):
-            # Get the actual pixel coordinates from pixel_indices
-            row, col = pixel_indices[idx]
-            
-            # Scale to mask dimensions if different from depth dimensions
-            mask_row = int(row * mask_h / depth_h) if depth_h > 0 else int(row)
-            mask_col = int(col * mask_w / depth_w) if depth_w > 0 else int(col)
-            
-            mask_row = max(0, min(mask_row, mask_h - 1))
-            mask_col = max(0, min(mask_col, mask_w - 1))
-            
-            if bulk_mask[mask_row, mask_col]:
-                foreground_indices.append(idx)
+        # Scale to mask dimensions
+        if depth_h > 0:
+            mask_rows = np.clip((rows * mask_h / depth_h).astype(int), 0, mask_h - 1)
+        else:
+            mask_rows = np.clip(rows.astype(int), 0, mask_h - 1)
+        if depth_w > 0:
+            mask_cols = np.clip((cols * mask_w / depth_w).astype(int), 0, mask_w - 1)
+        else:
+            mask_cols = np.clip(cols.astype(int), 0, mask_w - 1)
+        
+        # Vectorized mask lookup
+        in_mask = bulk_mask[mask_rows, mask_cols]
+        foreground_indices = np.where(in_mask)[0]
         
         if len(foreground_indices) > 50:
             foreground_points = points[foreground_indices]
+            
+            # v10.3: Track mask point indices in final_points array
+            # These are the ONLY points that can seed footprint cells
+            mask_point_indices = set(range(len(foreground_indices)))
             
             # Compute pile centroid from masked points
             pile_centroid_x = np.mean(foreground_points[:, 0])
@@ -762,6 +812,7 @@ def _build_height_field(
             
             # RECALL PATCH: Also include points near the pile that mask might have missed
             # (captures dark bags, thin objects, occluded regions adjacent to pile)
+            # v10.3: Recall points can contribute VOLUME but NOT FOOTPRINT
             distances_xz = np.sqrt(
                 (points[:, 0] - pile_centroid_x)**2 + 
                 (points[:, 2] - pile_centroid_z)**2
@@ -773,20 +824,26 @@ def _build_height_field(
                 (points[:, 1] > 0.02)  # At least 2cm above floor
             )
             
-            # Combine mask foreground + recall patch
-            all_foreground = set(foreground_indices)
+            # Combine mask foreground + recall patch (vectorized)
+            foreground_set = set(foreground_indices)
             recall_indices = np.where(recall_mask)[0]
-            all_foreground.update(recall_indices)
+            recall_only = np.array([idx for idx in recall_indices if idx not in foreground_set])
             
-            final_points = points[list(all_foreground)]
-            print(f"[Volumetrics] Mask-first: {len(foreground_points)} masked + {len(recall_indices)} recall = {len(final_points)} total")
+            all_foreground = np.concatenate([foreground_indices, recall_only]) if len(recall_only) > 0 else foreground_indices
+            
+            final_points = points[all_foreground]
+            # mask_point_indices already set above (indices 0 to len(foreground_indices)-1)
+            
+            print(f"[Volumetrics] Mask-first: {len(foreground_points)} masked + {len(recall_only)} recall = {len(final_points)} total")
         else:
             # Mask didn't provide enough points - fall back to height-only filter
             final_points = points[points[:, 1] > 0.02]
+            mask_point_indices = set(range(len(final_points)))  # All points are "mask" in fallback
             print(f"[Volumetrics] Mask too sparse ({len(foreground_indices)} pts), using height filter")
     else:
         # No mask available - use simple height filter (above floor only)
         final_points = points[points[:, 1] > 0.02]
+        mask_point_indices = set(range(len(final_points)))  # All points are "mask" in fallback
         print(f"[Volumetrics] No mask - height filter: {len(final_points)} points above floor")
     
     if len(final_points) < 50:
@@ -804,6 +861,18 @@ def _build_height_field(
         sr_inlier_ratio=sr_inlier_ratio  # v8.6
     )
     filtered_points = final_points[filter_mask]
+    
+    # v10.3 FIX A: Track which filtered points are from mask (for footprint seeding)
+    # Vectorized: create mask flags using numpy advanced indexing
+    mask_flags_full = np.zeros(len(final_points), dtype=bool)
+    mask_indices_array = np.array(list(mask_point_indices))
+    if len(mask_indices_array) > 0:
+        valid_mask = mask_indices_array < len(mask_flags_full)
+        mask_flags_full[mask_indices_array[valid_mask]] = True
+    filtered_mask_flags = mask_flags_full[filter_mask]
+    n_mask_after_filter = filtered_mask_flags.sum()
+    n_recall_after_filter = len(filtered_points) - n_mask_after_filter
+    print(f"[VOL_FILTER] After filter: {n_mask_after_filter} mask pts, {n_recall_after_filter} recall pts")
     
     print(f"[VOL_FILTER] mode={filter_stats['filter_mode']}, "
           f"{filter_stats['n_before']} → {filter_stats['n_after']} "
@@ -847,8 +916,12 @@ def _build_height_field(
             cell_z = z_min_grid + (j + 0.5) * GRID_CELL_SIZE_M
             grid[(i, j)] = GridCell(x_idx=i, y_idx=j, x_m=cell_x, z_m=cell_z)
     
+    # v10.3 FIX A: Track cells seeded by mask points vs recall points
+    # Only mask-seeded cells can be part of the footprint
+    mask_seeded_cells = set()  # Cells that have at least one mask point
+    
     # Assign points to cells
-    for point in final_points:
+    for idx, point in enumerate(final_points):
         x, y, z = point
         if y <= 0:  # Below or at floor level
             continue
@@ -860,17 +933,36 @@ def _build_height_field(
         j = max(0, min(j, n_cells_z - 1))
         
         grid[(i, j)].heights.append(y)
+        
+        # v10.5: Track heights by source (mask vs recall)
+        if filtered_mask_flags[idx]:
+            grid[(i, j)].mask_heights.append(y)
+            mask_seeded_cells.add((i, j))
+        else:
+            grid[(i, j)].recall_heights.append(y)
+    
+    print(f"[VOL_DEBUG] Mask-seeded cells: {len(mask_seeded_cells)} / {len(grid)} total")
     
     # Compute trimmed heights and volume with STABILIZERS
     # First pass: collect all cell heights for MAD calculation and floor noise estimation
     all_cell_heights = []
+    mask_height_cells = 0  # v10.5: track how many cells used mask-only heights
     for cell in grid.values():
-        if len(cell.heights) >= MIN_POINTS_PER_CELL:
+        # v10.5: Prefer mask heights to prevent recall from inflating peaks
+        if len(cell.mask_heights) >= MIN_POINTS_PER_CELL:
+            cell.trimmed_height = np.percentile(cell.mask_heights, HEIGHT_PERCENTILE)
+            mask_height_cells += 1
+        elif len(cell.heights) >= MIN_POINTS_PER_CELL:
+            # Fallback: use all heights (recall-heavy cells or recall-only)
             cell.trimmed_height = np.percentile(cell.heights, HEIGHT_PERCENTILE)
+        
+        if cell.trimmed_height > 0:
             all_cell_heights.append(cell.trimmed_height)
     
+    print(f"[VOL_DEBUG] v10.5: mask_heights used for {mask_height_cells} cells")
+    
     if not all_cell_heights:
-        return [], 0.0
+        return [], 0.0, filter_stats, {}
     
     # Compute median and MAD for outlier detection
     all_cell_heights = np.array(all_cell_heights)
@@ -898,11 +990,11 @@ def _build_height_field(
     
     print(f"[VOL_DEBUG] floor_noise_raw={floor_noise_raw:.4f}m (from geometry floor_flatness_p95)")
     
-    # FIX A: DUAL THRESHOLD - decouple "floor cleanup" from "pile footprint"
-    # T_footprint: softer threshold for cell activation and footprint growth
-    # T_floor: stricter threshold for volume integration (revenue-safe denoising)
-    T_footprint = np.clip(floor_noise + 0.02, 0.04, 0.10)  # 4-10cm for footprint
-    T_floor = np.clip(floor_noise + 0.06, 0.08, 0.14)      # 8-14cm for volume (original)
+    # v10.2: FIXED THRESHOLDS - decouple from floor_noise for cross-frame stability
+    # Previously: adaptive thresholds caused footprint to swing +38% between views
+    # Now: constant thresholds ensure footprint stability unless mask truly changes
+    T_footprint = 0.08  # 8cm for footprint activation (fixed)
+    T_floor = 0.12      # 12cm for volume integration (fixed)
     
     print(f"[VOL_DEBUG] floor_noise={floor_noise:.3f}m, T_footprint={T_footprint:.3f}m, T_floor={T_floor:.3f}m")
     
@@ -922,14 +1014,25 @@ def _build_height_field(
     pct_cells_clamped = (num_cells_clamped / total_cells_with_height * 100) if total_cells_with_height > 0 else 0
     print(f"[VOL_DEBUG] clamping: num_cells_clamped={num_cells_clamped}, total_cells={total_cells_with_height}, pct_clamped={pct_cells_clamped:.1f}%")
     
-    # Build grid for connected component analysis using SOFTER T_footprint
+    # v10.3 FIX A: Build footprint ONLY from mask-seeded cells
+    # Recall points can contribute volume within this footprint, but cannot expand it
     active_cell_coords = []
+    recall_only_cells = 0
     for cell in grid.values():
-        if cell.trimmed_height >= T_footprint:  # Use softer threshold for footprint
-            active_cell_coords.append((cell.x_idx, cell.y_idx, cell))
+        if cell.trimmed_height >= T_footprint:
+            cell_key = (cell.x_idx, cell.y_idx)
+            if cell_key in mask_seeded_cells:
+                # This cell has mask points - include in footprint
+                active_cell_coords.append((cell.x_idx, cell.y_idx, cell))
+            else:
+                # This cell only has recall points - cannot seed footprint
+                recall_only_cells += 1
+    
+    if recall_only_cells > 0:
+        print(f"[VOL_DEBUG] FIX_A: Excluded {recall_only_cells} recall-only cells from footprint")
     
     if not active_cell_coords:
-        return list(grid.values()), 0.0
+        return list(grid.values()), 0.0, filter_stats
     
     # ADAPTIVE PILE-LIKE THRESHOLD
     # T_pile = T_footprint + 0.04m, clamped to [0.08, 0.18]
@@ -960,7 +1063,7 @@ def _build_height_field(
     labeled, num_features = ndimage.label(binary_grid, structure=structure)
     
     if num_features == 0:
-        return list(grid.values()), 0.0
+        return list(grid.values()), 0.0, filter_stats
     
     # Collect pile-like components
     selected_cells = set()
@@ -1038,7 +1141,72 @@ def _build_height_field(
     print(f"[VOL_DEBUG] scale_factor applied={scale_factor:.3f}")
     # === END DEBUG BLOCK ===
     
-    return cells, bulk_raw_cy, filter_stats
+    # === v10.7: CANONICAL METRICS for fusion (authoritative values) ===
+    # These metrics are computed over the SAME cell sets that volumetrics integrates
+    
+    # 1. Height percentiles over selected footprint cells (>= T_footprint)
+    selected_footprint_heights = [
+        grid[ck].trimmed_height for ck in grid.keys()
+        if id(grid[ck]) in selected_cells and grid[ck].trimmed_height >= T_footprint
+    ]
+    
+    height_p85_footprint = float(np.percentile(selected_footprint_heights, 85)) if selected_footprint_heights else 0.0
+    height_p95_footprint = float(np.percentile(selected_footprint_heights, 95)) if selected_footprint_heights else 0.0
+    mean_height_footprint = float(np.mean(selected_footprint_heights)) if selected_footprint_heights else 0.0
+    
+    # 2. Leak ratio: fraction of mask-seeded cells that leaked onto floor (h < T_footprint)
+    mask_seeded_with_height = [
+        ck for ck in mask_seeded_cells
+        if ck in grid and grid[ck].trimmed_height > 0
+    ]
+    floor_leak_cells = sum(
+        1 for ck in mask_seeded_with_height
+        if grid[ck].trimmed_height < T_footprint
+    )
+    leak_ratio_maskseed = floor_leak_cells / max(len(mask_seeded_with_height), 1)
+    
+    # 3. Skirt ratio: fraction of selected footprint in [T_footprint, T_floor) band
+    selected_footprint_cells_list = [
+        ck for ck in grid.keys()
+        if id(grid[ck]) in selected_cells and grid[ck].trimmed_height >= T_footprint
+    ]
+    skirt_cells_count = sum(
+        1 for ck in selected_footprint_cells_list
+        if T_footprint <= grid[ck].trimmed_height < T_floor
+    )
+    skirt_ratio_selected = skirt_cells_count / max(len(selected_footprint_cells_list), 1)
+    
+    # 4. Recall/capping diagnostics
+    n_total_filtered = len(mask_point_indices) + len(final_points) - len(mask_point_indices)
+    n_mask_points = len([i for i in range(len(final_points)) if filtered_mask_flags[i]])
+    n_recall_points = len(final_points) - n_mask_points
+    recall_point_fraction = n_recall_points / max(len(final_points), 1)
+    
+    cells_using_mask_heights_frac = mask_height_cells / max(len([c for c in grid.values() if c.trimmed_height > 0]), 1)
+    
+    pct_cells_clamped = sum(1 for c in grid.values() if c.trimmed_height >= height_cap) / max(len([c for c in grid.values() if c.trimmed_height > 0]), 1)
+    
+    canonical = {
+        'footprint_cells_selected': footprint_cells,
+        'footprint_m2_selected': footprint_m2,
+        'volume_cells_selected': active_cells,
+        'volume_area_m2_selected': volume_cells_m2,
+        'height_p85_footprint': height_p85_footprint,
+        'height_p95_footprint': height_p95_footprint,
+        'mean_height_footprint': mean_height_footprint,
+        'leak_ratio_maskseed': leak_ratio_maskseed,
+        'skirt_ratio_selected': skirt_ratio_selected,
+        'recall_point_fraction': recall_point_fraction,
+        'cells_using_mask_heights_frac': cells_using_mask_heights_frac,
+        'height_cap_m': height_cap,
+        'pct_cells_clamped': pct_cells_clamped,
+    }
+    
+    print(f"[CANONICAL] footprint={footprint_m2:.2f}m², volume_area={volume_cells_m2:.2f}m²")
+    print(f"[CANONICAL] height_p85={height_p85_footprint:.3f}m, height_p95={height_p95_footprint:.3f}m")
+    print(f"[CANONICAL] leak_ratio={leak_ratio_maskseed:.2%}, skirt_ratio={skirt_ratio_selected:.2%}")
+    
+    return cells, bulk_raw_cy, filter_stats, canonical
 
 
 def run_volumetrics(
@@ -1091,7 +1259,7 @@ def run_volumetrics(
     
     # Step A: Build height field from point cloud (MASK-FIRST when available)
     if rectified_cloud is not None and len(rectified_cloud) > 0:
-        cells, bulk_raw, filter_stats = _build_height_field(
+        cells, bulk_raw, filter_stats, canonical = _build_height_field(
             rectified_cloud, 
             scale_factor,
             bulk_mask=bulk_mask_np,
@@ -1111,6 +1279,22 @@ def run_volumetrics(
         result.height_field_valid = True
         # Store filter stats for fusion weight calculation
         result.filter_stats = filter_stats
+        
+        # === v10.7: Populate canonical metrics from _build_height_field ===
+        if canonical:
+            result.footprint_cells_selected = canonical.get('footprint_cells_selected', 0)
+            result.footprint_m2_selected = canonical.get('footprint_m2_selected', 0.0)
+            result.volume_cells_selected = canonical.get('volume_cells_selected', 0)
+            result.volume_area_m2_selected = canonical.get('volume_area_m2_selected', 0.0)
+            result.height_p85_footprint = canonical.get('height_p85_footprint', 0.0)
+            result.height_p95_footprint = canonical.get('height_p95_footprint', 0.0)
+            result.mean_height_footprint = canonical.get('mean_height_footprint', 0.0)
+            result.leak_ratio_maskseed = canonical.get('leak_ratio_maskseed', 0.0)
+            result.skirt_ratio_selected = canonical.get('skirt_ratio_selected', 0.0)
+            result.recall_point_fraction = canonical.get('recall_point_fraction', 0.0)
+            result.cells_using_mask_heights_frac = canonical.get('cells_using_mask_heights_frac', 0.0)
+            result.height_cap_m = canonical.get('height_cap_m', 0.0)
+            result.pct_cells_clamped = canonical.get('pct_cells_clamped', 0.0)
     else:
         result.bulk_raw_cy = 0.0
         result.height_field_valid = False

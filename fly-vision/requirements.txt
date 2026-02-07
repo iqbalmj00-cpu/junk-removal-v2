@@ -16,7 +16,7 @@ requests>=2.31.0
 # Image processing
 pillow>=10.2.0
 pillow-heif>=0.13.0       # iPhone HEIC support
-numpy>=1.24.0
+numpy>=1.24.0,<2         # Apple depth-pro requires numpy<2
 scipy>=1.10.0
 
 # ML/Deep Learning (CPU-only to fit 8GB limit)
@@ -24,9 +24,7 @@ scipy>=1.10.0
 torch
 transformers>=4.40.0
 timm>=0.9.0
+depth-pro @ git+https://github.com/apple/ml-depth-pro.git  # v11.0: Apple DepthPro with f_px support
 
 # Optional: Foreman audit
 # openai is already included above
-
-# Local YOLO11 for Lane A detection
-ultralytics>=8.3.0

@@ -118,6 +118,9 @@ class GeometryResult:
     # v8.5: Support plane selection
     support_plane_selected: bool = False  # Was a support plane successfully selected?
     support_plane_source: str = ""  # "global_0", "global_1", "local", or ""
+    # v10.4: Intrinsics gating
+    intrinsics_fx_ratio: Optional[float] = None  # bundle_fx / depthpro_fx (for gating)
+    intrinsics_derived: bool = False  # True if bundle was derived/fallback
 
 
 def _run_depth_pro(data_uri: str) -> tuple[Optional[np.ndarray], Optional[dict]]:
@@ -1569,10 +1572,22 @@ def run_geometry(
     if multi_surface_hint:
         print(f"[Geometry] multi_surface_hint=True from VLM triage")
     
-    # === Run Depth Pro (HuggingFace) ===
+    # === Run Depth Pro (Apple Original) ===
     try:
         runner = DepthProRunner.get_instance()
-        depth_output = runner.infer(working_pil)
+        
+        # v11.0: Pass EXIF focal length to DepthPro when CalibBundle is reliable
+        # This makes DepthPro use the known f_px instead of its own FOV estimation,
+        # eliminating the intrinsics mismatch that causes frame gating and height distortion
+        known_f_px = None
+        if calibration_bundle and calibration_bundle.calib_confidence == 'HIGH' and calibration_bundle.fx > 0:
+            known_f_px = calibration_bundle.fx
+            print(f"[Geometry] Passing EXIF focal length to DepthPro: f_px={known_f_px:.1f}")
+        else:
+            reason = "no bundle" if not calibration_bundle else f"conf={calibration_bundle.calib_confidence}, fx={calibration_bundle.fx:.1f}"
+            print(f"[Geometry] DepthPro will self-estimate focal length ({reason})")
+        
+        depth_output = runner.infer(working_pil, f_px=known_f_px)
         
         depth_map = depth_output["depth_m"]
         intrinsics = depth_output["intrinsics"]
@@ -1596,35 +1611,27 @@ def run_geometry(
     depth_h, depth_w = cleaned_depth.shape
     image_w, image_h = working_pil.size
     
-    # v6.7.2: CalibrationBundle is authoritative when HIGH confidence
+    # v10.4: Always use DepthPro intrinsics for unprojection (depth + intrinsics are paired)
+    # CalibBundle is used for gating/lens classification, NOT unprojection
+    fx = intrinsics["fx"]
+    fy = intrinsics["fy"]
+    cx = intrinsics["cx"]
+    cy = intrinsics["cy"]
     intrinsics_source = "depthpro"
-    if calibration_bundle and calibration_bundle.calib_confidence == "HIGH" and calibration_bundle.fx > 0:
-        fx = calibration_bundle.fx
-        fy = calibration_bundle.fy
-        cx = calibration_bundle.cx
-        cy = calibration_bundle.cy
-        intrinsics_source = "calibration_bundle"
-        print(f"[Geometry] Using CalibrationBundle intrinsics (HIGH confidence): fx={fx:.1f}, fy={fy:.1f}")
+    print(f"[Geometry] Using DepthPro intrinsics: fx={fx:.1f}, fy={fy:.1f}")
+    
+    # v10.4: Compute intrinsics ratio for gating (do NOT use for scaling)
+    if calibration_bundle and calibration_bundle.fx > 0:
+        fx_ratio = calibration_bundle.fx / intrinsics["fx"]
+        result.intrinsics_fx_ratio = fx_ratio
+        result.intrinsics_derived = 'focal_35mm_derived' in (calibration_bundle.calib_warnings or [])
+        deviation_pct = abs(fx_ratio - 1.0) * 100
+        if deviation_pct > 10:
+            print(f"[Geometry] Intrinsics mismatch: bundle_fx={calibration_bundle.fx:.0f} vs depthpro_fx={intrinsics['fx']:.0f} ({deviation_pct:.0f}%)")
     else:
-        # Fallback to DepthPro's estimated intrinsics
-        fx = intrinsics["fx"]
-        fy = intrinsics["fy"]
-        cx = intrinsics["cx"]
-        cy = intrinsics["cy"]
-        bundle_reason = "no bundle" if not calibration_bundle else f"confidence={calibration_bundle.calib_confidence}"
-        print(f"[Geometry] Using DepthPro intrinsics ({bundle_reason}): fx={fx:.1f}, fy={fy:.1f}")
-    
-    # === Sanity Check: Resolution agreement ===
-    if (depth_h, depth_w) != (image_h, image_w):
-        print(f"[Geometry] WARNING: Resolution mismatch! depth={depth_w}×{depth_h}, image={image_w}×{image_h}")
-    
-    # === Sanity Check: Intrinsics plausibility ===
-    fx_min = 0.4 * depth_w
-    fx_max = 1.5 * depth_w
-    if fx < fx_min or fx > fx_max:
-        print(f"[Geometry] WARNING: fx={fx:.1f} outside expected range [{fx_min:.0f}, {fx_max:.0f}]")
-    
-    result.intrinsics_source = intrinsics_source  # Track for debugging
+        result.intrinsics_fx_ratio = None
+        result.intrinsics_derived = True  # No bundle = derived/fallback
+
     
     # === OPTION A: Build floor candidates from depth (using floor_mask if available) ===
     # Fallback ladder: try progressively less aggressive bulk exclusion if starved

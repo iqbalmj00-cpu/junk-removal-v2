@@ -35,13 +35,21 @@ image = (
         "requests>=2.31.0",
         "pillow>=10.2.0",
         "pillow-heif>=0.13.0",
-        "numpy>=1.24.0",
+        "numpy>=1.24.0,<2",  # v11.0: Apple depth-pro requires numpy<2
         "scipy>=1.10.0",
-        "transformers>=4.47.0",  # Grounding DINO + SAM + Qwen2.5-VL via HuggingFace
+        "transformers>=4.47.0,<5.0.0",  # v11.0: Still needed for SegFormer, Grounded SAM, SAM3
         "timm>=0.9.0",
-        "ultralytics>=8.3.0",  # YOLO11 for Lane A
+        "einops",  # Required by Florence-2
         "accelerate>=0.26.0",  # v6.9.0: Required for Qwen2.5-VL model loading
         "qwen-vl-utils>=0.0.8",  # v6.9.0: Qwen2.5-VL utilities
+    )
+    # v11.0: Install Apple's original DepthPro (supports f_px parameter for EXIF intrinsics)
+    .pip_install("depth-pro @ git+https://github.com/apple/ml-depth-pro.git")
+    # v11.0: Download DepthPro checkpoint (~475MB, baked into image for fast cold starts)
+    # NOTE: Uses /opt/ not /models/ because Modal volume mounts at /models
+    .run_commands(
+        "mkdir -p /opt/depth_pro",
+        'python -c "import urllib.request; urllib.request.urlretrieve(\'https://ml-site.cdn-apple.com/models/depth-pro/depth_pro.pt\', \'/opt/depth_pro/depth_pro.pt\')"'
     )
     .add_local_dir("junk_pipeline", remote_path="/root/junk_pipeline")
 )
@@ -126,7 +134,10 @@ def fastapi_app():
         
         # Get volume and convert to price
         final_volume = result.get("final_volume_cy", 0)
-        min_price, base_price, max_price = volume_to_price(final_volume)
+        if final_volume <= 0:
+            min_price, base_price, max_price = 0, 0, 0
+        else:
+            min_price, base_price, max_price = volume_to_price(final_volume)
         
         # Build response
         quote = {

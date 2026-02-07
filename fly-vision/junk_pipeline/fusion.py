@@ -457,6 +457,15 @@ def _compute_job_height_consensus(role_qualifications: list) -> float:
             eligible = False
             reasons.append(f"sem={sem_removed:.0%}>{HC_SEM_REMOVED_MAX:.0%}")
         
+        # v10.4: Intrinsics mismatch gating (>15% deviation excludes from height consensus)
+        fx_ratio = getattr(rq, 'intrinsics_fx_ratio', None)
+        fx_derived = getattr(rq, 'intrinsics_derived', False)
+        if fx_ratio is not None and not fx_derived:  # Only penalize if bundle was not derived
+            deviation = abs(fx_ratio - 1.0)
+            if deviation > 0.15:
+                eligible = False
+                reasons.append(f"intrinsics_mismatch={deviation:.0%}>15%")
+        
         # Weight based on geometry quality (use support plane metrics when available)
         if support_plane_selected:
             # Use sr_yfl95 for noise ratio, apply yfl95 as soft penalty
@@ -1187,6 +1196,7 @@ class RoleQualification:
     # Extracted attributes
     footprint_m2: float = 0.0
     height_p85_m: float = 0.0
+    height_p95_m: float = 0.0             # v10.7: P95 height for geometry noise ratio
     mean_height_m: float = 0.0
     floor_area_pct: float = 0.0
     
@@ -1225,6 +1235,10 @@ class RoleQualification:
     
     # v8.6: Guardrail quarantine flag
     donor_eligible: bool = True           # If False, frame is rescued but quarantined (cannot be V_ref or donor)
+    
+    # v10.4: Intrinsics mismatch gating (bundle_fx / depthpro_fx)
+    intrinsics_fx_ratio: Optional[float] = None  # ratio or None if no bundle
+    intrinsics_derived: bool = False       # True if bundle was derived/fallback
 
 
 def _check_geometry_gate(
@@ -1546,30 +1560,35 @@ def _compute_union_blend(
     volumes: list[float],
     weights: list[float],
     trusted_max_volume: float = 0.0,     # v6.4.1: trusted-max for cap
-    trusted_frame_id: Optional[str] = None
+    trusted_frame_id: Optional[str] = None,
+    coverage_evidence: bool = False       # v10.5: require evidence of complementary views
 ) -> tuple[float, bool]:
     """
-    S1 + v6.4.1: Compute union-blend when complementary views detected.
+    S1 + v6.4.1 + v10.5: Compute union-blend when complementary views detected.
     
-    Triggers when sum/weighted_median > COMPLEMENT_RATIO_THRESHOLD.
-    Uses trusted-max for cap if available, otherwise P85.
+    v10.5: Now requires coverage_evidence=True to trigger, not just ratio.
+    Overlapping views (coverage_evidence=False) use weighted_trimmed_mean.
     
     Returns: (volume, was_triggered). Always returns valid float.
     """
+    # Always compute baseline (needed for return)
+    V_base = _weighted_trimmed_mean(volumes, weights)
+    
     if len(volumes) < 3:
-        V_base = _weighted_trimmed_mean(volumes, weights)
         return V_base, False
     
     V_sum = sum(volumes)
     V_wmed = _weighted_percentile(volumes, weights, 50)  # Weighted median
     
     ratio = V_sum / V_wmed if V_wmed > 0 else 0
-    triggered = ratio > COMPLEMENT_RATIO_THRESHOLD
     
-    # Always compute baseline (needed for return)
-    V_base = _weighted_trimmed_mean(volumes, weights)
+    # v10.5: Require BOTH ratio threshold AND coverage evidence
+    ratio_met = ratio > COMPLEMENT_RATIO_THRESHOLD
+    triggered = ratio_met and coverage_evidence
     
     if not triggered:
+        if ratio_met and not coverage_evidence:
+            print(f"[UnionBlend] NOT triggered: ratio={ratio:.1f}x but coverage_evidence=False (overlapping views)")
         return V_base, False
     
     # v6.4.1: Use trusted-max if available, else fall back to P85
@@ -1679,11 +1698,19 @@ def _get_trusted_max_volume_v65(
     - Y_floor_p95 <= 0.15 (floor must be flat)
     - Not partial_view=severe
     
+    v10.3 FIX B: Footprint-consensus gating
+    - Only frames with footprint within [0.8×fp_median, 1.2×fp_median] can be V_ref
+    - Prevents inflated frames from being selected
+    
     Returns: (trusted_max_volume, trusted_frame_id) or (0.0, None) if none qualify
     """
     # V_ref gate thresholds (v6.5.2b: tightened per user feedback)
     VREF_INLIER_MIN = 0.50  # v8.2.2: Relaxed from 0.70 - reference frame
     VREF_YFL95_MAX = 0.30   # v8.2.2: Relaxed from 0.20 - match GATE2 hard exclusion
+    
+    # v10.3: Footprint consensus thresholds
+    FP_CONSENSUS_LOW = 0.80   # Min ratio to median
+    FP_CONSENSUS_HIGH = 1.20  # Max ratio to median
     
     trusted_max = 0.0
     trusted_frame = None
@@ -1691,6 +1718,22 @@ def _get_trusted_max_volume_v65(
     
     # Build lookup for MES scores
     mes_lookup = {m.frame_id: m for m in mes_scores}
+    
+    # v10.3: Compute footprint median for consensus check
+    valid_footprints = []
+    for rq in role_qualifications:
+        if rq.frame_id in valid_frame_ids and rq.footprint_m2 > 0:
+            valid_footprints.append(rq.footprint_m2)
+    
+    if valid_footprints:
+        fp_median = np.median(valid_footprints)
+        fp_low_threshold = fp_median * FP_CONSENSUS_LOW
+        fp_high_threshold = fp_median * FP_CONSENSUS_HIGH
+        print(f"[VRef_FP] Footprint consensus: median={fp_median:.2f}m², band=[{fp_low_threshold:.2f}, {fp_high_threshold:.2f}]")
+    else:
+        fp_median = 0.0
+        fp_low_threshold = 0.0
+        fp_high_threshold = float('inf')
     
     for rq in role_qualifications:
         if rq.frame_id not in valid_frame_ids:
@@ -1741,10 +1784,31 @@ def _get_trusted_max_volume_v65(
             eligible = False
             reasons.append("donor_quarantined")
         
+        # v10.3 FIX B: FOOTPRINT CONSENSUS CHECK
+        # Only allow V_ref from frames within footprint consensus band
+        if fp_median > 0 and rq.footprint_m2 > 0:
+            fp_ratio = rq.footprint_m2 / fp_median
+            if fp_ratio < FP_CONSENSUS_LOW:
+                eligible = False
+                reasons.append(f"fp_low={fp_ratio:.2f}<{FP_CONSENSUS_LOW}")
+            elif fp_ratio > FP_CONSENSUS_HIGH:
+                eligible = False
+                reasons.append(f"fp_high={fp_ratio:.2f}>{FP_CONSENSUS_HIGH}")
+        
+        # v10.4: Intrinsics mismatch gating (>25% deviation excludes from V_ref)
+        fx_ratio = getattr(rq, 'intrinsics_fx_ratio', None)
+        fx_derived = getattr(rq, 'intrinsics_derived', False)
+        if fx_ratio is not None and not fx_derived:  # Only penalize if bundle was not derived
+            deviation = abs(fx_ratio - 1.0)
+            if deviation > 0.25:
+                eligible = False
+                reasons.append(f"intrinsics_mismatch={deviation:.0%}>25%")
+        
         # Log candidate for debugging
         v_ref_candidates.append({
             'frame_id': rq.frame_id[:8],
             'vol': rq.frame_volume_cy,
+            'fp': rq.footprint_m2,
             'inlier': rq.inlier_ratio,
             'yfl95': rq.yfl95,
             'eligible': eligible,
@@ -1752,7 +1816,7 @@ def _get_trusted_max_volume_v65(
         })
         
         if eligible:
-            print(f"[TrustedMax] {rq.frame_id[:8]}: ELIGIBLE (mes={mes.raw_score:.2f}), vol={rq.frame_volume_cy:.2f}")
+            print(f"[TrustedMax] {rq.frame_id[:8]}: ELIGIBLE (mes={mes.raw_score:.2f}, fp={rq.footprint_m2:.2f}m²), vol={rq.frame_volume_cy:.2f}")
             if rq.frame_volume_cy > trusted_max:
                 trusted_max = rq.frame_volume_cy
                 trusted_frame = rq.frame_id
@@ -1787,7 +1851,10 @@ def _qualify_frame_for_roles(
     sr_inlier_ratio: float = 0.0,
     sr_yfl95: float = 0.20,
     # v8.6: Guardrail quarantine
-    donor_eligible: bool = True
+    donor_eligible: bool = True,
+    # v10.4: Intrinsics mismatch gating
+    intrinsics_fx_ratio: Optional[float] = None,
+    intrinsics_derived: bool = False
 ) -> RoleQualification:
     """
     Qualify a frame for footprint and/or height donor roles.
@@ -1807,23 +1874,42 @@ def _qualify_frame_for_roles(
     rq.yfl95 = yfl95
     rq.plane_angle_deg = tilt_deg
     
-    # Extract attributes from volumetric result
-    grid_cells = volumetric_result.grid_cells if volumetric_result else []
-    active_cells = [c for c in grid_cells if c.trimmed_height > 0]
+    # v10.4: Store intrinsics mismatch info
+    rq.intrinsics_fx_ratio = intrinsics_fx_ratio
+    rq.intrinsics_derived = intrinsics_derived
     
-    rq.footprint_m2 = len(active_cells) * 0.01  # 10cm grid cells
-    rq.height_p85_m = _compute_height_p85(grid_cells)
-    rq.mean_height_m = np.mean([c.trimmed_height for c in active_cells]) if active_cells else 0.0
-    
-    # Compute ground overlap for seg gate
-    ground_overlap = _compute_ground_overlap_ratio(grid_cells)
+    # === v10.7: Use canonical metrics from volumetrics (authoritative source) ===
+    # This replaces proxy calculations that diverged from what volumetrics actually integrated
+    if volumetric_result and volumetric_result.height_field_valid:
+        # Footprint and height from canonical metrics
+        rq.footprint_m2 = volumetric_result.footprint_m2_selected
+        rq.height_p85_m = volumetric_result.height_p85_footprint
+        rq.height_p95_m = volumetric_result.height_p95_footprint
+        rq.mean_height_m = volumetric_result.mean_height_footprint
+        
+        # Ground overlap replaced by leak_ratio_maskseed
+        ground_overlap = volumetric_result.leak_ratio_maskseed
+        
+        # Skirt ratio from canonical (for trusted-max/leakage weighting)
+        rq.skirt_ratio = volumetric_result.skirt_ratio_selected
+        
+        # Get Y_junk_max for height gate (still need max from grid cells)
+        grid_cells = volumetric_result.grid_cells
+        y_junk_max = max((c.trimmed_height for c in grid_cells), default=0.0)
+    else:
+        # Fallback for missing volumetric result
+        grid_cells = []
+        rq.footprint_m2 = 0.0
+        rq.height_p85_m = 0.0
+        rq.height_p95_m = 0.0
+        rq.mean_height_m = 0.0
+        ground_overlap = 0.0
+        rq.skirt_ratio = 0.0
+        y_junk_max = 0.0
     
     # Store quality metrics for clean frame selection
     rq.ground_overlap_ratio = ground_overlap
     rq.mask_coverage = mask_coverage
-    
-    # Get Y_junk_max for height gate
-    y_junk_max = max((c.trimmed_height for c in grid_cells), default=0.0)
     
     # === Check Geometry Gate (applies to both roles) ===
     # v8.5.3: Pass support-plane metrics for gate bypass
@@ -2178,7 +2264,10 @@ def run_fusion(
     support_plane_selected: Optional[dict[str, bool]] = None,
     # v8.5.2: Support-plane metrics for donor eligibility
     sr_inlier_ratios: Optional[dict[str, float]] = None,
-    sr_yfl95s: Optional[dict[str, float]] = None
+    sr_yfl95s: Optional[dict[str, float]] = None,
+    # v10.4: Intrinsics mismatch gating
+    intrinsics_fx_ratios: Optional[dict[str, float]] = None,
+    intrinsics_derived: Optional[dict[str, bool]] = None
 ) -> FusionResult:
 
     """
@@ -2319,7 +2408,10 @@ def run_fusion(
             sr_inlier_ratio=sr_inlier,
             sr_yfl95=sr_p95,
             # v8.6: Guardrail quarantine
-            donor_eligible=fr.filter_stats.get('donor_eligible', True)
+            donor_eligible=fr.filter_stats.get('donor_eligible', True),
+            # v10.4: Intrinsics mismatch gating
+            intrinsics_fx_ratio=intrinsics_fx_ratios.get(fr.frame_id) if intrinsics_fx_ratios else None,
+            intrinsics_derived=intrinsics_derived.get(fr.frame_id, False) if intrinsics_derived else False
         )
         
         # v6.4.1: Store semantic removal percentage for partial view detection
@@ -2379,7 +2471,7 @@ def run_fusion(
         mes.plane_angle_deg = rq.plane_angle_deg
         mes.border_touch_ratio = rq.border_touch_ratio
         mes.semantic_removed_pct = rq.semantic_removed_pct
-        mes.height_p95_m = rq.height_p85_m  # Use P85 as proxy for P95
+        mes.height_p95_m = rq.height_p95_m  # v10.7: Use actual P95 from canonical
         
         # Geometry score (with noise-ratio and outlier guard)
         # v8.5.3: Pass support-plane metrics for yfl95 bypass
@@ -2387,7 +2479,7 @@ def run_fusion(
             _compute_mes_geometry_score(
                 inlier_ratio=rq.inlier_ratio,
                 yfl95=rq.yfl95,
-                height_p95=rq.height_p85_m,
+                height_p95=rq.height_p95_m,  # v10.7: Use actual P95 from canonical
                 plane_angle_deg=rq.plane_angle_deg,
                 second_highest_height=second_highest_height,
                 support_plane_selected=rq.support_plane_selected,
@@ -2543,6 +2635,24 @@ def run_fusion(
     else:
         # Cross-fusion failed - use S1 union-blend with v6.5 trusted-max
         
+        # v10.5: Compute coverage evidence (require this to trigger union-blend)
+        # Union-blend is only appropriate for TRUE complementary views (non-overlapping)
+        fp_values = [rq.footprint_m2 for rq in role_qualifications if rq.footprint_m2 > 0]
+        border_touch_sum = sum(rq.border_touch_ratio for rq in role_qualifications)
+        
+        # Evidence of complementary coverage:
+        # 1. Significant footprint variance (max/median > 1.5) - different views see different amounts
+        # 2. OR multiple frames with border-touch > 0.5 total - frames are cutting off parts
+        fp_max = max(fp_values) if fp_values else 0
+        fp_median = np.median(fp_values) if fp_values else 0
+        fp_variance = (fp_max / fp_median > 1.5) if fp_median > 0 else False
+        multiple_partials = border_touch_sum > 0.5
+        
+        coverage_evidence = fp_variance or multiple_partials
+        fp_ratio = fp_max / fp_median if fp_median > 0 else 0
+        print(f"[UnionBlend] coverage_evidence={coverage_evidence} "
+              f"(fp_max/median={fp_ratio:.2f}, border_touch_sum={border_touch_sum:.2f})")
+        
         # v6.5: Compute trusted-max using MES eligibility
         trusted_max_vol, trusted_frame_id = _get_trusted_max_volume_v65(
             mes_scores, role_qualifications, valid_frame_ids
@@ -2551,7 +2661,8 @@ def run_fusion(
         blend_volume, blend_triggered = _compute_union_blend(
             volumes, weights,
             trusted_max_volume=trusted_max_vol,
-            trusted_frame_id=trusted_frame_id
+            trusted_frame_id=trusted_frame_id,
+            coverage_evidence=coverage_evidence  # v10.5: require evidence
         )
         result.final_volume_cy = blend_volume
         

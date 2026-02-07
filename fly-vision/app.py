@@ -203,7 +203,10 @@ def run_pipeline(base64_images: List[str], context: dict) -> dict:
         
         # Get volume and convert to price
         final_volume = result.get("final_volume_cy", 0)
-        min_price, base_price, max_price = volume_to_price(final_volume)
+        if final_volume <= 0:
+            min_price, base_price, max_price = 0, 0, 0
+        else:
+            min_price, base_price, max_price = volume_to_price(final_volume)
         
         # Transform result to quote format expected by frontend
         quote = {

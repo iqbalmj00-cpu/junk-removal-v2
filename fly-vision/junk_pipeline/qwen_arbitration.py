@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Optional
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont
+from .qwen_local import parse_thinking_response
 
 # =============================================================================
 # CONFIGURATION
@@ -198,14 +199,13 @@ def _visualize_boxes(
     for i, box_info in enumerate(boxes):
         x1, y1, x2, y2 = box_info['box']
         color = colors[i % len(colors)]
-        label = box_info.get('label', 'unknown')
-        conf = box_info.get('confidence', 0.0)
         
         # Draw rectangle
         draw.rectangle([x1, y1, x2, y2], outline=color, width=line_width)
         
-        # Draw label with number
-        label_text = f"{i+1}: {label} ({conf:.2f})"
+        # Draw ONLY the box number — no DINO labels or confidence
+        # This prevents label bias when Qwen visually inspects the image
+        label_text = f"{i+1}"
         
         # Calculate text position (above box if possible)
         text_y = y1 - 30 if y1 > 40 else y2 + 5
@@ -219,12 +219,31 @@ def _visualize_boxes(
 
 
 # =============================================================================
-# VLM API CALL
+# VLM INFERENCE (Local + API Fallback)
 # =============================================================================
 
-def _call_vlm(content: list, timeout: int = ARBITRATION_TIMEOUT_S) -> str:
+# Flag to control local vs API
+USE_LOCAL_QWEN = True  # Set to False to force API mode
+
+
+def _call_vlm_local(image_pil, prompt: str) -> str:
     """
-    Call Qwen2.5-VL via HuggingFace Router API.
+    Call Qwen3-VL-8B locally on GPU.
+    
+    Args:
+        image_pil: PIL Image to analyze
+        prompt: Text prompt for the model
+        
+    Returns:
+        Raw text output from the model
+    """
+    from .qwen_local import run_inference
+    return run_inference(image_pil, prompt)
+
+
+def _call_vlm_api(content: list, timeout: int = ARBITRATION_TIMEOUT_S) -> str:
+    """
+    Call Qwen2.5-VL via HuggingFace Router API (fallback).
     
     Args:
         content: List of content items (images + text)
@@ -248,7 +267,7 @@ def _call_vlm(content: list, timeout: int = ARBITRATION_TIMEOUT_S) -> str:
         "model": HF_MODEL_ID,
         "messages": [{"role": "user", "content": content}],
         "max_tokens": ARBITRATION_MAX_TOKENS,
-        "temperature": 0.0  # Deterministic output for consistent box selection
+        "temperature": 0.0
     }
     
     response = requests.post(
@@ -265,6 +284,41 @@ def _call_vlm(content: list, timeout: int = ARBITRATION_TIMEOUT_S) -> str:
     
     result = response.json()
     return result["choices"][0]["message"]["content"]
+
+
+def _call_vlm(content: list, timeout: int = ARBITRATION_TIMEOUT_S) -> str:
+    """
+    Call VLM - tries local first, falls back to API.
+    
+    For local mode, extracts image and prompt from content list.
+    """
+    # Extract image PIL and prompt from content
+    image_pil = None
+    prompt = ""
+    
+    for item in content:
+        if item.get("type") == "image_url":
+            # Content has base64 image - need to decode
+            url = item["image_url"]["url"]
+            if url.startswith("data:image"):
+                import base64
+                from io import BytesIO
+                # Extract base64 data
+                b64_data = url.split(",", 1)[1]
+                img_bytes = base64.b64decode(b64_data)
+                image_pil = Image.open(BytesIO(img_bytes))
+        elif item.get("type") == "text":
+            prompt = item["text"]
+    
+    # Try local first if enabled
+    if USE_LOCAL_QWEN and image_pil is not None:
+        try:
+            return _call_vlm_local(image_pil, prompt)
+        except Exception as e:
+            print(f"[QWEN_LOCAL] Local inference failed: {e}, falling back to API")
+    
+    # Fallback to API
+    return _call_vlm_api(content, timeout)
 
 
 # =============================================================================
@@ -301,109 +355,280 @@ The images are numbered 0 to {n_minus_1}. Select the best one."""
 
 
 # =============================================================================
+# SINGLE BOX CLASSIFICATION (PER-CROP)
+# =============================================================================
+
+SINGLE_BOX_CLASSIFICATION_PROMPT = """This cropped image shows a single region detected as a potential junk pile.
+
+## Your Task
+Classify this region: Is it JUNK or NOT_JUNK?
+
+## Precision Policy
+False positives are worse than false negatives.
+If uncertain, answer NOT_JUNK.
+
+## HARD OVERRIDES — If ANY are true, answer NOT_JUNK:
+- Standing tree (vertical trunk, canopy attached)
+- Tree canopy or leafy vegetation overhead
+- Building, fence, shed, or permanent structure
+- Empty ground, road, lawn with nothing to haul
+- Person, animal, or empty vehicle
+
+## JUNK Criteria (answer JUNK only if ALL are true):
+1. Material is DETACHED (not rooted, not fixed)
+2. Material is ON THE GROUND or stacked/piled for removal
+3. NOT dominated by a standing tree or structure
+
+## Examples
+JUNK: trash bags, furniture, appliances, debris piles, cut logs, construction waste
+NOT_JUNK: standing trees, tree canopy, buildings, fences, empty lawn, rooted bushes
+
+## Output (STRICT)
+Return ONLY valid JSON:
+{{"classification": "JUNK" or "NOT_JUNK", "confidence": 0.0-1.0, "reason": "<brief>"}}"""
+
+
+def _classify_single_box(image_pil, box_coords: list, box_index: int) -> dict:
+    """
+    Classify a single cropped box region as JUNK or NOT_JUNK.
+    
+    Args:
+        image_pil: Full PIL image
+        box_coords: [x1, y1, x2, y2] coordinates
+        box_index: 0-based index for logging
+        
+    Returns:
+        {"is_junk": bool, "confidence": float, "reason": str}
+    """
+    x1, y1, x2, y2 = [int(c) for c in box_coords]
+    
+    # Add padding around crop (10% of box size)
+    w, h = x2 - x1, y2 - y1
+    pad_x, pad_y = int(w * 0.1), int(h * 0.1)
+    
+    # Ensure bounds are valid
+    img_w, img_h = image_pil.size
+    crop_x1 = max(0, x1 - pad_x)
+    crop_y1 = max(0, y1 - pad_y)
+    crop_x2 = min(img_w, x2 + pad_x)
+    crop_y2 = min(img_h, y2 + pad_y)
+    
+    # Crop and resize
+    crop = image_pil.crop((crop_x1, crop_y1, crop_x2, crop_y2))
+    
+    # Skip tiny crops
+    if crop.width < 50 or crop.height < 50:
+        print(f"[QWEN_CROP] Box {box_index+1}: too small, skipping")
+        return {"is_junk": False, "confidence": 0.0, "reason": "crop too small"}
+    
+    resized = _resize_for_vlm(crop)
+    b64_uri = _pil_to_base64(resized)
+    
+    content = [
+        {"type": "image_url", "image_url": {"url": b64_uri}},
+        {"type": "text", "text": SINGLE_BOX_CLASSIFICATION_PROMPT}
+    ]
+    
+    try:
+        raw_output = _call_vlm(content)
+        parsed = _parse_json_resilient(raw_output)
+        
+        if parsed and "classification" in parsed:
+            is_junk = parsed["classification"].upper() == "JUNK"
+            conf = float(parsed.get("confidence", 0.5))
+            reason = parsed.get("reason", "")[:50]
+            print(f"[QWEN_CROP] Box {box_index+1}: {'JUNK' if is_junk else 'NOT_JUNK'} ({conf:.2f}) - {reason}")
+            return {"is_junk": is_junk, "confidence": conf, "reason": reason}
+        else:
+            print(f"[QWEN_CROP] Box {box_index+1}: parse failed, defaulting to NOT_JUNK")
+            return {"is_junk": False, "confidence": 0.0, "reason": "parse failed"}
+    except Exception as e:
+        print(f"[QWEN_CROP] Box {box_index+1}: error {e}, defaulting to NOT_JUNK")
+        return {"is_junk": False, "confidence": 0.0, "reason": str(e)[:30]}
+
+
+# =============================================================================
 # BOX SELECTION PROMPTS
 # =============================================================================
 
-BOX_SELECTION_PROMPT = """This image shows numbered bounding boxes detected as potential junk piles.
+BOX_SELECTION_PROMPT = """This image contains numbered bounding boxes drawn around candidate regions
+detected by an object detector. The detector has already identified these
+as potential junk — your job is to REJECT boxes that are clearly NOT junk.
 
-## Boxes Detected:
+## Boxes Detected
 {boxes_json}
 
-## Your Task:
-Select ALL boxes that contain junk/debris material. You may select MULTIPLE boxes if there are multiple piles.
+## Goal
+Select ALL boxes that contain junk / debris / haul-away material.
+You may select multiple boxes.
 
-## Material Types That Count as Junk:
-- Garbage bags, trash, debris piles, household waste
-- CUT logs, stumps, wood rounds, lumber (ON THE GROUND, disconnected from any tree)
-- CUT branches, palm fronds, leaves, yard waste, vegetation piles (ON THE GROUND)
-- Furniture, appliances, construction waste, pallets
+## Selection Policy
+These boxes were pre-filtered by an object detector. Lean toward SELECTING
+unless you see clear evidence the box is NOT junk. When a box is dark,
+shadowed, or hard to see clearly, SELECT it — downstream filters will
+catch errors. Only REJECT when you are confident the box contains
+no haul-away material.
 
-## CRITICAL - What is NOT Junk (NEVER select these):
-- LIVING TREES: standing trees with branches extending into the sky
-- TREE CANOPY: boxes labeled "branches" that show leaves/branches CONNECTED to a tree trunk
-- Any box where the TOP edge starts near y=0 (top of image) - this is almost always a tree canopy, NOT junk
-- Background objects: vehicles, fences, buildings, people
+## REJECT Rules — Do NOT select if ANY of these are clearly true:
 
-## Key Distinction - "branches" label:
-- LIVING tree branches: connected to trunk, in upper portion of image, extending into sky → NOT JUNK
-- CUT branches: disconnected, lying on ground with other debris → IS JUNK
+A) GRASS/LAWN: The box contains ONLY undisturbed grass, lawn, or bare
+   ground with no objects sitting on it. Brown/dry/dead grass is still
+   grass — do NOT select it.
 
-## Criteria for Selection:
-1. Box contains actual junk/debris material ON THE GROUND
-2. Minimizes empty ground or background area  
-3. Covers the pile, not just a portion
-4. REJECT any box where the TOP edge is in the upper 40% of the image AND it's labeled "branches" - that's a tree, not junk
+B) STANDING TREE: A vertical trunk rooted in the ground, or tree canopy
+   attached to a trunk.
 
-## Example:
-Input:
-- Box 1: branches (0.45) @ [0, 0, 900, 350]  <- TOP of image, standing tree
-- Box 2: trash (0.40) @ [50, 400, 300, 600]  <- garbage bags on ground
-- Box 3: debris pile (0.50) @ [400, 350, 900, 700] <- yard waste/junk pile
-- Box 4: furniture (0.35) @ [600, 420, 800, 650] <- old couch
+C) PERMANENT STRUCTURE: Building, fence, shed, wall, utility pole,
+   mailbox, hydrant.
 
-Correct output:
-{{"selected_box_numbers": [2, 3, 4], "multi_pile": true, "reason": "Trash bags, debris pile, and furniture are junk on ground. Box 1 rejected - tree branches in upper image."}}
+D) EMPTY SURFACE: Pavement, road, sidewalk, or driveway with nothing on it.
 
-## Output Format
-Return ONLY a valid JSON object. No markdown, no explanation before or after.
+E) PEOPLE/ANIMALS/VEHICLES: Unless a vehicle is clearly loaded with junk.
+
+F) CANOPY OVERRIDE: Box touches the top edge of the image AND contains
+   only thin branching lines extending upward — this is a tree, not junk.
+
+G) BACKGROUND OBJECTS: If a box is clearly in the far background
+   (across a road, parking lot, or yard), significantly farther from
+   the camera than the main foreground pile, it is NOT part of this job.
+   Only select boxes at roughly the same distance as the primary pile.
+
+## What IS junk (select these):
+- Trash bags, garbage bags, loose trash
+- Pallets, lumber, wood, cardboard, boxes
+- Furniture, appliances, mattresses
+- Construction debris (drywall, tiles, bricks, scrap metal)
+- Yard waste piles, brush piles, bundled branches ON THE GROUND
+- Cut logs/firewood lying horizontally
+- Tarps, covers, or sheeting draped over a pile
+- Any detached material piled/stacked for removal
+
+## Florence-2 Descriptions (MANDATORY)
+Each box includes a caption from Florence-2 (an independent vision model)
+that analyzed the cropped region.
+
+**AUTO-REJECT**: Any box tagged with **[GRASS_ONLY]** MUST be rejected.
+This tag means Florence-2 determined the region contains ONLY grass, lawn,
+or empty field with NO junk present. This is pre-computed and absolute.
+Do NOT select any box marked [GRASS_ONLY], no exceptions.
+
+**SUPPORT SELECT**: If Florence-2 describes piles, debris, bags, wood, trash,
+cardboard, logs, leaves, or similar material → this supports selecting the box,
+even if it mentions grass as the surface the junk sits on.
+
+## Decision Gate
+For each box, ask:
+1. Is it tagged [GRASS_ONLY]? → If YES, REJECT immediately.
+2. Does this box contain objects or material to haul away?
+3. Is it NOT just empty ground or a permanent structure?
+4. Is it in the foreground, at a similar distance as the main pile?
+
+If Q1 = NO and Q2-Q4 = YES → SELECT. If unsure but box is dark/unclear → SELECT.
+
+## Multi-pile flag
+Set "multi_pile": true if selected boxes represent multiple separate
+distinct piles (not just one pile split into overlapping boxes).
+
+## Output Format (STRICT)
+Return ONLY valid JSON (no markdown, no extra text).
 {{
-  "selected_box_numbers": [<1-based box numbers>],
+  "selected_box_numbers": [<1-based box numbers in ascending order>],
   "multi_pile": <true/false>,
-  "reason": "<brief explanation>"
+  "reason": "<very brief reason referencing dominant visual cues>"
 }}"""
 
 
-REFERENCE_GUIDED_BOX_PROMPT = """You are selecting junk boxes in a SECONDARY frame based on a REFERENCE frame.
+REFERENCE_GUIDED_BOX_PROMPT = """You are selecting junk boxes in a SECONDARY frame.
 
-## IMPORTANT: Different Perspectives
-The reference and target images are taken from DIFFERENT ANGLES of the same scene.
-Materials like logs, stumps, or debris may look VERY DIFFERENT from another viewpoint.
-Focus on WHAT the material IS, not exactly how it looks visually.
-
-## Reference Frame (Image 1):
-The first image shows what we already identified as junk, highlighted in GREEN.
-This includes ALL junk piles in the scene - there may be MULTIPLE separate piles.
+## Reference Context (Image 1):
+The first image shows junk we identified in the BEST frame (GREEN highlight).
+Use this as visual reference for what the junk looks like — same material
+type, same pile. Select boxes in the target frame that contain the SAME
+or similar junk.
 
 ## Target Frame (Image 2):
-The second image shows YOUR target frame with numbered bounding boxes.
-You need to find ALL the same junk pile(s) from this different angle.
+This is YOUR target frame with numbered bounding boxes. Apply the rules below.
 
-## Boxes Detected:
+## Boxes Detected
 {boxes_json}
 
-## Your Task:
-Select ALL boxes that contain junk materials shown in green in the reference.
-Do NOT skip any pile - the junk may be in MULTIPLE separate locations.
+## Goal
+Select ALL boxes that contain junk / debris / haul-away material matching
+the reference. You may select multiple boxes.
 
-## Material Matching Tips:
-- Cut logs (cylindrical shapes) = junk, even if they look different from another angle
-- Palm fronds / brush / debris = junk
-- If the reference shows 2 piles, select boxes for BOTH piles
+## Selection Policy
+These boxes were pre-filtered by an object detector. Lean toward SELECTING
+unless you see clear evidence the box is NOT junk. When a box is dark,
+shadowed, or hard to see clearly, SELECT it — downstream filters will
+catch errors. Only REJECT when you are confident the box contains
+no haul-away material.
 
-## Critical Rules:
-- NEVER select boxes labeled "branches" where TOP edge is near y=0 (top of image) - this is a LIVING TREE, not junk
-- Living tree branches: connected to trunk, extending into sky → REJECT
-- Cut branches on ground with debris → OK to select
-- Do NOT select boxes that cover mostly empty ground or sky
-- Select ALL boxes that match ANY part of the green reference, not just the "most similar"
+## REJECT Rules — Do NOT select if ANY of these are clearly true:
 
-## Example:
-Reference shows: debris pile (left) + scattered items (right) in GREEN
-Target boxes:
-- Box 1: pile @ [50, 350, 300, 550] <- matches debris on left
-- Box 2: branches @ [0, 0, 900, 350] <- tree in sky, REJECT
-- Box 3: junk @ [400, 300, 900, 650] <- matches scattered items
-- Box 4: waste @ [200, 400, 400, 600] <- overlaps with debris
+A) GRASS/LAWN: The box contains ONLY undisturbed grass, lawn, or bare
+   ground with no objects sitting on it. Brown/dry/dead grass is still
+   grass — do NOT select it.
 
-Correct output:
-{{"selected_box_numbers": [1, 3, 4], "multi_pile": true, "reason": "Boxes 1, 3, 4 contain junk matching reference. Box 2 rejected - tree branches."}}
+B) STANDING TREE: A vertical trunk rooted in the ground, or tree canopy
+   attached to a trunk.
 
-## Output Format
-Return ONLY a valid JSON object. No markdown, no explanation before or after.
+C) PERMANENT STRUCTURE: Building, fence, shed, wall, utility pole,
+   mailbox, hydrant.
+
+D) EMPTY SURFACE: Pavement, road, sidewalk, or driveway with nothing on it.
+
+E) PEOPLE/ANIMALS/VEHICLES: Unless a vehicle is clearly loaded with junk.
+
+F) CANOPY OVERRIDE: Box touches the top edge of the image AND contains
+   only thin branching lines extending upward — this is a tree, not junk.
+
+G) BACKGROUND OBJECTS: If a box is clearly in the far background
+   (across a road, parking lot, or yard), significantly farther from
+   the camera than the main foreground pile, it is NOT part of this job.
+   Only select boxes at roughly the same distance as the primary pile.
+
+## What IS junk (select these):
+- Trash bags, garbage bags, loose trash
+- Pallets, lumber, wood, cardboard, boxes
+- Furniture, appliances, mattresses
+- Construction debris (drywall, tiles, bricks, scrap metal)
+- Yard waste piles, brush piles, bundled branches ON THE GROUND
+- Cut logs/firewood lying horizontally
+- Tarps, covers, or sheeting draped over a pile
+- Any detached material piled/stacked for removal
+
+## Florence-2 Descriptions (MANDATORY)
+Each box includes a caption from Florence-2 (an independent vision model)
+that analyzed the cropped region.
+
+**AUTO-REJECT**: Any box tagged with **[GRASS_ONLY]** MUST be rejected.
+This tag means Florence-2 determined the region contains ONLY grass, lawn,
+or empty field with NO junk present. This is pre-computed and absolute.
+Do NOT select any box marked [GRASS_ONLY], no exceptions.
+
+**SUPPORT SELECT**: If Florence-2 describes piles, debris, bags, wood, trash,
+cardboard, logs, leaves, or similar material → this supports selecting the box,
+even if it mentions grass as the surface the junk sits on.
+
+## Decision Gate
+For each box, ask:
+1. Is it tagged [GRASS_ONLY]? → If YES, REJECT immediately.
+2. Does this box contain objects or material to haul away?
+3. Is it NOT just empty ground or a permanent structure?
+4. Is it in the foreground, at a similar distance as the main pile?
+
+If Q1 = NO and Q2-Q4 = YES → SELECT. If unsure but box is dark/unclear → SELECT.
+
+## Multi-pile flag
+Set "multi_pile": true if selected boxes represent multiple separate
+distinct piles (not just one pile split into overlapping boxes).
+
+## Output Format (STRICT)
+Return ONLY valid JSON (no markdown, no extra text).
 {{
-  "selected_box_numbers": [<1-based box numbers - include ALL matching>],
+  "selected_box_numbers": [<1-based box numbers in ascending order>],
   "multi_pile": <true/false>,
-  "reason": "<brief explanation>"
+  "reason": "<very brief reason referencing dominant visual cues>"
 }}"""
 
 
@@ -549,27 +774,25 @@ def select_pile_boxes(
         )
     
     try:
-        print(f"[QWEN_ARB] Selecting from {len(candidate_boxes)} boxes...")
+        print(f"[QWEN_ARB] Selecting boxes from {len(candidate_boxes)} candidates (full-image)...")
         
-        # Draw boxes on image
-        annotated_img = _visualize_boxes(image_pil, candidate_boxes)
-        resized = _resize_for_vlm(annotated_img)
+        # Draw numbered boxes on image
+        annotated = _visualize_boxes(image_pil, candidate_boxes)
+        resized = _resize_for_vlm(annotated)
         b64_uri = _pil_to_base64(resized)
         
-        # Format boxes for prompt
+        # Format boxes for prompt - NO LABELS to force visual inspection
         boxes_text = []
         for i, box in enumerate(candidate_boxes):
             x1, y1, x2, y2 = box['box']
-            label = box.get('label', 'unknown')
-            conf = box.get('confidence', 0.0)
-            boxes_text.append(f"Box {i+1}: {label} (confidence: {conf:.2f}) at [{x1:.0f}, {y1:.0f}, {x2:.0f}, {y2:.0f}]")
+            desc = box.get('florence_description', 'no description')
+            grass_tag = " [GRASS_ONLY]" if box.get('florence_grass_only', False) else ""
+            boxes_text.append(f"Box {i+1}: region at [{x1:.0f}, {y1:.0f}, {x2:.0f}, {y2:.0f}] — Florence-2 sees: \"{desc}\"{grass_tag}")
         
-        # Build content
         content = [
             {"type": "image_url", "image_url": {"url": b64_uri}},
             {"type": "text", "text": BOX_SELECTION_PROMPT.format(
-                boxes_json="\n".join(boxes_text),
-                n=len(candidate_boxes)
+                boxes_json="\n".join(boxes_text)
             )}
         ]
         
@@ -577,8 +800,13 @@ def select_pile_boxes(
         raw_output = _call_vlm(content)
         print(f"[QWEN_ARB] Box selection response: {len(raw_output)} chars")
         
-        # Parse response
-        parsed = _parse_json_resilient(raw_output)
+        # Parse thinking mode output
+        thinking, answer = parse_thinking_response(raw_output)
+        if thinking:
+            print(f"[QWEN_THINK] {thinking[:300]}...")
+        
+        # Parse JSON from answer (after thinking)
+        parsed = _parse_json_resilient(answer)
         if parsed is None:
             print("[QWEN_ARB] JSON parse failed → using highest confidence box")
             fallback = _default_box_selection(candidate_boxes)
@@ -593,14 +821,8 @@ def select_pile_boxes(
                 reason=fallback.reason
             )
         
-        # v9.1: Extract multiple box numbers
+        # Extract selected box numbers
         selected_nums = parsed.get("selected_box_numbers", [])
-        
-        # Backward compatibility: handle old single-box format
-        if not selected_nums and "selected_box_number" in parsed:
-            selected_nums = [parsed["selected_box_number"]]
-        
-        # Ensure it's a list
         if isinstance(selected_nums, int):
             selected_nums = [selected_nums]
         
@@ -617,7 +839,7 @@ def select_pile_boxes(
                     'confidence': box.get('confidence', 0.7)
                 })
         
-        # Fallback if no valid boxes selected
+        # Fallback if no valid boxes
         if not selected_boxes:
             print("[QWEN_ARB] No valid boxes selected → using highest confidence")
             fallback = _default_box_selection(candidate_boxes)
@@ -633,16 +855,16 @@ def select_pile_boxes(
             )
         
         multi_pile = parsed.get("multi_pile", len(selected_boxes) > 1)
-        reason = parsed.get("reason", "selected by VLM")
+        reason = parsed.get("reason", "selected by full-image classification")
         
         result = MultiBoxSelectionResult(
             selected_boxes=selected_boxes,
             multi_pile=multi_pile,
-            reason=reason
+            reason=reason[:100]
         )
         
         box_indices = [b['index'] + 1 for b in selected_boxes]
-        print(f"[QWEN_ARB] Selected boxes {box_indices}: multi_pile={multi_pile} - {reason[:50]}")
+        print(f"[QWEN_ARB] Selected boxes {box_indices}: {reason[:50]}...")
         
         return result
         
@@ -741,7 +963,7 @@ def select_pile_boxes_with_reference(
         )
     
     try:
-        print(f"[QWEN_ARB] Reference-guided selection from {len(target_boxes)} boxes...")
+        print(f"[QWEN_ARB] Reference-guided selection from {len(target_boxes)} boxes (full-image)...")
         
         # Draw boxes on target image
         annotated_target = _visualize_boxes(target_image, target_boxes)
@@ -753,13 +975,13 @@ def select_pile_boxes_with_reference(
         ref_b64 = _pil_to_base64(ref_resized)
         target_b64 = _pil_to_base64(target_resized)
         
-        # Format boxes for prompt
+        # Format boxes for prompt - NO LABELS to force visual inspection
         boxes_text = []
         for i, box in enumerate(target_boxes):
             x1, y1, x2, y2 = box['box']
-            label = box.get('label', 'unknown')
-            conf = box.get('confidence', 0.0)
-            boxes_text.append(f"Box {i+1}: {label} (confidence: {conf:.2f}) at [{x1:.0f}, {y1:.0f}, {x2:.0f}, {y2:.0f}]")
+            desc = box.get('florence_description', 'no description')
+            grass_tag = " [GRASS_ONLY]" if box.get('florence_grass_only', False) else ""
+            boxes_text.append(f"Box {i+1}: region at [{x1:.0f}, {y1:.0f}, {x2:.0f}, {y2:.0f}] — Florence-2 sees: \"{desc}\"{grass_tag}")
         
         # Build content with TWO images
         content = [
@@ -774,8 +996,13 @@ def select_pile_boxes_with_reference(
         raw_output = _call_vlm(content)
         print(f"[QWEN_ARB] Reference-guided response: {len(raw_output)} chars")
         
-        # Parse response (same logic as select_pile_boxes)
-        parsed = _parse_json_resilient(raw_output)
+        # Parse thinking mode output
+        thinking, answer = parse_thinking_response(raw_output)
+        if thinking:
+            print(f"[QWEN_THINK] {thinking[:300]}...")
+        
+        # Parse JSON from answer (after thinking)
+        parsed = _parse_json_resilient(answer)
         if parsed is None:
             print("[QWEN_ARB] JSON parse failed → using highest confidence box")
             fallback = _default_box_selection(target_boxes)
@@ -829,11 +1056,11 @@ def select_pile_boxes_with_reference(
         result = MultiBoxSelectionResult(
             selected_boxes=selected_boxes,
             multi_pile=multi_pile,
-            reason=reason
+            reason=reason[:100]
         )
         
         box_indices = [b['index'] + 1 for b in selected_boxes]
-        print(f"[QWEN_ARB] Reference-guided selected boxes {box_indices}: {reason[:50]}")
+        print(f"[QWEN_ARB] Reference-guided selected boxes {box_indices}: {reason[:50]}...")
         
         return result
         

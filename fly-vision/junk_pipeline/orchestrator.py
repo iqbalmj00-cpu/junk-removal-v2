@@ -27,6 +27,7 @@ from .fusion import run_fusion, FusionResult
 from .output import build_output
 from .qwen_arbitration import rank_frames, select_pile_box, select_pile_boxes, select_pile_boxes_with_reference, MultiBoxSelectionResult
 from .grounded_sam_runner import GroundedSAMRunner
+from .florence_labeler import label_boxes  # v10.1: Florence-2 independent box labeling
 
 
 # =============================================================================
@@ -240,6 +241,10 @@ def run_pipeline(
     print(f"  → Best frame: {best_frame_id[:8]} (confidence={ranking.confidence:.2f})")
     print(f"  → Secondary frames: {len(secondary_frames)}")
     
+    # Unload Qwen to free VRAM for DINO/SAM2
+    from .qwen_local import unload_qwen
+    unload_qwen()
+    
     # =========================================================================
     # STAGE 3: Pile Detection (DINO) — Best Frame
     # =========================================================================
@@ -249,14 +254,20 @@ def run_pipeline(
     
     print(f"  → Detected {len(candidate_boxes)} candidate boxes")
     
+    # v10.1: Florence-2 labels each box crop independently
+    if candidate_boxes:
+        candidate_boxes = label_boxes(best_frame.get_pil(), candidate_boxes)
+    
     if not candidate_boxes:
         print("  ⚠️ No boxes detected — cannot proceed")
         return _build_empty_output(job_id, ingestion_result)
     
     # =========================================================================
-    # STAGE 4: Box Arbitration (Qwen) — Best Frame (v9.1: Multi-box support)
+    # STAGE 4: Box Selection (Qwen) — v9.7: Direct from DINO, no pre-classifier
     # =========================================================================
-    print(f"[Stage 4] Box Arbitration (Qwen) for {best_frame_id[:8]}...")
+    print(f"[Stage 4] Box Selection (Qwen) for {best_frame_id[:8]}...")
+    
+    # v9.7: Pass DINO boxes directly to Qwen - it handles classification + selection
     box_result = select_pile_boxes(best_frame.get_pil(), candidate_boxes)
     
     selected_indices = [b['index'] for b in box_result.selected_boxes]
@@ -264,11 +275,21 @@ def run_pipeline(
     print(f"  → Multi-pile: {box_result.multi_pile}")
     print(f"  → Reason: {box_result.reason[:80]}...")
     
+    # v9.9: Guard against Qwen rejecting ALL boxes (no junk in image)
+    if not box_result.selected_boxes:
+        print("  ⚠️ Qwen rejected all boxes — no junk detected")
+        return _build_empty_output(job_id, ingestion_result)
+    
     # v9.1: Save DINO boxes overlay (all selected boxes highlighted)
     _save_dino_boxes_overlay(
         best_frame.get_pil(), candidate_boxes, 
         selected_indices, best_frame_id, job_id
     )
+    
+    # v9.8: Unload Qwen to free VRAM for SAM2/DepthPro
+    from .qwen_local import unload_qwen, is_loaded
+    if is_loaded():
+        unload_qwen()
     
     # =========================================================================
     # STAGE 5: Pile Segmentation (SAM2) — Best Frame (v9.1: Union masks)
@@ -377,12 +398,15 @@ def run_pipeline(
         rectified = geometry.rectified_cloud.points if geometry.rectified_cloud else None
         pixel_indices = geometry.rectified_cloud.pixel_indices if geometry.rectified_cloud else None
         
+        # v10.4: No scale factor needed - using DepthPro intrinsics consistently
+        # (intrinsics ratio is used for gating, not scaling)
+        
         vol_result = run_volumetrics(
             frame_id=frame_id,
             instances=[],  # YOLO deprecated — no discrete items
             rectified_cloud=rectified,
             depth_map=geometry.depth_map,
-            scale_factor=1.0,  # Will use calibration if available
+            scale_factor=1.0,  # v10.4: No scaling - consistent intrinsics
             image_width=frame.metadata.width,
             image_height=frame.metadata.height,
             bulk_mask_np=pile_mask,
@@ -421,6 +445,10 @@ def run_pipeline(
     sr_inlier_ratios = {fid: g.sr_inlier_ratio for fid, g in geometry_map.items()}
     sr_yfl95s = {fid: g.sr_yfl95 for fid, g in geometry_map.items()}
     
+    # v10.4: Intrinsics data for gating
+    intrinsics_fx_ratios = {fid: g.intrinsics_fx_ratio for fid, g in geometry_map.items()}
+    intrinsics_derived = {fid: g.intrinsics_derived for fid, g in geometry_map.items()}
+    
     fusion = run_fusion(
         frame_results=volumetric_results,
         floor_qualities=floor_qualities,
@@ -430,7 +458,9 @@ def run_pipeline(
         mask_coverages=mask_coverages,
         support_plane_selected=support_plane_selected,
         sr_inlier_ratios=sr_inlier_ratios,
-        sr_yfl95s=sr_yfl95s
+        sr_yfl95s=sr_yfl95s,
+        intrinsics_fx_ratios=intrinsics_fx_ratios,
+        intrinsics_derived=intrinsics_derived
     )
     
     print(f"  → Valid frames: {len(fusion.valid_frames)}")
@@ -496,17 +526,20 @@ def _process_secondary_frame(
         print(f"  → No boxes detected, skipping")
         return None
     
-    # Stage B: Box Arbitration (Qwen) — v9.2: Reference-guided selection
+    # v10.1: Florence-2 labels each box crop independently
+    boxes = label_boxes(frame.get_pil(), boxes)
+    
+    # Stage B: Box Selection (Qwen) — v9.7: Direct from DINO
     box_result = select_pile_boxes_with_reference(
         reference_image=reference_overlay,
         target_image=frame.get_pil(),
         target_boxes=boxes
     )
     
-    # Check confidence of selected boxes
-    avg_confidence = sum(b['confidence'] for b in box_result.selected_boxes) / len(box_result.selected_boxes)
-    if avg_confidence < 0.3:
-        print(f"  → Low confidence ({avg_confidence:.2f}), skipping")
+    # v10: Qwen's selection itself is the validation - if boxes were selected, they're valid
+    # Skip only if Qwen returned no boxes (already handled by falling back to highest conf)
+    if not box_result.selected_boxes:
+        print(f"  → No boxes selected by Qwen, skipping")
         return None
     
     # v9.2: Save DINO boxes overlay for secondary frame
@@ -515,6 +548,11 @@ def _process_secondary_frame(
         frame.get_pil(), boxes,
         selected_indices, frame_id, job_id
     )
+    
+    # v9.8: Unload Qwen to free VRAM for SAM2
+    from .qwen_local import unload_qwen, is_loaded
+    if is_loaded():
+        unload_qwen()
     
     # Stage C: Segmentation — v9.2: Union masks with mask hints
     if len(box_result.selected_boxes) == 1:

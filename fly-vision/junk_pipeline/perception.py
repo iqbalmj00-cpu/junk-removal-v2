@@ -128,75 +128,19 @@ def _generate_instance_id(label: str, bbox: tuple, frame_id: str) -> str:
     key = f"{frame_id}:{label}:{bbox[0]}:{bbox[1]}:{bbox[2]}:{bbox[3]}"
     return hashlib.md5(key.encode()).hexdigest()[:12]
 
+# =============================================================================
+# DEPRECATED: Lane A YOLO11 (removed in v9.5)
+# =============================================================================
+# The v9.x orchestrator uses GroundedSAMRunner.run_detection() directly.
+# This function is preserved as a stub for backward compatibility with v8.x.
 
 def _run_lane_a_yolo_seg(data_uri: str, frame_id: str, working_pil=None) -> LaneAResult:
     """
-    Lane A: Instance Segmentation using LOCAL YOLO11-Seg.
-    Detects high-value items and calibration anchors.
-    No Replicate API - runs on local GPU/MPS/CPU.
+    DEPRECATED: Lane A YOLO11 detection removed in v9.5.
+    Returns empty result. Use GroundedSAMRunner for detection.
     """
-    from .yolo11_runner import get_yolo11_runner, InstanceMask as YoloMask
-    import base64
-    from io import BytesIO
-    from PIL import Image
-    
-    result = LaneAResult()
-    
-    try:
-        # Get or decode image
-        if working_pil is not None:
-            image = working_pil
-        else:
-            # Decode from data URI
-            if "," in data_uri:
-                b64_data = data_uri.split(",", 1)[1]
-            else:
-                b64_data = data_uri
-            
-            img_data = base64.b64decode(b64_data)
-            image = Image.open(BytesIO(img_data)).convert("RGB")
-        
-        # Run local YOLO11
-        runner = get_yolo11_runner()
-        detections = runner.detect(image, conf_threshold=0.35)
-        
-        # Convert YOLO11 detections to our InstanceMask format
-        for det in detections:
-            # Generate stable instance ID
-            instance_id = _generate_instance_id(det.label, det.bbox, frame_id)
-            
-            # Classify item type
-            label_lower = det.label.lower()
-            is_high_value = any(hv in label_lower for hv in HIGH_VALUE_ITEMS)
-            is_anchor = any(anchor in label_lower for anchor in ANCHOR_ITEMS.keys())
-            
-            mask = InstanceMask(
-                instance_id=instance_id,
-                label=det.label,
-                confidence=det.confidence,
-                bbox=tuple(int(x) for x in det.bbox),
-                mask_url=None,  # Local mask, no URL
-                mask_data=None,
-                area_ratio=det.area_ratio,
-                is_anchor=is_anchor,
-                is_high_value=is_high_value,
-            )
-            
-            # Store numpy mask for volume calculations
-            mask._mask_np = det.mask_np
-            
-            result.instances.append(mask)
-            if is_anchor:
-                result.anchors.append(mask)
-        
-        print(f"[Lane A] YOLO11 detected {len(result.instances)} items, {len(result.anchors)} anchors")
-                
-    except Exception as e:
-        print(f"[Lane A] YOLO11 error: {e}")
-        import traceback
-        traceback.print_exc()
-        
-    return result
+    print("[Lane A] DEPRECATED: YOLO11 removed in v9.5. Returning empty result.")
+    return LaneAResult()
 
 
 def _run_lane_b_bulk_segmentation(

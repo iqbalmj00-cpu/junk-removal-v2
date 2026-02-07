@@ -66,6 +66,7 @@ def build_calibration_bundle(
         }
         bundle.exif_from_frontend = True
         print(f"[BUNDLE] Using frontend EXIF: {combined_exif.get('Make')} {combined_exif.get('Model')}")
+        print(f"[BUNDLE_DEBUG] frontend focalLength35mm={frontend_exif.get('focalLength35mm')}")
     
     # Merge server EXIF (fills in gaps)
     for key, val in server_exif.items():
@@ -98,6 +99,7 @@ def build_calibration_bundle(
     bundle.focal_length_mm = server_exif.get('FocalLength')
     bundle.focal_length_35mm = server_exif.get('FocalLengthIn35mmFilm')
     bundle.orientation = server_exif.get('Orientation', 1)
+    print(f"[BUNDLE_DEBUG] focal_length_35mm={bundle.focal_length_35mm} (from merged EXIF)")
     
     # =========================================================================
     # 4. IDENTIFY LENS
@@ -130,6 +132,8 @@ def build_calibration_bundle(
         # iPhone 14/15 series
         'iPhone 14': 4.5, 'iPhone 14 Pro': 4.5, 'iPhone 14 Pro Max': 4.5,
         'iPhone 15': 4.3, 'iPhone 15 Pro': 4.3, 'iPhone 15 Pro Max': 4.3,
+        # iPhone 16 series
+        'iPhone 16': 4.0, 'iPhone 16 Pro': 4.0, 'iPhone 16 Pro Max': 4.0,
     }
     
     focal_35mm_effective = bundle.focal_length_35mm
