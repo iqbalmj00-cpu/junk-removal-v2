@@ -2143,6 +2143,14 @@ def _attempt_cross_fusion(
     footprint_donors = [rq for rq in role_quals if rq.qualified_footprint]
     height_donors = [rq for rq in role_quals if rq.qualified_height]
     
+    # v10.2: Require minimum 3 frames for cross-fusion
+    # With only 2 frames, cross-fusion picks the most aggressive single estimate
+    # and ignores the other frame entirely. Weighted mean is more balanced.
+    total_frames = len(role_quals)
+    if total_frames < 3:
+        print(f"[CrossFusion] Only {total_frames} frames — need ≥3 for cross-fusion → fallback to weighted mean")
+        return None, None
+    
     if not footprint_donors:
         print("[CrossFusion] No qualified footprint donors - cannot cross-fuse")
         return None, None

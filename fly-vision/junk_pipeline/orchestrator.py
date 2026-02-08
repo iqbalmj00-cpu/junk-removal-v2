@@ -25,7 +25,7 @@ from .calibration import run_calibration, CalibrationResult
 from .volumetrics import run_volumetrics, VolumetricResult
 from .fusion import run_fusion, FusionResult
 from .output import build_output
-from .qwen_arbitration import rank_frames, select_pile_box, select_pile_boxes, select_pile_boxes_with_reference, MultiBoxSelectionResult
+from .qwen_arbitration import rank_frames, select_pile_box, select_pile_boxes, MultiBoxSelectionResult
 from .grounded_sam_runner import GroundedSAMRunner
 from .florence_labeler import label_boxes  # v10.1: Florence-2 independent box labeling
 
@@ -322,8 +322,7 @@ def run_pipeline(
         best_frame_id, job_id, color=(0, 255, 0, 150)  # Green
     )
     
-    # v9.2: Create reference overlay for secondary frame guidance
-    reference_overlay = _create_reference_overlay(best_frame.get_pil(), best_pile_mask)
+    # v10.2: Reference overlay removed — secondary frames now use independent selection
     
     # =========================================================================
     # STAGE 6: Ground Segmentation (SegFormer) — Pile Blanked
@@ -366,16 +365,14 @@ def run_pipeline(
     print(f"  → Depth confidence: {best_geometry.depth_confidence_score:.2f}")
     
     # =========================================================================
-    # PHASE 2: SECONDARY FRAMES (v9.2: with reference context)
+    # PHASE 2: SECONDARY FRAMES (v10.2: independent processing)
     # =========================================================================
     all_results = [(best_frame, best_pile_mask, best_ground_result, best_geometry)]
     
     for frame in secondary_frames:
-        # v9.2: Pass reference overlay and mask to guide secondary frame processing
+        # v10.2: Each frame processed independently (same path as best frame)
         result = _process_secondary_frame(
-            frame, dino_runner, job_id,
-            reference_overlay=reference_overlay,
-            reference_mask=best_pile_mask
+            frame, dino_runner, job_id
         )
         if result:
             all_results.append(result)
@@ -505,14 +502,13 @@ def _process_secondary_frame(
     frame,
     dino_runner: GroundedSAMRunner,
     job_id: str,
-    reference_overlay: Image.Image,  # v9.2: visual reference for Qwen
-    reference_mask: np.ndarray       # v9.2: mask hint for SAM2
 ) -> Optional[tuple]:
     """
-    Process a single secondary frame using reference-guided arbitration.
+    v10.2: Process a single secondary frame independently.
     
-    v9.2: Uses best frame's mask overlay to guide Qwen box selection,
-    and passes mask hint to SAM2 for tighter segmentation.
+    Each frame gets the same DINO → Florence → Qwen → SAM2 pipeline
+    as the best frame, with no reference bias. Fusion guards
+    (FP_CONSISTENCY, HeightConsensus, MES) handle outlier frames.
     
     Returns:
         Tuple of (frame, pile_mask, ground_result, geometry) or None if failed.
@@ -529,20 +525,13 @@ def _process_secondary_frame(
     # v10.1: Florence-2 labels each box crop independently
     boxes = label_boxes(frame.get_pil(), boxes)
     
-    # Stage B: Box Selection (Qwen) — v9.7: Direct from DINO
-    box_result = select_pile_boxes_with_reference(
-        reference_image=reference_overlay,
-        target_image=frame.get_pil(),
-        target_boxes=boxes
-    )
+    # Stage B: Box Selection (Qwen) — v10.2: Independent (same as best frame)
+    box_result = select_pile_boxes(frame.get_pil(), boxes)
     
-    # v10: Qwen's selection itself is the validation - if boxes were selected, they're valid
-    # Skip only if Qwen returned no boxes (already handled by falling back to highest conf)
     if not box_result.selected_boxes:
         print(f"  → No boxes selected by Qwen, skipping")
         return None
     
-    # v9.2: Save DINO boxes overlay for secondary frame
     selected_indices = [b['index'] for b in box_result.selected_boxes]
     _save_dino_boxes_overlay(
         frame.get_pil(), boxes,
@@ -554,21 +543,19 @@ def _process_secondary_frame(
     if is_loaded():
         unload_qwen()
     
-    # Stage C: Segmentation — v9.2: Union masks with mask hints
+    # Stage C: Segmentation — v10.2: No mask hints, segment freely
     if len(box_result.selected_boxes) == 1:
         pile_mask = dino_runner.run_segmentation_on_box(
             frame.get_pil(), 
-            box_result.selected_boxes[0]['box'],
-            mask_hint=reference_mask  # v9.2: pass reference mask
+            box_result.selected_boxes[0]['box']
         )
     else:
-        # Multiple boxes - union masks with hints
+        # Multiple boxes - union masks
         pile_mask = None
         for box_info in box_result.selected_boxes:
             mask = dino_runner.run_segmentation_on_box(
                 frame.get_pil(), 
-                box_info['box'],
-                mask_hint=reference_mask  # v9.2: pass reference mask
+                box_info['box']
             )
             if pile_mask is None:
                 pile_mask = mask.astype(bool)
