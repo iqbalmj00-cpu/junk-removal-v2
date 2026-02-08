@@ -64,7 +64,7 @@ export default function AboutPage() {
                                 </div>
                                 <div className="h-full min-h-[500px] bg-slate-100 relative">
                                     <img
-                                        src="/images/worker-trust.png"
+                                        src="/images/worker-trust.jpg"
                                         alt="Smiling junk removal professional"
                                         className="w-full h-full object-cover"
                                     />
@@ -130,7 +130,7 @@ export default function AboutPage() {
                             <div className="group">
                                 <div className="aspect-square bg-slate-100 rounded-2xl overflow-hidden mb-6 relative">
                                     <img
-                                        src="/images/staff-mike.png"
+                                        src="/images/staff-mike.jpg"
                                         alt="Mike Ross - Operations Lead"
                                         className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                                     />
@@ -143,7 +143,7 @@ export default function AboutPage() {
                             <div className="group">
                                 <div className="aspect-square bg-slate-100 rounded-2xl overflow-hidden mb-6 relative">
                                     <img
-                                        src="/images/staff-sarah.png"
+                                        src="/images/staff-sarah.jpg"
                                         alt="Sarah Jenkins - Logistics Manager"
                                         className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                                     />
@@ -156,7 +156,7 @@ export default function AboutPage() {
                             <div className="group">
                                 <div className="aspect-square bg-slate-100 rounded-2xl overflow-hidden mb-6 relative">
                                     <img
-                                        src="/images/staff-david.png"
+                                        src="/images/staff-david.jpg"
                                         alt="David Chen - Senior Hauler"
                                         className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                                     />
@@ -169,7 +169,7 @@ export default function AboutPage() {
                             <div className="group">
                                 <div className="aspect-square bg-slate-100 rounded-2xl overflow-hidden mb-6 relative">
                                     <img
-                                        src="/images/staff-marcus.png"
+                                        src="/images/staff-marcus.jpg"
                                         alt="Marcus Johnson - Fleet Supervisor"
                                         className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                                     />
@@ -191,7 +191,7 @@ export default function AboutPage() {
                             Schedule your pickup today or join our team of professionals.
                         </p>
                         <div className="flex flex-col sm:flex-row gap-6 justify-center">
-                            <Link href="/book">
+                            <Link href="/get-started">
                                 <Button className="w-full sm:w-auto bg-brand-orange hover:bg-orange-600 text-white px-10 py-5 h-auto rounded-full text-xl font-bold shadow-2xl shadow-orange-900/20">
                                     BOOK A SERVICE
                                 </Button>

@@ -9,14 +9,17 @@ interface BookingModalProps {
     onClose: () => void;
     quoteRange: string;
     junkDetails: string;
+    initialName?: string;
+    initialEmail?: string;
+    initialPhone?: string;
 }
 
-export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails }: BookingModalProps) {
+export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails, initialName, initialEmail, initialPhone }: BookingModalProps) {
     const router = useRouter();
     const [formData, setFormData] = useState({
-        name: '',
-        phone: '',
-        email: '',
+        name: initialName || '',
+        phone: initialPhone || '',
+        email: initialEmail || '',
         address: '',
         buildingType: 'Residential',
         stairsAccess: 'Ground Floor',

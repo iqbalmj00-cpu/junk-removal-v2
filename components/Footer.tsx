@@ -20,10 +20,11 @@ export function Footer() {
                         <h4 className="text-lg font-semibold mb-6 text-brand-orange">Quick Links</h4>
                         <ul className="space-y-4">
                             <li><Link href="/" className="text-slate-300 hover:text-white transition-colors">Home</Link></li>
-                            <li><Link href="/book" className="text-slate-300 hover:text-white transition-colors">Book Online</Link></li>
+                            <li><Link href="/get-started" className="text-slate-300 hover:text-white transition-colors">Book Online</Link></li>
                             <li><Link href="/services" className="text-slate-300 hover:text-white transition-colors">Our Services</Link></li>
                             <li><Link href="/faq" className="text-slate-300 hover:text-white transition-colors">FAQ</Link></li>
                             <li><Link href="/contact" className="text-slate-300 hover:text-white transition-colors">Contact Support</Link></li>
+                            <li><Link href="/legal" className="text-slate-300 hover:text-white transition-colors">Legal & Policies</Link></li>
                         </ul>
                     </div>
 
@@ -33,7 +34,7 @@ export function Footer() {
                         <div className="space-y-4 text-slate-300">
                             <p>Greater Community Area</p>
                             <p>Mon - Sat: 7am - 7pm</p>
-                            <p className="pt-2 font-semibold text-white">1-800-CLN-SWP</p>
+                            <a href="tel:+18327936566" className="block pt-2 font-semibold text-white hover:text-brand-orange transition-colors">(832) 793-6566</a>
                         </div>
                     </div>
                 </div>

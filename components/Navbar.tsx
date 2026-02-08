@@ -56,7 +56,7 @@ export function Navbar() {
 
                     {/* Book Now Button: Increased padding and text size */}
                     <div className="hidden lg:block">
-                        <Link href="/book">
+                        <Link href="/get-started">
                             <Button className="bg-brand-orange hover:bg-orange-500 text-white rounded-lg shadow-lg shadow-orange-900/20 font-bold px-8 py-3 text-lg">
                                 <Calendar className="mr-2 h-5 w-5" /> Book Now
                             </Button>
@@ -94,7 +94,7 @@ export function Navbar() {
                             </Link>
                         ))}
                         <div className="px-3 py-2">
-                            <Link href="/book" onClick={() => setIsMenuOpen(false)}>
+                            <Link href="/get-started" onClick={() => setIsMenuOpen(false)}>
                                 <Button className="w-full bg-brand-orange hover:bg-orange-500 text-white rounded-lg font-bold py-3 text-lg">
                                     <Calendar className="mr-2 h-5 w-5" /> Book Now
                                 </Button>

@@ -219,7 +219,7 @@ export default function FAQPage() {
                                                                 <p className="text-slate-500">Snap a photo and let our AI do the math.</p>
                                                             </div>
                                                         </div>
-                                                        <Link href="/book" className="w-full md:w-auto">
+                                                        <Link href="/get-started" className="w-full md:w-auto">
                                                             <Button className="w-full md:w-auto bg-brand-orange hover:bg-orange-600 text-white font-bold px-8 py-4 text-lg h-auto rounded-xl shadow-lg">
                                                                 Upload Photos <ArrowRight size={20} className="ml-2" />
                                                             </Button>

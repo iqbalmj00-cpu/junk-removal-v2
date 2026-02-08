@@ -44,9 +44,9 @@ function BookPageContent() {
         stairsAccess: 'Ground Floor',
         date: '',
         timeSlot: '',
-        fullName: '',
-        email: '',
-        phone: '',
+        fullName: `${searchParams.get('firstName') || ''} ${searchParams.get('lastName') || ''}`.trim(),
+        email: searchParams.get('email') || '',
+        phone: searchParams.get('phone') || '',
         address: '',
         instructions: ''
     });
@@ -147,47 +147,20 @@ function BookPageContent() {
     const addToCalendar = () => {
         const dateStr = bookingData.date || new Date().toISOString().split('T')[0];
         const timeSlot = bookingData.timeSlot || '12pm - 4pm';
-        const address = bookingData.address || '123 Example St, City, ST';
+        const address = bookingData.address || '';
 
-        // Parse time slot (e.g., "12pm - 4pm")
-        const startHour = timeSlot.includes('8am') ? 8 : timeSlot.includes('9am') ? 9 : 12;
-        const endHour = timeSlot.includes('12pm') ? 12 : timeSlot.includes('4pm') ? 16 : 17;
+        // Parse time slot (e.g., "8am - 12pm", "12pm - 4pm", "4pm - 8pm")
+        const startHour = timeSlot.includes('8am') ? 8 : timeSlot.includes('12pm') ? 12 : 16;
+        const endHour = timeSlot.includes('12pm') ? 12 : timeSlot.includes('4pm') ? 16 : 20;
 
-        // Create date objects
-        const startDate = new Date(dateStr);
-        startDate.setHours(startHour, 0, 0);
-        const endDate = new Date(dateStr);
-        endDate.setHours(endHour, 0, 0);
+        // Format date for Google Calendar (YYYYMMDD)
+        const dateFormatted = dateStr.replace(/-/g, '');
+        const startTime = `${dateFormatted}T${String(startHour).padStart(2, '0')}0000`;
+        const endTime = `${dateFormatted}T${String(endHour).padStart(2, '0')}0000`;
 
-        // Format for ICS (YYYYMMDDTHHMMSS)
-        const formatICSDate = (d: Date) => {
-            return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
-        };
+        const googleCalendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent('Junk Removal Pickup')}&dates=${startTime}/${endTime}&details=${encodeURIComponent("CleanSweep Junk Removal team will arrive during your scheduled window. We'll call 15 minutes before arrival.")}&location=${encodeURIComponent(address)}`;
 
-        const icsContent = `BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Jamal's Junk//Pickup Appointment//EN
-BEGIN:VEVENT
-UID:${Date.now()}@jamaeljunk.com
-DTSTAMP:${formatICSDate(new Date())}
-DTSTART:${formatICSDate(startDate)}
-DTEND:${formatICSDate(endDate)}
-SUMMARY:Junk Removal Pickup
-DESCRIPTION:Jamal's Junk removal team will arrive during your scheduled window. We'll call 15 minutes before arrival.
-LOCATION:${address}
-END:VEVENT
-END:VCALENDAR`;
-
-        // Create and download ICS file
-        const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'junk-pickup-appointment.ics';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        window.open(googleCalendarUrl, '_blank');
     };
 
 
@@ -301,6 +274,26 @@ END:VCALENDAR`;
                 });
 
                 console.log(`[QUOTE] Volume: ${volumeYards.toFixed(2)} yd³, Price: $${quote.min_price}-$${quote.max_price}`);
+
+                // Save quote + contact info to Google Sheets as a lead
+                try {
+                    const leadPayload: Record<string, string | number> = {
+                        firstName: searchParams.get('firstName') || '',
+                        lastName: searchParams.get('lastName') || '',
+                        email: searchParams.get('email') || '',
+                        phone: searchParams.get('phone') || '',
+                        quoteMin: quote.min_price || 0,
+                        quoteMax: quote.max_price || 0,
+                        volume: volumeYards,
+                    };
+                    fetch('/api/lead', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(leadPayload),
+                    }).catch(err => console.error('Lead quote update failed:', err));
+                } catch (err) {
+                    console.error('Lead quote capture error:', err);
+                }
 
                 // Transition Logic
                 setView('receipt');
@@ -642,7 +635,11 @@ END:VCALENDAR`;
                                 min: String(grandTotal.min),
                                 max: String(grandTotal.max),
                                 volume: String(grandTotal.volume.toFixed(1)),
-                                items: '' // Detected items would come from API response
+                                items: '', // Detected items would come from API response
+                                firstName: searchParams.get('firstName') || '',
+                                lastName: searchParams.get('lastName') || '',
+                                email: searchParams.get('email') || '',
+                                phone: searchParams.get('phone') || '',
                             });
                             router.push(`/booking-details?${params.toString()}`);
                         }}
@@ -705,16 +702,19 @@ END:VCALENDAR`;
                     <div className="space-y-4">
                         <input
                             type="text" placeholder="Full Name" required
+                            value={bookingData.fullName}
                             className="w-full h-14 px-4 rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 text-lg font-medium"
                             onChange={(e) => setBookingData({ ...bookingData, fullName: e.target.value })}
                         />
                         <input
                             type="tel" placeholder="Phone Number" required
+                            value={bookingData.phone}
                             className="w-full h-14 px-4 rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 text-lg font-medium"
                             onChange={(e) => setBookingData({ ...bookingData, phone: e.target.value })}
                         />
                         <input
                             type="text" placeholder="Pickup Address" required
+                            value={bookingData.address}
                             className="w-full h-14 px-4 rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 text-lg font-medium"
                             onChange={(e) => setBookingData({ ...bookingData, address: e.target.value })}
                         />
@@ -828,6 +828,9 @@ END:VCALENDAR`;
                     onClose={() => setIsModalOpen(false)}
                     quoteRange={`$${grandTotal.min} - $${grandTotal.max}`}
                     junkDetails={`Total Volume: ${grandTotal.volume.toFixed(1)} cu. yards (${grandTotal.count} Piles)`}
+                    initialName={`${searchParams.get('firstName') || ''} ${searchParams.get('lastName') || ''}`.trim()}
+                    initialEmail={searchParams.get('email') || ''}
+                    initialPhone={searchParams.get('phone') || ''}
                 />
             </main>
 

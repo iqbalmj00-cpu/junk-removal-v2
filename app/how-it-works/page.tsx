@@ -36,7 +36,7 @@ export default function HowItWorksPage() {
                                     VIEW PRICING
                                 </Button>
                             </Link>
-                            <Link href="/book">
+                            <Link href="/get-started">
                                 <Button variant="outline" className="text-white border-2 border-slate-600 hover:bg-white hover:text-slate-900 hover:border-white px-10 py-5 rounded-full text-lg font-bold transition-all">
                                     GET STARTED <ArrowRight className="ml-2" size={20} />
                                 </Button>
@@ -240,7 +240,7 @@ export default function HowItWorksPage() {
                             </h2>
 
                             <div className="flex flex-col items-center gap-6">
-                                <Link href="/book">
+                                <Link href="/get-started">
                                     <Button className="bg-brand-orange hover:bg-orange-600 text-white px-12 py-8 rounded-2xl text-2xl font-bold shadow-2xl shadow-orange-900/50 flex items-center gap-4 transition-transform hover:scale-105">
                                         <Camera size={32} /> UPLOAD FOR QUOTE
                                     </Button>

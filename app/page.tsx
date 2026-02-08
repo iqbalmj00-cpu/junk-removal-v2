@@ -31,7 +31,7 @@ export default function Home() {
                 </p>
 
                 <div className="flex flex-col sm:flex-row gap-6 mb-10 justify-center lg:justify-start">
-                  <Link href="/book" passHref>
+                  <Link href="/get-started" passHref>
                     <Button className="bg-brand-orange hover:bg-orange-600 text-white px-10 py-6 rounded-full text-xl font-bold shadow-2xl shadow-orange-900/30 w-full sm:w-auto">
                       GET PRICE NOW <ArrowRight className="ml-3" size={24} />
                     </Button>
@@ -52,11 +52,11 @@ export default function Home() {
               </div>
 
               {/* Right Column: Image */}
-              <div className="relative h-full min-h-[500px] lg:min-h-full bg-slate-800 w-full">
+              <div className="w-full flex items-center justify-center py-8 lg:py-0">
                 <img
-                  src="/images/hero-truck.png"
+                  src="/images/hero-truck.jpg"
                   alt="CleanSweep Team and Truck"
-                  className="w-full h-full object-cover rounded-2xl shadow-2xl"
+                  className="w-full h-auto rounded-2xl shadow-2xl"
                 />
               </div>
             </div>

@@ -59,7 +59,11 @@ function BookingDetailsContent() {
             heavyMaterials,
             accessDetails,
             hazardCheck: hazardCheck || 'safe',
-            ...(hasBags && { bagContents })
+            ...(hasBags && { bagContents }),
+            firstName: searchParams.get('firstName') || '',
+            lastName: searchParams.get('lastName') || '',
+            email: searchParams.get('email') || '',
+            phone: searchParams.get('phone') || '',
         });
 
         router.push(`/book?view=scheduler&${params.toString()}`);
