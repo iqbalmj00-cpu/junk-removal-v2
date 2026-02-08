@@ -46,18 +46,26 @@ export default function GetStartedPage() {
             phone: phone.trim(),
         };
 
-        // Save lead to Google Sheets (don't block navigation on failure)
+        // Save lead to Google Sheets and capture leadId
+        let leadId = '';
         try {
-            await fetch('/api/lead', {
+            const res = await fetch('/api/lead', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(leadData),
             });
+            const data = await res.json();
+            if (data.success && data.leadId) {
+                leadId = data.leadId;
+            }
         } catch (err) {
             console.error('Lead capture failed:', err);
         }
 
         const params = new URLSearchParams(leadData);
+        if (leadId) {
+            params.set('leadId', leadId);
+        }
         router.push(`/book?${params.toString()}`);
     };
 

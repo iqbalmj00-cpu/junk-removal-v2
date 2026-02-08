@@ -12,9 +12,10 @@ interface BookingModalProps {
     initialName?: string;
     initialEmail?: string;
     initialPhone?: string;
+    leadId?: string;
 }
 
-export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails, initialName, initialEmail, initialPhone }: BookingModalProps) {
+export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails, initialName, initialEmail, initialPhone, leadId }: BookingModalProps) {
     const router = useRouter();
     const [formData, setFormData] = useState({
         name: initialName || '',
@@ -29,8 +30,24 @@ export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails,
     const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [errorMessage, setErrorMessage] = useState('');
     const [bookingId, setBookingId] = useState<string>('');
+    const [availableTimes, setAvailableTimes] = useState<string[]>([]);
+    const [loadingTimes, setLoadingTimes] = useState(false);
 
     if (!isOpen) return null;
+
+    const fetchAvailableTimes = async (date: string) => {
+        if (!date) { setAvailableTimes([]); return; }
+        setLoadingTimes(true);
+        try {
+            const res = await fetch(`/api/available-times?date=${date}`);
+            const data = await res.json();
+            if (data.success) setAvailableTimes(data.available);
+        } catch (err) {
+            setAvailableTimes(['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00']);
+        } finally {
+            setLoadingTimes(false);
+        }
+    };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -53,6 +70,7 @@ export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails,
                     ...formData,
                     quoteRange,
                     junkDetails,
+                    leadId,
                 }),
             });
 
@@ -189,30 +207,37 @@ export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails,
                                         type="date"
                                         name="date"
                                         required
+                                        min={new Date().toISOString().split('T')[0]}
                                         value={formData.date}
-                                        onChange={handleChange}
+                                        onChange={(e) => {
+                                            handleChange(e);
+                                            setFormData(prev => ({ ...prev, time: '' }));
+                                            fetchAvailableTimes(e.target.value);
+                                        }}
                                         className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-orange/50 focus:border-brand-orange transition-all [color-scheme:dark]"
                                     />
                                 </div>
                             </div>
 
                             <div className="space-y-1">
-                                <label className="text-sm font-medium text-slate-300">Preferred Time</label>
+                                <label className="text-sm font-medium text-slate-300">Available Time</label>
                                 <div className="relative">
                                     <Clock className="absolute left-3 top-3 w-4 h-4 text-slate-500" />
                                     <select
                                         name="time"
                                         required
+                                        disabled={!formData.date || loadingTimes}
                                         value={formData.time}
                                         onChange={handleChange}
-                                        className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-orange/50 focus:border-brand-orange transition-all appearance-none"
+                                        className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-orange/50 focus:border-brand-orange transition-all appearance-none disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        <option value="" disabled>Select Time</option>
-                                        <option value="08:00">8:00 AM - 10:00 AM</option>
-                                        <option value="10:00">10:00 AM - 12:00 PM</option>
-                                        <option value="12:00">12:00 PM - 2:00 PM</option>
-                                        <option value="14:00">2:00 PM - 4:00 PM</option>
-                                        <option value="16:00">4:00 PM - 6:00 PM</option>
+                                        <option value="" disabled>{loadingTimes ? 'Loading...' : !formData.date ? 'Select a date first' : availableTimes.length === 0 ? 'No availability' : 'Select Time'}</option>
+                                        {availableTimes.map((slot) => {
+                                            const hour = parseInt(slot.split(':')[0], 10);
+                                            const ampm = hour >= 12 ? 'PM' : 'AM';
+                                            const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+                                            return <option key={slot} value={slot}>{`${displayHour}:00 ${ampm}`}</option>;
+                                        })}
                                     </select>
                                 </div>
                             </div>

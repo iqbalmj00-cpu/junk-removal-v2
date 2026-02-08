@@ -62,6 +62,27 @@ function BookPageContent() {
     const [quoteState, setQuoteState] = useState<{ min: number; max: number; volume: number; heavySurcharge?: number } | null>(null);
     const [quoteHistory, setQuoteHistory] = useState<Array<{ min: number; max: number; volume: number }>>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [availableTimes, setAvailableTimes] = useState<string[]>([]);
+    const [loadingTimes, setLoadingTimes] = useState(false);
+
+    // Fetch available time slots for a given date
+    const fetchAvailableTimes = async (date: string) => {
+        if (!date) { setAvailableTimes([]); return; }
+        setLoadingTimes(true);
+        try {
+            const res = await fetch(`/api/available-times?date=${date}`);
+            const data = await res.json();
+            if (data.success) {
+                setAvailableTimes(data.available);
+            }
+        } catch (err) {
+            console.error('Failed to fetch available times:', err);
+            // Fallback: show all slots
+            setAvailableTimes(['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00']);
+        } finally {
+            setLoadingTimes(false);
+        }
+    };
 
     // --- Price Calculation ---
     // Helper for Grand Totals
@@ -222,17 +243,52 @@ function BookPageContent() {
             }
 
             // Set loading timer
-            setLoadingState({ title: 'ANALYZING JUNK PILE...', subtitle: 'This may take 1-2 minutes for high-res photos' });
+            setLoadingState({ title: 'ANALYZING JUNK PILE...', subtitle: 'Warming up AI engine...' });
             const loadingTimer = setTimeout(() => {
                 setLoadingState({ title: 'ALMOST DONE', subtitle: 'Thank you for your patience' });
-            }, 60000);  // Longer timeout for large files
+            }, 120000);
 
-            // Direct POST to Modal (bypasses Vercel!)
+            // Pre-warm: Ping health endpoint to wake up Modal container
+            const MODAL_BASE = MODAL_ENDPOINT.replace('/upload', '');
+            try {
+                console.log('[UPLOAD] Pre-warming Modal container...');
+                await fetch(`${MODAL_BASE}/health`, { method: 'GET' });
+                console.log('[UPLOAD] Container is warm');
+            } catch {
+                console.log('[UPLOAD] Health ping failed, container may be cold-starting. Waiting 10s...');
+                await new Promise(r => setTimeout(r, 10000));
+            }
+
+            setLoadingState({ title: 'ANALYZING JUNK PILE...', subtitle: 'This may take 1-2 minutes for high-res photos' });
+
+            // Upload with retry logic for cold start failures
             console.log(`[UPLOAD] Sending ${bookingData.selectedImages.length} files to Modal...`);
-            const response = await fetch(MODAL_ENDPOINT, {
-                method: 'POST',
-                body: formData  // No Content-Type header - browser sets multipart boundary
-            });
+            let response: Response | null = null;
+            const MAX_RETRIES = 2;
+
+            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+                    response = await fetch(MODAL_ENDPOINT, {
+                        method: 'POST',
+                        body: formData,
+                        signal: controller.signal,
+                    });
+                    clearTimeout(timeoutId);
+                    break; // Success, exit retry loop
+                } catch (fetchErr) {
+                    console.warn(`[UPLOAD] Attempt ${attempt} failed:`, fetchErr);
+                    if (attempt < MAX_RETRIES) {
+                        setLoadingState({ title: 'RECONNECTING...', subtitle: 'Server was busy, retrying...' });
+                        await new Promise(r => setTimeout(r, 15000)); // Wait 15s before retry
+                    } else {
+                        throw fetchErr; // Final attempt failed
+                    }
+                }
+            }
+
+            if (!response) throw new Error('All upload attempts failed');
 
             clearTimeout(loadingTimer);
 
@@ -275,24 +331,22 @@ function BookPageContent() {
 
                 console.log(`[QUOTE] Volume: ${volumeYards.toFixed(2)} yd³, Price: $${quote.min_price}-$${quote.max_price}`);
 
-                // Save quote + contact info to Google Sheets as a lead
-                try {
-                    const leadPayload: Record<string, string | number> = {
-                        firstName: searchParams.get('firstName') || '',
-                        lastName: searchParams.get('lastName') || '',
-                        email: searchParams.get('email') || '',
-                        phone: searchParams.get('phone') || '',
-                        quoteMin: quote.min_price || 0,
-                        quoteMax: quote.max_price || 0,
-                        volume: volumeYards,
-                    };
-                    fetch('/api/lead', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(leadPayload),
-                    }).catch(err => console.error('Lead quote update failed:', err));
-                } catch (err) {
-                    console.error('Lead quote capture error:', err);
+                // Update existing lead row with quote data (Price Shown)
+                const currentLeadId = searchParams.get('leadId');
+                if (currentLeadId) {
+                    try {
+                        fetch('/api/lead', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                leadId: currentLeadId,
+                                quoteMin: quote.min_price || 0,
+                                quoteMax: quote.max_price || 0,
+                            }),
+                        }).catch(err => console.error('Lead quote update failed:', err));
+                    } catch (err) {
+                        console.error('Lead quote capture error:', err);
+                    }
                 }
 
                 // Transition Logic
@@ -320,11 +374,39 @@ function BookPageContent() {
 
     const handleBook = async (e: React.FormEvent) => {
         e.preventDefault();
-        // Simulate API call
         setLoadingState({ title: 'FINALIZING BOOKING...', subtitle: 'Securing your appointment time...' });
         setView('analyzing'); // Reuse spinner
-        await new Promise(r => setTimeout(r, 1500));
-        setView('success');
+
+        try {
+            const response = await fetch('/api/book-appointment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: bookingData.fullName,
+                    phone: bookingData.phone,
+                    email: bookingData.email,
+                    address: bookingData.address,
+                    date: bookingData.date,
+                    time: bookingData.timeSlot,
+                    quoteRange: `$${grandTotal.min} - $${grandTotal.max}`,
+                    junkDetails: `Volume: ${grandTotal.volume.toFixed(1)} yd³`,
+                    leadId: searchParams.get('leadId') || '',
+                }),
+            });
+
+            const data = await response.json();
+            console.log('Booking response:', data);
+
+            if (data.success) {
+                setView('success');
+            } else {
+                throw new Error(data.error || 'Booking failed');
+            }
+        } catch (error: any) {
+            console.error('Booking error:', error);
+            alert('Booking failed. Please try again or call us at (832) 793-6566.');
+            setView('scheduler');
+        }
     };
 
     // --- Render Views ---
@@ -641,6 +723,8 @@ function BookPageContent() {
                                 email: searchParams.get('email') || '',
                                 phone: searchParams.get('phone') || '',
                             });
+                            const lid = searchParams.get('leadId');
+                            if (lid) params.set('leadId', lid);
                             router.push(`/booking-details?${params.toString()}`);
                         }}
                         className="w-full bg-orange-500 hover:bg-orange-600 text-white h-14 rounded-xl text-lg font-bold shadow-lg shadow-orange-900/30 transition-all"
@@ -679,21 +763,30 @@ function BookPageContent() {
                             <label className="text-sm font-bold text-slate-700 mb-2 block">Date</label>
                             <input
                                 type="date" required
+                                min={new Date().toISOString().split('T')[0]}
                                 className="w-full h-14 px-4 rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 text-lg font-medium"
-                                onChange={(e) => setBookingData({ ...bookingData, date: e.target.value })}
+                                onChange={(e) => {
+                                    setBookingData({ ...bookingData, date: e.target.value, timeSlot: '' });
+                                    fetchAvailableTimes(e.target.value);
+                                }}
                             />
                         </div>
                         <div>
-                            <label className="text-sm font-bold text-slate-700 mb-2 block">Best Time</label>
+                            <label className="text-sm font-bold text-slate-700 mb-2 block">Available Time</label>
                             <select
                                 required
-                                className="w-full h-14 px-4 rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 text-lg font-medium"
+                                disabled={!bookingData.date || loadingTimes}
+                                className="w-full h-14 px-4 rounded-xl border border-gray-300 bg-white text-gray-900 placeholder-gray-400 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 text-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                                value={bookingData.timeSlot}
                                 onChange={(e) => setBookingData({ ...bookingData, timeSlot: e.target.value })}
                             >
-                                <option value="">Select slot...</option>
-                                <option>8am - 12pm</option>
-                                <option>12pm - 4pm</option>
-                                <option>4pm - 8pm</option>
+                                <option value="">{loadingTimes ? 'Loading...' : !bookingData.date ? 'Select a date first' : availableTimes.length === 0 ? 'No availability' : 'Select time...'}</option>
+                                {availableTimes.map((slot) => {
+                                    const hour = parseInt(slot.split(':')[0], 10);
+                                    const ampm = hour >= 12 ? 'PM' : 'AM';
+                                    const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour;
+                                    return <option key={slot} value={slot}>{`${displayHour}:00 ${ampm}`}</option>;
+                                })}
                             </select>
                         </div>
                     </div>
@@ -831,6 +924,7 @@ function BookPageContent() {
                     initialName={`${searchParams.get('firstName') || ''} ${searchParams.get('lastName') || ''}`.trim()}
                     initialEmail={searchParams.get('email') || ''}
                     initialPhone={searchParams.get('phone') || ''}
+                    leadId={searchParams.get('leadId') || ''}
                 />
             </main>
 

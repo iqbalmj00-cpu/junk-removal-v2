@@ -65,6 +65,8 @@ function BookingDetailsContent() {
             email: searchParams.get('email') || '',
             phone: searchParams.get('phone') || '',
         });
+        const lid = searchParams.get('leadId');
+        if (lid) params.set('leadId', lid);
 
         router.push(`/book?view=scheduler&${params.toString()}`);
     };
