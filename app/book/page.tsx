@@ -672,6 +672,7 @@ function BookPageContent() {
                             <Button
                                 onClick={handleAnalyze}
                                 disabled={!isReady}
+                                data-track="quote_upload"
                                 className={`w-full h-16 text-xl font-bold rounded-xl shadow-xl transition-all ${isReady
                                     ? 'bg-brand-orange hover:bg-orange-600 text-white shadow-orange-900/20'
                                     : 'bg-slate-200 text-slate-400 cursor-not-allowed'
@@ -755,6 +756,7 @@ function BookPageContent() {
                             if (lid) params.set('leadId', lid);
                             router.push(`/booking-details?${params.toString()}`);
                         }}
+                        data-track="booking_finalized"
                         className="w-full bg-orange-500 hover:bg-orange-600 text-white h-14 rounded-xl text-lg font-bold shadow-lg shadow-orange-900/30 transition-all"
                     >
                         BOOK THIS ESTIMATE

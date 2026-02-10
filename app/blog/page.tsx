@@ -207,7 +207,7 @@ export default function BlogPage() {
                                     Don't let clutter take over your life. Expert removal is just a click away.
                                 </p>
                                 <Link href="/get-started">
-                                    <Button className="w-full bg-brand-orange hover:bg-orange-600 text-white font-bold h-14 rounded-xl text-lg shadow-xl shadow-orange-900/40">
+                                    <Button data-track="book_now" className="w-full bg-brand-orange hover:bg-orange-600 text-white font-bold h-14 rounded-xl text-lg shadow-xl shadow-orange-900/40">
                                         GET A FREE QUOTE
                                     </Button>
                                 </Link>

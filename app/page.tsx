@@ -32,7 +32,7 @@ export default function Home() {
 
                 <div className="flex flex-col sm:flex-row gap-6 mb-10 justify-center lg:justify-start">
                   <Link href="/get-started" passHref>
-                    <Button className="bg-brand-orange hover:bg-orange-600 text-white px-10 py-6 rounded-full text-xl font-bold shadow-2xl shadow-orange-900/30 w-full sm:w-auto">
+                    <Button data-track="book_now" className="bg-brand-orange hover:bg-orange-600 text-white px-10 py-6 rounded-full text-xl font-bold shadow-2xl shadow-orange-900/30 w-full sm:w-auto">
                       GET PRICE NOW <ArrowRight className="ml-3" size={24} />
                     </Button>
                   </Link>

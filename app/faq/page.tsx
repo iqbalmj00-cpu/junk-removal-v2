@@ -220,7 +220,7 @@ export default function FAQPage() {
                                                             </div>
                                                         </div>
                                                         <Link href="/get-started" className="w-full md:w-auto">
-                                                            <Button className="w-full md:w-auto bg-brand-orange hover:bg-orange-600 text-white font-bold px-8 py-4 text-lg h-auto rounded-xl shadow-lg">
+                                                            <Button data-track="book_now" className="w-full md:w-auto bg-brand-orange hover:bg-orange-600 text-white font-bold px-8 py-4 text-lg h-auto rounded-xl shadow-lg">
                                                                 Upload Photos <ArrowRight size={20} className="ml-2" />
                                                             </Button>
                                                         </Link>

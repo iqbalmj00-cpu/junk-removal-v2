@@ -192,7 +192,7 @@ export default function AboutPage() {
                         </p>
                         <div className="flex flex-col sm:flex-row gap-6 justify-center">
                             <Link href="/get-started">
-                                <Button className="w-full sm:w-auto bg-brand-orange hover:bg-orange-600 text-white px-10 py-5 h-auto rounded-full text-xl font-bold shadow-2xl shadow-orange-900/20">
+                                <Button data-track="book_now" className="w-full sm:w-auto bg-brand-orange hover:bg-orange-600 text-white px-10 py-5 h-auto rounded-full text-xl font-bold shadow-2xl shadow-orange-900/20">
                                     BOOK A SERVICE
                                 </Button>
                             </Link>
