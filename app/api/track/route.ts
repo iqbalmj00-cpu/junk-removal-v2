@@ -9,8 +9,8 @@ import { NextResponse } from 'next/server';
 export async function POST(req: Request) {
     try {
         const dashboardUrl = process.env.DASHBOARD_URL;
-        const apiKey = process.env.DASHBOARD_API_KEY;
-        const siteToken = process.env.DASHBOARD_SITE_TOKEN;
+        const apiKey = process.env.INGEST_API_KEY;
+        const siteToken = process.env.SITE_TOKEN;
 
         if (!dashboardUrl || !apiKey || !siteToken) {
             // Dashboard not configured — silently succeed
