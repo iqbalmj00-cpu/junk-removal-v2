@@ -841,7 +841,7 @@ function BookPageContent() {
                         />
                     </div>
 
-                    <Button className="w-full h-16 bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold rounded-xl mt-4 shadow-xl shadow-orange-900/20">
+                    <Button data-track="booking_finalized" className="w-full h-16 bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold rounded-xl mt-4 shadow-xl shadow-orange-900/20">
                         CONFIRM BOOKING
                     </Button>
                 </form>

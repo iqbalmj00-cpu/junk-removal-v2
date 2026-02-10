@@ -163,6 +163,7 @@ export default function GetStartedPage() {
                     <button
                         onClick={handleContinue}
                         disabled={submitting}
+                        data-track="book_now"
                         className="w-full py-4 rounded-full bg-brand-orange text-white font-bold text-lg tracking-wide hover:bg-orange-600 active:scale-[0.98] transition-all shadow-lg shadow-orange-500/25 flex items-center justify-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                         {submitting ? 'SAVING...' : 'CONTINUE TO PHOTO UPLOAD'}
