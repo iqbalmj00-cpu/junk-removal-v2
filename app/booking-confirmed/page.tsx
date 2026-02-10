@@ -6,7 +6,8 @@ import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
 import { CheckCircle2, Calendar, MapPin, Info, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
+import { trackEvent } from '@/lib/tracking';
 
 function BookingConfirmedContent() {
     const searchParams = useSearchParams();
@@ -16,6 +17,15 @@ function BookingConfirmedContent() {
     const date = searchParams.get('date') || '';
     const time = searchParams.get('time') || '';
     const address = searchParams.get('address') || '';
+
+    // Track confirmation page view
+    useEffect(() => {
+        trackEvent('page_view', '/booking-confirmed', {
+            bookingId,
+            date,
+            time,
+        });
+    }, []);
 
     // Create Google Calendar Link
     const googleCalendarUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=Junk+Removal+Appointment&dates=${date.replace(/-/g, '')}T${time.replace(/:/g, '')}00/${date.replace(/-/g, '')}T${parseInt(time.split(':')[0]) + 1}${time.split(':')[1]}00&details=Booking+ID:+${bookingId}+%0AAddress:+${encodeURIComponent(address)}&location=${encodeURIComponent(address)}`;

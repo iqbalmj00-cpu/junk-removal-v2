@@ -9,6 +9,7 @@ import { UploadCloud, CheckCircle, ArrowRight, Loader2, Calendar, User, Phone, M
 import Link from 'next/link';
 // v6.7.2: Removed browser-image-compression - now uploading original files directly
 import exifr from 'exifr';
+import { trackEvent, trackQuote } from '@/lib/tracking';
 
 // --- Pricing Engine ---
 // --- Pricing Engine ---
@@ -352,6 +353,25 @@ function BookPageContent() {
                 // Transition Logic
                 setView('receipt');
 
+                // Track quote generated
+                trackEvent('quote_generated', '/book', {
+                    leadId: searchParams.get('leadId'),
+                    volume: volumeYards,
+                    minPrice: quote.min_price,
+                    maxPrice: quote.max_price,
+                    confidence: quote.confidence_score,
+                    imageCount: bookingData.selectedImages.length,
+                });
+                trackQuote({
+                    customerName: bookingData.fullName,
+                    customerEmail: bookingData.email,
+                    customerPhone: bookingData.phone,
+                    estimatedVolume: volumeYards,
+                    price: `$${quote.min_price} - $${quote.max_price}`,
+                    confidence: quote.confidence_score,
+                    imageCount: bookingData.selectedImages.length,
+                });
+
                 // Auto-Scroll to results
                 setTimeout(() => {
                     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -399,6 +419,14 @@ function BookPageContent() {
 
             if (data.success) {
                 setView('success');
+                // Track booking confirmed
+                trackEvent('booking_confirmed', '/book', {
+                    bookingId: data.bookingId,
+                    leadId: searchParams.get('leadId'),
+                    date: bookingData.date,
+                    time: bookingData.timeSlot,
+                    quoteRange: `$${grandTotal.min} - $${grandTotal.max}`,
+                });
             } else {
                 throw new Error(data.error || 'Booking failed');
             }

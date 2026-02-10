@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { X, Calendar, Clock, MapPin, Phone, Mail, User, Loader2, CheckCircle2 } from 'lucide-react';
+import { trackEvent } from '@/lib/tracking';
 
 interface BookingModalProps {
     isOpen: boolean;
@@ -80,6 +81,15 @@ export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails,
             if (data.success) {
                 console.log("Redirecting to confirmation page");
                 setStatus('success');
+
+                // Track booking confirmed
+                trackEvent('booking_confirmed', '/book/modal', {
+                    bookingId: data.bookingId,
+                    leadId,
+                    date: formData.date,
+                    time: formData.time,
+                    quoteRange,
+                });
 
                 const params = new URLSearchParams({
                     bookingId: data.bookingId,

@@ -6,6 +6,7 @@ import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Mail, Smartphone, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
+import { trackEvent } from '@/lib/tracking';
 
 export default function GetStartedPage() {
     const router = useRouter();
@@ -57,6 +58,13 @@ export default function GetStartedPage() {
             const data = await res.json();
             if (data.success && data.leadId) {
                 leadId = data.leadId;
+                // Track lead creation
+                trackEvent('form_submit', '/get-started', {
+                    leadId,
+                    name: `${leadData.firstName} ${leadData.lastName}`,
+                    email: leadData.email,
+                    phone: leadData.phone,
+                });
             }
         } catch (err) {
             console.error('Lead capture failed:', err);

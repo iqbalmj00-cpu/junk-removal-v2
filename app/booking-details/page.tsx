@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, Suspense, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
 import { Truck, ChevronDown, Lock, AlertTriangle, Loader2 } from 'lucide-react';
 import Link from 'next/link';
+import { trackEvent } from '@/lib/tracking';
 
 // Loading fallback for Suspense
 function BookingDetailsLoading() {
@@ -27,6 +28,13 @@ function BookingDetailsLoading() {
 function BookingDetailsContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
+
+    // Track page view on mount
+    useEffect(() => {
+        trackEvent('page_view', '/booking-details', {
+            leadId: searchParams.get('leadId'),
+        });
+    }, []);
 
 
     // Parse data from URL params
@@ -51,6 +59,12 @@ function BookingDetailsContent() {
         (hasBags ? bagContents !== '' : true);
 
     const handleContinue = () => {
+        // Track CTA click
+        trackEvent('cta_click', '/booking-details', {
+            destination: '/book?view=scheduler',
+            leadId: searchParams.get('leadId'),
+        });
+
         // Build URL params for scheduling page
         const params = new URLSearchParams({
             min: minPrice,
