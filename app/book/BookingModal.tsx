@@ -90,6 +90,16 @@ export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails,
                     time: formData.time,
                     quoteRange,
                 });
+                // Send confirmed lead to dashboard
+                if (typeof window !== 'undefined' && (window as any).syj?.sendLead) {
+                    (window as any).syj.sendLead({
+                        name: formData.name || '',
+                        email: formData.email || '',
+                        phone: formData.phone || '',
+                        source: 'website_form',
+                        notes: 'Booking confirmed',
+                    });
+                }
 
                 const params = new URLSearchParams({
                     bookingId: data.bookingId,

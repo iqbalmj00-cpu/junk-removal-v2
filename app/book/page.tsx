@@ -372,6 +372,18 @@ function BookPageContent() {
                     imageCount: bookingData.selectedImages.length,
                 });
 
+                // Send quote to dashboard
+                if (typeof window !== 'undefined' && (window as any).syj?.sendQuote) {
+                    (window as any).syj.sendQuote({
+                        junkSummary: 'N/A',
+                        volumeCubicYards: volumeYards,
+                        priceQuoted: quote.min_price,
+                        customerName: bookingData.fullName || '',
+                        customerEmail: bookingData.email || '',
+                        customerPhone: bookingData.phone || '',
+                    });
+                }
+
                 // Auto-Scroll to results
                 setTimeout(() => {
                     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -427,6 +439,17 @@ function BookPageContent() {
                     time: bookingData.timeSlot,
                     quoteRange: `$${grandTotal.min} - $${grandTotal.max}`,
                 });
+                // Send confirmed lead to dashboard
+                if (typeof window !== 'undefined' && (window as any).syj?.sendLead) {
+                    (window as any).syj.sendLead({
+                        name: bookingData.fullName || '',
+                        email: bookingData.email || '',
+                        phone: bookingData.phone || '',
+                        source: 'website_form',
+                        value: grandTotal.min,
+                        notes: 'Booking confirmed',
+                    });
+                }
             } else {
                 throw new Error(data.error || 'Booking failed');
             }
@@ -756,7 +779,7 @@ function BookPageContent() {
                             if (lid) params.set('leadId', lid);
                             router.push(`/booking-details?${params.toString()}`);
                         }}
-                        data-track="booking_finalized"
+                        data-track="book_now"
                         className="w-full bg-orange-500 hover:bg-orange-600 text-white h-14 rounded-xl text-lg font-bold shadow-lg shadow-orange-900/30 transition-all"
                     >
                         BOOK THIS ESTIMATE

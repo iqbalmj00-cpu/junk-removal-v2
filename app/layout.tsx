@@ -38,30 +38,43 @@ export default function RootLayout({
         <Script id="dashboard-tracking" strategy="afterInteractive">
           {`
             (function() {
-              var DASHBOARD_URL = "https://scaleyourjunk.vercel.app";
+              var DASHBOARD = "https://scaleyourjunk.vercel.app";
               var API_KEY = "bc47077cec5a30d12dfb961d5b8980125d3b4e02eba9b8728b3ce03cc7290a86";
               var SITE_TOKEN = "2e9fefa7-4741-46b1-81a5-5d4800f2adfa";
-              function trackEvent(event, page, metadata) {
-                fetch(DASHBOARD_URL + "/api/ingest/website-event", {
+              var headers = {
+                "Content-Type": "application/json",
+                "x-api-key": API_KEY,
+                "x-site-token": SITE_TOKEN
+              };
+              function post(endpoint, data) {
+                fetch(DASHBOARD + endpoint, {
                   method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    "x-api-key": API_KEY,
-                    "x-site-token": SITE_TOKEN
-                  },
-                  body: JSON.stringify({ event: event, page: page || window.location.pathname, metadata: metadata || {} })
-                }).catch(function(err) { console.error("Track error:", err); });
+                  headers: headers,
+                  body: JSON.stringify(data)
+                }).catch(function(err) { console.error("SYJ track error:", err); });
               }
-              trackEvent("page_view");
+              post("/api/ingest/website-event", {
+                event: "page_view",
+                page: window.location.pathname
+              });
               document.addEventListener("click", function(e) {
                 var el = e.target.closest("[data-track]");
                 if (!el) return;
                 var action = el.getAttribute("data-track");
-                if (action === "book_now") trackEvent("book_now_click");
-                if (action === "quote_upload") trackEvent("quote_upload");
-                if (action === "booking_finalized") trackEvent("booking_finalized");
+                if (["book_now_click", "book_now", "quote_upload", "booking_finalized"].indexOf(action) > -1) {
+                  post("/api/ingest/website-event", { event: action === "book_now" ? "book_now_click" : action, page: window.location.pathname });
+                }
               });
-              window.syj = { track: trackEvent };
+              window.syj = window.syj || {};
+              window.syj.track = function(event, page, metadata) {
+                post("/api/ingest/website-event", { event: event, page: page || window.location.pathname, metadata: metadata || {} });
+              };
+              window.syj.sendLead = function(data) {
+                post("/api/ingest/lead", data);
+              };
+              window.syj.sendQuote = function(data) {
+                post("/api/ingest/quote", data);
+              };
             })();
           `}
         </Script>

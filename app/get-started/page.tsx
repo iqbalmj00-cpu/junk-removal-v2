@@ -65,6 +65,15 @@ export default function GetStartedPage() {
                     email: leadData.email,
                     phone: leadData.phone,
                 });
+                // Send lead to dashboard
+                if (typeof window !== 'undefined' && (window as any).syj?.sendLead) {
+                    (window as any).syj.sendLead({
+                        name: `${leadData.firstName} ${leadData.lastName}`,
+                        email: leadData.email,
+                        phone: leadData.phone,
+                        source: 'website_form',
+                    });
+                }
             }
         } catch (err) {
             console.error('Lead capture failed:', err);
