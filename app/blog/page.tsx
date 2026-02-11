@@ -51,7 +51,7 @@ const BlogPostCard = ({
             <p className="text-slate-500 text-lg leading-relaxed mb-6">
                 {excerpt}
             </p>
-            <Link href="#" className="inline-flex items-center text-brand-orange text-sm font-bold hover:text-orange-600 transition-colors uppercase tracking-wide bg-orange-50 px-4 py-2 rounded-lg group-hover:bg-brand-orange group-hover:text-white">
+            <Link href="#" className="inline-flex items-center text-brand-orange text-sm font-bold hover:text-orange-600 transition-colors uppercase tracking-wide bg-orange-50 px-4 py-2 rounded-full group-hover:bg-brand-orange group-hover:text-white">
                 READ MORE <ArrowRight size={18} className="ml-2" />
             </Link>
         </div>
@@ -143,13 +143,13 @@ export default function BlogPage() {
 
                             {/* Pagination */}
                             <div className="flex justify-center items-center gap-3">
-                                <Button variant="outline" className="w-12 h-12 p-0 flex items-center justify-center border-slate-300 text-slate-500 hover:text-slate-900 rounded-xl">
+                                <Button variant="outline" className="w-12 h-12 p-0 flex items-center justify-center border-slate-300 text-slate-500 hover:text-slate-900 rounded-full">
                                     <ArrowLeft size={20} />
                                 </Button>
-                                <Button className="w-12 h-12 p-0 flex items-center justify-center bg-brand-orange text-white font-bold hover:bg-orange-600 rounded-xl text-lg shadow-lg shadow-orange-900/20">1</Button>
-                                <Button variant="outline" className="w-12 h-12 p-0 flex items-center justify-center border-slate-300 text-slate-500 hover:text-slate-900 font-bold hover:bg-slate-100 rounded-xl text-lg">2</Button>
-                                <Button variant="outline" className="w-12 h-12 p-0 flex items-center justify-center border-slate-300 text-slate-500 hover:text-slate-900 font-bold hover:bg-slate-100 rounded-xl text-lg">3</Button>
-                                <Button variant="outline" className="w-12 h-12 p-0 flex items-center justify-center border-slate-300 text-slate-500 hover:text-slate-900 rounded-xl">
+                                <Button className="w-12 h-12 p-0 flex items-center justify-center bg-brand-orange text-white font-bold hover:bg-orange-600 rounded-full text-lg shadow-lg shadow-orange-900/20">1</Button>
+                                <Button variant="outline" className="w-12 h-12 p-0 flex items-center justify-center border-slate-300 text-slate-500 hover:text-slate-900 font-bold hover:bg-slate-100 rounded-full text-lg">2</Button>
+                                <Button variant="outline" className="w-12 h-12 p-0 flex items-center justify-center border-slate-300 text-slate-500 hover:text-slate-900 font-bold hover:bg-slate-100 rounded-full text-lg">3</Button>
+                                <Button variant="outline" className="w-12 h-12 p-0 flex items-center justify-center border-slate-300 text-slate-500 hover:text-slate-900 rounded-full">
                                     <ArrowRight size={20} />
                                 </Button>
                             </div>
@@ -184,7 +184,7 @@ export default function BlogPage() {
                                     ].map((cat) => (
                                         <li key={cat.name} className="flex items-center justify-between text-slate-500 hover:text-brand-orange cursor-pointer transition-colors group p-2 rounded-lg hover:bg-slate-50">
                                             <span className="font-medium text-lg">{cat.name}</span>
-                                            <span className="bg-slate-100 text-slate-500 px-3 py-1 rounded-md text-sm font-bold group-hover:bg-brand-orange group-hover:text-white transition-colors">{cat.count}</span>
+                                            <span className="bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-sm font-bold group-hover:bg-brand-orange group-hover:text-white transition-colors">{cat.count}</span>
                                         </li>
                                     ))}
                                 </ul>
@@ -207,7 +207,7 @@ export default function BlogPage() {
                                     Don't let clutter take over your life. Expert removal is just a click away.
                                 </p>
                                 <Link href="/get-started">
-                                    <Button data-track="book_now" className="w-full bg-brand-orange hover:bg-orange-600 text-white font-bold h-14 rounded-xl text-lg shadow-xl shadow-orange-900/40">
+                                    <Button data-track="book_now" className="w-full bg-brand-orange hover:bg-orange-600 text-white font-bold h-14 rounded-full text-lg shadow-xl shadow-orange-900/40">
                                         GET A FREE QUOTE
                                     </Button>
                                 </Link>

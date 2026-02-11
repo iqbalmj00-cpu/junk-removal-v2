@@ -91,13 +91,13 @@ function BookingConfirmedContent() {
                         {/* Buttons */}
                         <div className="flex flex-col sm:flex-row gap-4 justify-center">
                             <a href={googleCalendarUrl} target="_blank" rel="noopener noreferrer" className="w-full sm:w-auto">
-                                <Button variant="outline" className="w-full border-2 border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50 h-14 px-8 text-lg font-bold rounded-xl">
+                                <Button variant="outline" className="w-full border-2 border-slate-200 hover:border-slate-300 text-slate-700 hover:bg-slate-50 h-14 px-8 text-lg font-bold rounded-full">
                                     <Calendar className="mr-2" size={20} /> Add to Calendar
                                 </Button>
                             </a>
 
                             <Link href="/" className="w-full sm:w-auto">
-                                <Button className="w-full bg-slate-900 hover:bg-black text-white h-14 px-8 text-lg font-bold rounded-xl shadow-lg shadow-slate-900/20">
+                                <Button className="w-full bg-slate-900 hover:bg-black text-white h-14 px-8 text-lg font-bold rounded-full shadow-lg shadow-slate-900/20">
                                     Return Home
                                 </Button>
                             </Link>

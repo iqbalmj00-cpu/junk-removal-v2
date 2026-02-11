@@ -500,13 +500,13 @@ function BookPageContent() {
                     <div className="bg-slate-100 p-1.5 rounded-xl flex relative mb-4">
                         <button
                             onClick={() => setJobType('single')}
-                            className={`flex-1 flex items-center justify-center py-3 text-sm font-bold rounded-lg transition-all duration-300 ${jobType === 'single' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            className={`flex-1 flex items-center justify-center py-3 text-sm font-bold rounded-full transition-all duration-300 ${jobType === 'single' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
                             Single Item
                         </button>
                         <button
                             onClick={() => setJobType('pile')}
-                            className={`flex-1 flex items-center justify-center py-3 text-sm font-bold rounded-lg transition-all duration-300 ${jobType === 'pile' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                            className={`flex-1 flex items-center justify-center py-3 text-sm font-bold rounded-full transition-all duration-300 ${jobType === 'pile' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
                             Pile / Cleanout
                         </button>
@@ -696,7 +696,7 @@ function BookPageContent() {
                                 onClick={handleAnalyze}
                                 disabled={!isReady}
                                 data-track="quote_upload"
-                                className={`w-full h-16 text-xl font-bold rounded-xl shadow-xl transition-all ${isReady
+                                className={`w-full h-16 text-xl font-bold rounded-full shadow-xl transition-all ${isReady
                                     ? 'bg-brand-orange hover:bg-orange-600 text-white shadow-orange-900/20'
                                     : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                                     }`}
@@ -780,14 +780,14 @@ function BookPageContent() {
                             router.push(`/booking-details?${params.toString()}`);
                         }}
                         data-track="book_now"
-                        className="w-full bg-orange-500 hover:bg-orange-600 text-white h-14 rounded-xl text-lg font-bold shadow-lg shadow-orange-900/30 transition-all"
+                        className="w-full bg-orange-500 hover:bg-orange-600 text-white h-14 rounded-full text-lg font-bold shadow-lg shadow-orange-900/30 transition-all"
                     >
                         BOOK THIS ESTIMATE
                     </Button>
                     <Button
                         onClick={handleAddPile}
                         variant="outline"
-                        className="w-full border-2 border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white h-14 rounded-xl text-lg font-bold transition-all"
+                        className="w-full border-2 border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white h-14 rounded-full text-lg font-bold transition-all"
                     >
                         ➕ Add Another Pile
                     </Button>
@@ -866,7 +866,7 @@ function BookPageContent() {
                         />
                     </div>
 
-                    <Button data-track="booking_finalized" className="w-full h-16 bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold rounded-xl mt-4 shadow-xl shadow-orange-900/20">
+                    <Button data-track="booking_finalized" className="w-full h-16 bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold rounded-full mt-4 shadow-xl shadow-orange-900/20">
                         CONFIRM BOOKING
                     </Button>
                 </form>
@@ -942,11 +942,11 @@ function BookPageContent() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Button onClick={addToCalendar} variant="outline" className="h-16 rounded-xl border-slate-300 text-slate-700 font-bold text-lg hover:bg-slate-50 transition-colors">
+                <Button onClick={addToCalendar} variant="outline" className="h-16 rounded-full border-slate-300 text-slate-700 font-bold text-lg hover:bg-slate-50 transition-colors">
                     Add to Calendar
                 </Button>
                 <Link href="/" className="w-full">
-                    <Button className="w-full h-16 rounded-xl bg-slate-900 text-white font-bold text-lg hover:bg-slate-800 shadow-xl shadow-slate-900/20 transition-all">
+                    <Button className="w-full h-16 rounded-full bg-slate-900 text-white font-bold text-lg hover:bg-slate-800 shadow-xl shadow-slate-900/20 transition-all">
                         Return Home
                     </Button>
                 </Link>
