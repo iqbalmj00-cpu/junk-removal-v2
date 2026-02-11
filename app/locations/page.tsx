@@ -4,16 +4,7 @@ import { locations } from '@/lib/locationData';
 import { MapPin, ArrowRight, Phone, Truck, Shield, Clock } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
-import dynamic from 'next/dynamic';
-
-const CoverageMap = dynamic(() => import('@/components/CoverageMap'), {
-    ssr: false,
-    loading: () => (
-        <div className="w-full h-full min-h-[400px] bg-slate-200 animate-pulse flex items-center justify-center">
-            <span className="text-slate-400 font-medium">Loading map...</span>
-        </div>
-    ),
-});
+import CoverageMapWrapper from '@/components/CoverageMapWrapper';
 
 export const metadata: Metadata = {
     title: 'Service Locations | Clean Sweep Junk Removal',
@@ -129,7 +120,7 @@ export default function LocationsPage() {
                                 </ul>
                             </div>
                             <div className="lg:w-2/3 h-80 lg:h-auto relative bg-slate-200 min-h-[400px] overflow-hidden rounded-r-2xl">
-                                <CoverageMap />
+                                <CoverageMapWrapper />
                             </div>
                         </div>
                     </div>
