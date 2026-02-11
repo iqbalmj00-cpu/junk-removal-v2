@@ -120,8 +120,28 @@ export default function FAQPage() {
     const currentCategoryData = FAQ_DATA.find(cat => cat.id === activeCategory);
     const CategoryIcon = currentCategoryData?.icon || Wallet;
 
+    // Generate FAQ Schema JSON-LD from all FAQ data
+    const faqSchema = {
+        '@context': 'https://schema.org',
+        '@type': 'FAQPage',
+        'mainEntity': FAQ_DATA.flatMap(cat =>
+            cat.items.map(item => ({
+                '@type': 'Question',
+                'name': item.question,
+                'acceptedAnswer': {
+                    '@type': 'Answer',
+                    'text': item.answer,
+                },
+            }))
+        ),
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
+            <script
+                type="application/ld+json"
+                dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
+            />
             <Navbar />
 
             <main className="flex-grow pt-40 pb-32 px-4 sm:px-6 lg:px-8">

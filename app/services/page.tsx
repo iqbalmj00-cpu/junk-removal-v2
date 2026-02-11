@@ -14,9 +14,10 @@ interface ServiceCardProps {
     title: string;
     description: string;
     fullDescription: string;
+    slug: string;
 }
 
-function ServiceCard({ icon, title, description, fullDescription }: ServiceCardProps) {
+function ServiceCard({ icon, title, description, fullDescription, slug }: ServiceCardProps) {
     const [isExpanded, setIsExpanded] = useState(false);
 
     return (
@@ -45,7 +46,7 @@ function ServiceCard({ icon, title, description, fullDescription }: ServiceCardP
                 </div>
             </div>
 
-            <div className="mt-auto pt-2">
+            <div className="mt-auto pt-2 flex items-center justify-between">
                 <button
                     onClick={() => setIsExpanded(!isExpanded)}
                     className="flex items-center text-sm font-bold text-slate-900 group-hover:text-brand-orange transition-colors uppercase tracking-wide hover:underline focus:outline-none"
@@ -56,6 +57,12 @@ function ServiceCard({ icon, title, description, fullDescription }: ServiceCardP
                         <>Learn More <ArrowRight size={16} className="ml-1" /></>
                     )}
                 </button>
+                <Link
+                    href={`/services/${slug}`}
+                    className="text-sm font-bold text-brand-orange hover:text-orange-600 transition-colors flex items-center gap-1"
+                >
+                    View Details <ArrowRight size={14} />
+                </Link>
             </div>
         </div>
     );
@@ -66,36 +73,42 @@ export default function ServicesPage() {
         {
             icon: <Sofa size={36} />,
             title: "Furniture Removal",
+            slug: "furniture-removal",
             description: "We handle heavy lifting for couches, tables, mattresses, chairs, and love seats.",
             fullDescription: "Our team is trained to safely maneuver large items through tight hallways and stairwells without damaging your property. We disassemble bulky pieces when necessary and ensure every item is donated or recycled whenever possible to minimize landfill waste."
         },
         {
             icon: <Tv size={36} />,
             title: "Appliance Recycling",
+            slug: "appliance-recycling",
             description: "Responsible disposal of fridges, washers, dryers, and ovens.",
             fullDescription: "Old appliances often contain hazardous chemicals like freon that require specialized handling. We partner with certified recycling facilities to ensure these materials are extracted safely before the metal is scrapped, keeping our community safe and compliant."
         },
         {
             icon: <Monitor size={36} />,
             title: "E-Waste Disposal",
+            slug: "e-waste-disposal",
             description: "Secure and eco-friendly disposal for computers, monitors, printers, and TVs.",
             fullDescription: "Electronic waste is a growing global problem. We ensure your old devices are stripped for valuable components like copper and gold, while hazardous elements like lead and mercury are responsibly contained. Your data privacy is respected throughout the process."
         },
         {
             icon: <Construction size={36} />,
             title: "Construction Debris",
+            slug: "construction-debris",
             description: "Fast cleanup for renovation sites. We take drywall, wood, tiles, flooring, and roofing.",
             fullDescription: "Whether you're a DIY enthusiast or a professional contractor, job site debris can slow you down. We offer scheduled pickups to keep your workspace clear, ensuring safety and compliance with local disposal regulations for heavier construction materials."
         },
         {
             icon: <Leaf size={36} />,
             title: "Yard Waste",
+            slug: "yard-waste",
             description: "Seasonal cleanup made easy. Branches, leaves, dirt, mulch, and small trees removed.",
             fullDescription: "From storm cleanup to annual landscaping projects, organic waste can pile up fast. We compost the majority of yard waste we collect, turning your old branches and clippings into nutrient-rich soil for local parks and gardens."
         },
         {
             icon: <Home size={36} />,
             title: "Cleanouts",
+            slug: "cleanouts",
             description: "Total property cleanouts for garages, attics, basements, and estates.",
             fullDescription: "Dealing with a hoard or an estate cleanout can be emotional and overwhelming. Our compassionate team handles these respectful large-scale jobs with discretion and efficiency, sorting items for donation, recycling, and disposal to get the property ready for its next chapter."
         }

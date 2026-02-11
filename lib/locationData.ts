@@ -31,6 +31,8 @@ export interface LocationData {
     pricingFactors: PricingFactor[];
     reviews: LocationReview[];
     faqs: FAQ[];
+    localInfo: string;
+    disposalNote: string;
 }
 
 export const locations: LocationData[] = [
@@ -61,6 +63,8 @@ export const locations: LocationData[] = [
             { question: 'What areas do you cover exactly?', answer: 'We cover the Greater Houston area, extending to Katy, The Woodlands, Sugar Land, Pearland, Pasadena, and Baytown.' },
             { question: 'How is pricing calculated?', answer: "Our pricing is based on volume—how much space your items take up in our truck. We provide free, no-obligation on-site estimates before we start any work." },
         ],
+        localInfo: 'From estate cleanouts near Buffalo Bayou Park to furniture hauling in the Museum District, our trucks navigate Houston\'s diverse neighborhoods daily. We\'re regulars in River Oaks, The Heights, and Montrose — and know exactly how to handle tight parking on Westheimer, gated communities in Memorial, and high-rise moves downtown.',
+        disposalNote: 'Houston residents can use the City of Houston Solid Waste Neighborhood Depositories for small loads, but size and material restrictions apply. Clean Sweep handles items those facilities won\'t accept — including bulky furniture, appliances requiring freon extraction, and mixed construction debris — all in a single trip.',
     },
     {
         slug: 'sugar-land',
@@ -89,6 +93,8 @@ export const locations: LocationData[] = [
             { question: 'What areas do you cover exactly?', answer: 'We cover all of Sugar Land and the surrounding Fort Bend County area, including Missouri City, Richmond, Rosenberg, and Stafford.' },
             { question: 'How is pricing calculated?', answer: "Our pricing is based on volume—how much space your items take up in our truck. We provide free, no-obligation on-site estimates before we start any work." },
         ],
+        localInfo: 'Located minutes from Sugar Land Town Square, we handle cleanouts across Telfair, Greatwood, New Territory, and Riverstone. Sugar Land\'s rapid growth means plenty of move-in and move-out junk, and our crews are experienced with the master-planned community HOA rules that govern debris removal and pickup schedules.',
+        disposalNote: 'Fort Bend County requires special permits for construction debris exceeding certain volumes. Clean Sweep manages all local disposal permits and ensures your materials are taken to Fort Bend County-approved facilities, saving you the hassle of navigating county regulations.',
     },
     {
         slug: 'katy',
@@ -117,6 +123,8 @@ export const locations: LocationData[] = [
             { question: 'What areas do you cover exactly?', answer: 'We cover all of Katy (zip codes 77494, 77450, 77493, etc.) plus nearby areas like Fulshear, Richmond, and West Houston.' },
             { question: 'How is pricing calculated?', answer: "Our pricing is based on volume—how much space your items take up in our truck. We provide free, no-obligation on-site estimates before we start any work." },
         ],
+        localInfo: 'Serving the master-planned communities of Cinco Ranch, Cross Creek Ranch, Elyson, and Cane Island. We\'re familiar with Katy ISD move-out surges every summer and the renovation boom along the Grand Parkway. Whether you\'re clearing out a garage in Firethorne or hauling furniture from Old Katy, we know the area inside and out.',
+        disposalNote: 'Katy falls under both Harris and Fort Bend county jurisdictions depending on your exact location. Clean Sweep handles the logistics — we know which county facility accepts which materials, so you never have to worry about hauling debris to the wrong drop-off.',
     },
     {
         slug: 'the-woodlands',
@@ -145,6 +153,8 @@ export const locations: LocationData[] = [
             { question: 'What areas do you cover from The Woodlands?', answer: 'We cover all of The Woodlands, Conroe, Magnolia, Spring, and surrounding Montgomery County communities.' },
             { question: 'How is pricing calculated?', answer: "Our pricing is based on volume—how much space your items take up in our truck. We provide free, no-obligation on-site estimates before we start any work." },
         ],
+        localInfo: 'We regularly serve The Woodlands\'s village communities including Creekside Park, Sterling Ridge, Indian Springs, and Alden Bridge. The Woodlands\' strict community standards require careful debris handling — our crews are experienced with HOA-compliant removal, navigating tree-lined streets, and working within the Township\'s noise ordinances.',
+        disposalNote: 'The Woodlands Township has specific guidelines for bulk item pickup days and yard waste collection. For items outside those guidelines — large furniture, appliances, and construction debris — Clean Sweep provides same-day removal without the five-item limit that Township collection imposes.',
     },
     {
         slug: 'pearland',
@@ -173,6 +183,8 @@ export const locations: LocationData[] = [
             { question: 'What areas do you cover exactly?', answer: 'We cover all of Pearland and nearby areas including Friendswood, Alvin, Manvel, and South Houston.' },
             { question: 'How is pricing calculated?', answer: "Our pricing is based on volume—how much space your items take up in our truck. We provide free, no-obligation on-site estimates before we start any work." },
         ],
+        localInfo: 'From Shadow Creek Ranch to Silverlake, Pearland is one of the fastest-growing suburbs in Texas — and with growth comes renovation waste and move-out junk. We\'re frequent visitors to neighborhoods along Bailey Road, Broadway, and the FM 518 corridor. Our crews also serve the older Pearland neighborhoods east of Highway 35 where estate cleanouts are common.',
+        disposalNote: 'Brazoria County operates transfer stations that accept most residential waste, but they do not handle appliances with refrigerants or e-waste. Clean Sweep partners with certified facilities to properly handle these items, ensuring Pearland residents stay compliant with county and EPA regulations.',
     },
     {
         slug: 'missouri-city',
@@ -201,6 +213,8 @@ export const locations: LocationData[] = [
             { question: 'What areas do you cover exactly?', answer: 'We cover all of Missouri City, Stafford, Fresno, Arcola, and surrounding Fort Bend County communities.' },
             { question: 'How is pricing calculated?', answer: "Our pricing is based on volume—how much space your items take up in our truck. We provide free, no-obligation on-site estimates before we start any work." },
         ],
+        localInfo: 'Serving Sienna Plantation, Quail Valley, Lake Olympia, and the communities along Cartwright Road. Missouri City straddles the Harris-Fort Bend county line, and our crews navigate both jurisdictions seamlessly. We\'re also experienced with the larger lot sizes and detached garages common in this area — meaning bigger cleanouts and more truck space.',
+        disposalNote: 'Missouri City residents under Fort Bend County must follow different bulk waste guidelines than those in Harris County portions of the city. Clean Sweep eliminates this confusion — we handle the disposal logistics regardless of which jurisdiction your property falls under.',
     },
     {
         slug: 'cypress',
@@ -229,6 +243,8 @@ export const locations: LocationData[] = [
             { question: 'What areas do you cover exactly?', answer: 'We cover all of Cypress, Jersey Village, Copperfield, and surrounding Northwest Houston communities.' },
             { question: 'How is pricing calculated?', answer: "Our pricing is based on volume—how much space your items take up in our truck. We provide free, no-obligation on-site estimates before we start any work." },
         ],
+        localInfo: 'Cypress has exploded with new development along the 290 corridor — Bridgeland, Towne Lake, and Cypress Creek Lakes are just a few of the communities we serve daily. With all this new construction comes renovation debris from builders and move-in junk from new homeowners. We handle both residential and builder cleanouts across the Cy-Fair area.',
+        disposalNote: 'The Cypress area falls under Harris County jurisdiction and utilizes Harris County Precinct 4 services. However, their bulky item pickup has limited availability and material restrictions. Clean Sweep fills that gap with same-day, all-inclusive removal — no scheduling weeks in advance.',
     },
     {
         slug: 'spring',
@@ -257,6 +273,8 @@ export const locations: LocationData[] = [
             { question: 'What areas do you cover exactly?', answer: 'We cover all of Spring, Klein, Tomball, and surrounding North Houston / Harris County communities.' },
             { question: 'How is pricing calculated?', answer: "Our pricing is based on volume—how much space your items take up in our truck. We provide free, no-obligation on-site estimates before we start any work." },
         ],
+        localInfo: 'Covering Old Town Spring, Klein, Champions, and the communities along the Hardy Toll Road and I-45 North corridor. Spring\'s proximity to The Woodlands means similar HOA standards, and our crews handle both Township-area and unincorporated Harris County pickups. The annual Spring Home & Garden Show always sparks a wave of renovation cleanups — and we\'re ready for it.',
+        disposalNote: 'Spring falls under Harris County Precinct 4 waste management. Their scheduled bulk waste pickups have strict item limits and don\'t accept appliances, tires, or construction materials. Clean Sweep offers a one-call solution for everything they won\'t take — available same-day with no item restrictions.',
     },
     {
         slug: 'league-city',
@@ -285,6 +303,8 @@ export const locations: LocationData[] = [
             { question: 'What areas do you cover exactly?', answer: 'We cover League City, Clear Lake, Kemah, Dickinson, Friendswood, and surrounding Galveston County areas.' },
             { question: 'How is pricing calculated?', answer: "Our pricing is based on volume—how much space your items take up in our truck. We provide free, no-obligation on-site estimates before we start any work." },
         ],
+        localInfo: 'From South Shore Harbour to Tuscan Lakes and the historic downtown district, League City is a growing Galveston County community with a unique mix of older homes and brand-new construction. We serve the entire Bay Area corridor including the neighborhoods near Nassau Bay, where NASA-adjacent moves and relocations generate plenty of excess furniture and household items.',
+        disposalNote: 'Galveston County operates a recycling center on Highway 3, but it does not accept large appliances or construction debris. League City\'s own bulky item pickup program runs on a limited schedule. Clean Sweep provides flexible, same-day removal for everything — including items that county services reject.',
     },
     {
         slug: 'pasadena',
@@ -313,6 +333,8 @@ export const locations: LocationData[] = [
             { question: 'What areas do you cover exactly?', answer: 'We cover Pasadena, Deer Park, La Porte, South Houston, Baytown, and surrounding Southeast Houston communities.' },
             { question: 'How is pricing calculated?', answer: "Our pricing is based on volume—how much space your items take up in our truck. We provide free, no-obligation on-site estimates before we start any work." },
         ],
+        localInfo: 'Serving Pasadena\'s neighborhoods from Strawberry Park to Red Bluff and the communities near the Pasadena Fairgrounds. With the city\'s industrial heritage come unique cleanout needs — we regularly handle warehouse clearings along the Ship Channel corridor and residential estate cleanouts in the established neighborhoods near Spencer Highway and Fairmont Parkway.',
+        disposalNote: 'Pasadena operates its own solid waste department with scheduled heavy trash pickup weeks. However, their service excludes appliances, tires, and hazardous materials. For items outside their scope — or for on-demand removal without waiting for your scheduled week — Clean Sweep provides fast, comprehensive service.',
     },
 ];
 

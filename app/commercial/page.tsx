@@ -1,5 +1,6 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Phone, Camera, Building2, HardHat, Briefcase, Store, Clock, Receipt, ShieldCheck } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
@@ -35,18 +36,18 @@ const industries = [
 const features = [
     {
         icon: <Clock className="w-12 h-12" />,
-        title: 'Reliable Scheduling',
-        description: "We respect your business hours. Book same-day or next-day pickups with guaranteed arrival windows so your operations never skip a beat.",
+        title: 'Priority Scheduling & Fleet Dispatch',
+        description: "We respect your business hours. Book same-day or next-day pickups with guaranteed 2-hour arrival windows. Dedicated account managers for recurring contracts.",
     },
     {
         icon: <Receipt className="w-12 h-12" />,
-        title: 'Professional Invoicing',
-        description: 'Streamlined billing designed for businesses. We offer Net-30 terms for approved commercial accounts and detailed electronic invoices.',
+        title: 'Net-30 Terms for Commercial Accounts',
+        description: 'Streamlined billing built for procurement teams. We accept PO numbers, offer Net-30 payment terms for approved accounts, and provide detailed electronic invoices for your AP department.',
     },
     {
         icon: <ShieldCheck className="w-12 h-12" />,
-        title: 'Full Liability Insurance',
-        description: 'Your property is protected. We are fully licensed and carry comprehensive liability insurance to handle commercial projects safely.',
+        title: 'Fully Insured & Bonded',
+        description: 'Your property is protected. We carry comprehensive general liability insurance and are fully bonded. Certificate of Insurance (COI) available on request for your records.',
     },
 ];
 
@@ -59,11 +60,13 @@ export default function CommercialPage() {
                 <section className="relative bg-slate-900 overflow-hidden">
                     {/* Background Image (decorative) */}
                     <div className="absolute inset-0 z-0">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
+                        <Image
                             alt="Modern spacious clean office interior"
-                            className="w-full h-full object-cover opacity-20"
+                            className="object-cover opacity-20"
                             src="https://lh3.googleusercontent.com/aida-public/AB6AXuCJ5QDW1Rdx8DmZFxe-BWCyNwS4MuViUV5kDMsvIBmpZWhCoS6blfiiqFZ0J7slg-Uj0hu9hVAhCFWZZXdZLh8byC13j_otx2X1UJFu8ibnuQehuwpyjBreVuiKk0d5VagqKrlQ-KV9mvyRkDAHKQt5LZKcsW5FfMeahTnmk5xqvH4R2MHfAslfYqOXyFUl8a_6DQ0hw6CdsUqY7QAni_WBu2WotZOE0madPPrOkHvsNLsORtFQGC4_2ZPjybB085mgqOhylTmmkY0"
+                            fill
+                            sizes="100vw"
+                            priority
                         />
                         <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/90 to-transparent" />
                     </div>
@@ -77,9 +80,14 @@ export default function CommercialPage() {
                                 Commercial <br />
                                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-orange to-orange-400">Junk Removal</span>
                             </h1>
-                            <p className="text-xl text-slate-300 mb-10 max-w-2xl leading-relaxed">
+                            <p className="text-xl text-slate-300 mb-8 max-w-2xl leading-relaxed">
                                 We help businesses remove junk quickly with reliable scheduling and upfront pricing. Ideal for property managers, contractors, offices, and retail.
                             </p>
+                            <div className="flex flex-wrap gap-x-6 gap-y-2 mb-10 text-sm font-bold text-slate-300 uppercase tracking-wider">
+                                <span className="flex items-center gap-2"><ShieldCheck className="w-4 h-4 text-brand-orange" /> Fully Insured & Bonded</span>
+                                <span className="flex items-center gap-2"><Receipt className="w-4 h-4 text-brand-orange" /> COI Available on Request</span>
+                                <span className="flex items-center gap-2"><Clock className="w-4 h-4 text-brand-orange" /> Net-30 Terms</span>
+                            </div>
                             <div className="flex flex-col sm:flex-row gap-6">
                                 <Link
                                     href="/get-started"

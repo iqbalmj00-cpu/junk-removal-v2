@@ -1,5 +1,6 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
+import Image from 'next/image';
 import { notFound } from 'next/navigation';
 import { locations, getLocationBySlug } from '@/lib/locationData';
 import { MapPin, Phone, Star, ChevronDown, ChevronUp, ArrowRight, Truck, Shield, Clock, Recycle } from 'lucide-react';
@@ -59,10 +60,13 @@ export default async function LocationPage({ params }: { params: Promise<{ slug:
                 {/* Hero Section */}
                 <section className="relative bg-slate-900 pt-36 pb-20 overflow-hidden">
                     {/* Location Hero Image */}
-                    <img
+                    <Image
                         src={`/images/locations/${location.slug}.png`}
                         alt={`${location.name}, Texas`}
-                        className="absolute inset-0 w-full h-full object-cover"
+                        fill
+                        className="object-cover"
+                        sizes="100vw"
+                        priority
                     />
                     {/* Dark gradient overlay for text readability */}
                     <div className="absolute inset-0 bg-gradient-to-r from-slate-900/90 via-slate-900/80 to-slate-900/50" />
@@ -95,6 +99,19 @@ export default async function LocationPage({ params }: { params: Promise<{ slug:
                                 </Link>
                             </div>
                         </div>
+                    </div>
+                </section>
+
+                {/* About - Unique Local Content */}
+                <section className="py-16 bg-slate-50 border-b border-slate-200">
+                    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <h2 className="text-2xl font-bold text-slate-900 mb-6">About Junk Removal in {location.name}</h2>
+                        <p className="text-slate-600 leading-relaxed text-lg mb-4">
+                            {location.localInfo}
+                        </p>
+                        <p className="text-slate-600 leading-relaxed text-lg">
+                            {location.disposalNote}
+                        </p>
                     </div>
                 </section>
 

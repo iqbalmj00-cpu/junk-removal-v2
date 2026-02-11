@@ -4,6 +4,7 @@ import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Search, Calendar, User, ArrowRight, ArrowLeft } from 'lucide-react';
 
 // Reusable Blog Post Card
@@ -29,10 +30,12 @@ const BlogPostCard = ({
                     {category}
                 </span>
             </div>
-            <img
+            <Image
                 src={image}
                 alt={title}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                fill
+                className="object-cover group-hover:scale-105 transition-transform duration-700"
+                sizes="(max-width: 768px) 100vw, 700px"
             />
         </div>
         <div className="p-10">
@@ -62,7 +65,7 @@ const BlogPostCard = ({
 const RecentPostItem = ({ title, date }: { title: string, date: string }) => (
     <div className="flex gap-5 group cursor-pointer items-start">
         <div className="w-24 h-24 bg-slate-200 rounded-xl shrink-0 overflow-hidden">
-            <img src={`https://placehold.co/150x150/e2e8f0/475569/png?text=Thumb`} alt="Thumbnail" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+            <Image src="https://placehold.co/150x150/e2e8f0/475569/png?text=Thumb" alt="Thumbnail" width={96} height={96} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
         </div>
         <div>
             <h4 className="text-lg font-bold text-slate-900 leading-snug mb-2 group-hover:text-brand-orange transition-colors">

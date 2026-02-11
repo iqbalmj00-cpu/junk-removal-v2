@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
@@ -19,15 +20,19 @@ export default function Home() {
               {/* Left Column: Text */}
               <div className="px-6 py-20 lg:py-32 lg:pr-12 relative z-10 text-center lg:text-left">
                 <div className="inline-block bg-slate-800 border border-slate-700 rounded-full px-6 py-2 mb-10">
-                  <span className="text-slate-300 text-sm font-bold tracking-wider uppercase">Available for Same-Day Pickup</span>
+                  <span className="text-slate-300 text-sm font-bold tracking-wider uppercase">#1 Rated Junk Removal in Houston</span>
                 </div>
 
-                <h1 className="text-6xl lg:text-8xl font-extrabold text-white leading-[1.1] mb-8 tracking-tight">
-                  WE MAKE JUNK <span className="text-brand-orange">DISAPPEAR</span>
+                <h1 className="text-6xl lg:text-8xl font-extrabold text-white leading-[1.1] mb-4 tracking-tight">
+                  FAST, RELIABLE <br className="hidden lg:block" />JUNK REMOVAL IN <span className="text-brand-orange">HOUSTON</span>
                 </h1>
 
-                <p className="text-xl text-slate-400 mb-14 max-w-lg mx-auto lg:mx-0 leading-relaxed font-light">
-                  Professional, full-service removal for homes and businesses. We handle the heavy lifting so you don't have to.
+                <p className="text-2xl lg:text-3xl text-slate-300 font-bold mb-6 tracking-tight">
+                  We make junk disappear — guaranteed.
+                </p>
+
+                <p className="text-lg text-slate-400 mb-14 max-w-lg mx-auto lg:mx-0 leading-relaxed font-light">
+                  Professional, full-service removal for homes and businesses. We handle the heavy lifting so you don&apos;t have to.
                 </p>
 
                 <div className="flex flex-col sm:flex-row gap-6 mb-10 justify-center lg:justify-start">
@@ -53,10 +58,13 @@ export default function Home() {
 
               {/* Right Column: Image */}
               <div className="w-full flex items-center justify-center py-8 lg:py-0 lg:pr-8">
-                <img
+                <Image
                   src="/images/hero-truck.png"
                   alt="CleanSweep Team and Truck"
+                  width={600}
+                  height={700}
                   className="w-full max-w-md lg:max-w-lg h-[500px] lg:h-[600px] object-cover rounded-2xl shadow-2xl"
+                  priority
                 />
               </div>
             </div>

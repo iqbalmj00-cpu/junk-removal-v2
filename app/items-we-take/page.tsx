@@ -1,6 +1,6 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
-import { Phone, MessageSquare, Recycle } from 'lucide-react';
+import { Phone, MessageSquare, Recycle, ArrowRight } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 
@@ -13,46 +13,55 @@ const categories = [
     {
         icon: 'chair',
         title: 'Furniture',
+        slug: 'furniture-removal',
         items: ['Sofas & Loveseats', 'Dining Tables & Chairs', 'Dressers & Wardrobes', 'Bookshelves', 'Office Desks'],
     },
     {
         icon: 'kitchen',
         title: 'Appliances',
+        slug: 'appliance-recycling',
         items: ['Refrigerators & Freezers', 'Washers & Dryers', 'Stoves & Ovens', 'Dishwashers', 'Microwaves'],
     },
     {
         icon: 'park',
         title: 'Yard Debris',
+        slug: 'yard-waste',
         items: ['Branches & Clippings', 'Landscaping Trimmings', 'Fencing Material', 'Soil & Sod (Bagged)', 'Storm Debris'],
     },
     {
         icon: 'bed',
         title: 'Mattresses',
+        slug: 'furniture-removal',
         items: ['Mattresses (All Sizes)', 'Box Springs', 'Bed Frames', 'Futons', 'Headboards'],
     },
     {
         icon: 'computer',
         title: 'E-Waste',
+        slug: 'e-waste-disposal',
         items: ['Computers & Laptops', 'Monitors & TVs', 'Printers & Scanners', 'Stereos & Speakers', 'Cables & Peripherals'],
     },
     {
         icon: 'construction',
         title: 'Construction Debris',
+        slug: 'construction-debris',
         items: ['Drywall & Plaster', 'Wood Scraps & Lumber', 'Tiling & Ceramics', 'Windows & Glass', 'Roofing Materials'],
     },
     {
         icon: 'inventory_2',
         title: 'Cardboard & Paper',
+        slug: 'cleanouts',
         items: ['Moving Boxes', 'Shipping Cartons', 'Old Files & Documents', 'Newspapers & Magazines', 'Packaging Material'],
     },
     {
         icon: 'garage',
         title: 'Garage & Attic',
+        slug: 'cleanouts',
         items: ['Old Tools', 'Sports Equipment', 'Bicycles', 'Holiday Decorations', 'General Household Junk'],
     },
     {
         icon: 'cleaning_services',
         title: 'Full Cleanouts',
+        slug: 'cleanouts',
         items: ['Estate Cleanouts', 'Foreclosure Cleanouts', 'Storage Unit Cleanouts', 'Office Cleanouts', 'Basement Cleanouts'],
     },
 ];
@@ -110,6 +119,12 @@ export default function ItemsWeTakePage() {
                                             </li>
                                         ))}
                                     </ul>
+                                    <Link
+                                        href={`/services/${cat.slug}`}
+                                        className="inline-flex items-center gap-1 mt-4 text-sm font-bold text-brand-orange hover:text-orange-600 transition-colors"
+                                    >
+                                        View Details <ArrowRight className="w-4 h-4" />
+                                    </Link>
                                 </div>
                             </div>
                         ))}

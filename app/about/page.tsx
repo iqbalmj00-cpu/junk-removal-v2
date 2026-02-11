@@ -2,6 +2,7 @@ import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Briefcase, Recycle, Tag, Cog, ArrowRight, Settings } from 'lucide-react';
 
 export default function AboutPage() {
@@ -63,10 +64,12 @@ export default function AboutPage() {
                                     </p>
                                 </div>
                                 <div className="h-full min-h-[500px] bg-slate-100 relative">
-                                    <img
+                                    <Image
                                         src="/images/worker-trust.jpg"
                                         alt="Smiling junk removal professional"
-                                        className="w-full h-full object-cover"
+                                        fill
+                                        className="object-cover"
+                                        sizes="(max-width: 768px) 100vw, 50vw"
                                     />
                                     {/* Overlay */}
                                     <div className="absolute inset-0 bg-gradient-to-r from-white/10 to-transparent"></div>
@@ -129,9 +132,11 @@ export default function AboutPage() {
                             {/* Profile 1 */}
                             <div className="group">
                                 <div className="aspect-square bg-slate-100 rounded-2xl overflow-hidden mb-6 relative">
-                                    <img
+                                    <Image
                                         src="/images/staff-mike.jpg"
                                         alt="Mike Ross - Operations Lead"
+                                        width={400}
+                                        height={400}
                                         className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                                     />
                                 </div>
@@ -142,9 +147,11 @@ export default function AboutPage() {
                             {/* Profile 2 */}
                             <div className="group">
                                 <div className="aspect-square bg-slate-100 rounded-2xl overflow-hidden mb-6 relative">
-                                    <img
+                                    <Image
                                         src="/images/staff-sarah.jpg"
                                         alt="Sarah Jenkins - Logistics Manager"
+                                        width={400}
+                                        height={400}
                                         className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                                     />
                                 </div>
@@ -155,9 +162,11 @@ export default function AboutPage() {
                             {/* Profile 3 */}
                             <div className="group">
                                 <div className="aspect-square bg-slate-100 rounded-2xl overflow-hidden mb-6 relative">
-                                    <img
+                                    <Image
                                         src="/images/staff-david.jpg"
                                         alt="David Chen - Senior Hauler"
+                                        width={400}
+                                        height={400}
                                         className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                                     />
                                 </div>
@@ -168,9 +177,11 @@ export default function AboutPage() {
                             {/* Profile 4 */}
                             <div className="group">
                                 <div className="aspect-square bg-slate-100 rounded-2xl overflow-hidden mb-6 relative">
-                                    <img
+                                    <Image
                                         src="/images/staff-marcus.jpg"
                                         alt="Marcus Johnson - Fleet Supervisor"
+                                        width={400}
+                                        height={400}
                                         className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-500"
                                     />
                                 </div>

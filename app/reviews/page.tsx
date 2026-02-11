@@ -1,5 +1,6 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Star, CheckCircle, ThumbsUp, Phone, Camera } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
@@ -154,8 +155,7 @@ export default function ReviewsPage() {
                                     </blockquote>
                                     <div className="flex items-center border-t border-slate-100 pt-4 mt-auto">
                                         {review.hasImage ? (
-                                            /* eslint-disable-next-line @next/next/no-img-element */
-                                            <img className="w-10 h-10 rounded-full object-cover ring-2 ring-brand-orange/20 mr-3" src={review.imageUrl} alt={review.name} />
+                                            <Image className="w-10 h-10 rounded-full object-cover ring-2 ring-brand-orange/20 mr-3" src={review.imageUrl!} alt={review.name} width={40} height={40} />
                                         ) : (
                                             <div className="w-10 h-10 rounded-full bg-brand-orange/10 flex items-center justify-center text-brand-orange font-bold text-sm mr-3">
                                                 {review.initials}
@@ -184,13 +184,11 @@ export default function ReviewsPage() {
                                 <div key={idx} className="group">
                                     <div className="relative h-64 sm:h-80 rounded-xl overflow-hidden shadow-md flex">
                                         <div className="w-1/2 relative border-r-2 border-white">
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img className="absolute inset-0 w-full h-full object-cover" src={item.before} alt={item.beforeAlt} />
+                                            <Image className="absolute inset-0 w-full h-full object-cover" src={item.before} alt={item.beforeAlt} fill sizes="(max-width: 768px) 50vw, 400px" />
                                             <div className="absolute top-4 left-4 bg-slate-900/80 text-white text-xs font-bold px-3 py-1 rounded backdrop-blur-sm">BEFORE</div>
                                         </div>
                                         <div className="w-1/2 relative">
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img className="absolute inset-0 w-full h-full object-cover" src={item.after} alt={item.afterAlt} />
+                                            <Image className="absolute inset-0 w-full h-full object-cover" src={item.after} alt={item.afterAlt} fill sizes="(max-width: 768px) 50vw, 400px" />
                                             <div className="absolute top-4 right-4 bg-brand-orange text-white text-xs font-bold px-3 py-1 rounded shadow-sm">AFTER</div>
                                         </div>
                                     </div>
