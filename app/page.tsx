@@ -52,11 +52,11 @@ export default function Home() {
               </div>
 
               {/* Right Column: Image */}
-              <div className="w-full flex items-center justify-center py-8 lg:py-0">
+              <div className="w-full flex items-center justify-center py-8 lg:py-0 lg:pr-8">
                 <img
-                  src="/images/hero-truck.jpg"
+                  src="/images/hero-truck.png"
                   alt="CleanSweep Team and Truck"
-                  className="w-full h-auto rounded-2xl shadow-2xl"
+                  className="w-full max-w-md lg:max-w-lg h-[500px] lg:h-[600px] object-cover rounded-2xl shadow-2xl"
                 />
               </div>
             </div>
