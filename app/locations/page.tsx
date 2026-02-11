@@ -118,14 +118,15 @@ export default function LocationsPage() {
                                     ))}
                                 </ul>
                             </div>
-                            <div className="lg:w-2/3 h-80 lg:h-auto relative bg-slate-200">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                    alt="Map graphic showing the Houston metropolitan area service zones"
-                                    className="w-full h-full object-cover opacity-90"
-                                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuANrx6hHwnA_skggVpzO0GTR-01fCvxMR56y_S41reXITvE8SUnFp1AdyqiKcDOwAV0-XXLbUO6vn9SS9Ms4CtL_IPrL7EqsFtofhC6LvxA_vqxfKucT043CVpvG_m0ccN0PUbfNXwXQ-piYrBPsQFLMbPIRnRDvw8F0CpopZPAEbEqSk5POPYYCpbyrqd4sL9xMQQth6_Xnk5jdA1PZYMkPN1uIDpkm0LtpvW9r5WCjaTEWLnmvN3QZujAodZVZCvk9mFxyDAOkAs"
+                            <div className="lg:w-2/3 h-80 lg:h-auto relative bg-slate-200 min-h-[400px]">
+                                <iframe
+                                    title="Clean Sweep Houston Coverage Map"
+                                    src="https://www.google.com/maps/embed?pb=!1m14!1m12!1m3!1d443088.839889!2d-95.5!3d29.76!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!5e0!3m2!1sen!2sus!4v1707600000000!5m2!1sen!2sus"
+                                    className="w-full h-full absolute inset-0 border-0"
+                                    allowFullScreen
+                                    loading="lazy"
+                                    referrerPolicy="no-referrer-when-downgrade"
                                 />
-                                <div className="absolute inset-0 bg-brand-orange/10 mix-blend-multiply" />
                             </div>
                         </div>
                     </div>
@@ -158,6 +159,6 @@ export default function LocationsPage() {
                 </section>
             </main>
             <Footer />
-        </div>
+        </div >
     );
 }

@@ -138,13 +138,17 @@ export default function ServicesPage() {
 
                         <div className="flex flex-col sm:flex-row gap-6 justify-center">
                             {/* Task 1: High Visibility White Button -> Orange High Contrast */}
-                            <Button className="bg-brand-orange text-white hover:bg-orange-600 text-lg font-bold px-10 py-5 rounded-full shadow-xl transition-all h-auto">
-                                <MapPin size={22} className="mr-3" /> VIEW COVERAGE AREA
-                            </Button>
+                            <Link href="/locations">
+                                <Button className="bg-brand-orange text-white hover:bg-orange-600 text-lg font-bold px-10 py-5 rounded-full shadow-xl transition-all h-auto">
+                                    <MapPin size={22} className="mr-3" /> VIEW COVERAGE AREA
+                                </Button>
+                            </Link>
 
-                            <Button variant="outline" className="text-white border-2 border-slate-600 hover:bg-white hover:text-slate-900 hover:border-white text-lg font-bold px-10 py-5 rounded-full h-auto transition-all">
-                                <Building2 size={22} className="mr-3" /> BUSINESS SOLUTIONS
-                            </Button>
+                            <Link href="/commercial">
+                                <Button variant="outline" className="text-white border-2 border-slate-600 hover:bg-white hover:text-slate-900 hover:border-white text-lg font-bold px-10 py-5 rounded-full h-auto transition-all">
+                                    <Building2 size={22} className="mr-3" /> BUSINESS SOLUTIONS
+                                </Button>
+                            </Link>
                         </div>
                     </div>
                 </section>
