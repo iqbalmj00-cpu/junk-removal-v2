@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Furniture Removal - CleanSweep</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet"/>
+<script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#ea580c", // Orange-600 used as primary based on image
+              "primary-hover": "#c2410c", // Orange-700
+              "background-light": "#f8fafc", // Slate-50
+              "background-dark": "#0f172a", // Slate-900
+              "surface-light": "#ffffff",
+              "surface-dark": "#1e293b", // Slate-800
+              "text-light": "#0f172a", // Slate-900
+              "text-dark": "#f1f5f9", // Slate-100
+              "secondary-text-light": "#475569", // Slate-600
+              "secondary-text-dark": "#94a3b8", // Slate-400
+            },
+            fontFamily: {
+              sans: ["Inter", "sans-serif"],
+            },
+            borderRadius: {
+              DEFAULT: "0.5rem",
+              'xl': "0.75rem",
+              '2xl': "1rem",
+            },
+          },
+        },
+      };
+    </script>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-text-light dark:text-text-dark font-sans antialiased selection:bg-primary selection:text-white transition-colors duration-200">
+<nav class="bg-background-dark text-white py-4 px-6 md:px-12 flex items-center justify-between border-b border-white/10 sticky top-0 z-50">
+<div class="flex items-center gap-2">
+<span class="text-primary font-black text-2xl tracking-tighter">CLEAN</span><span class="font-bold text-2xl tracking-tighter -ml-2">SWEEP</span>
+</div>
+<div class="hidden md:flex items-center gap-8 text-sm font-medium text-gray-300">
+<a class="hover:text-primary transition-colors" href="#">Home</a>
+<a class="text-white border-b-2 border-primary pb-1" href="#">Services</a>
+<div class="relative group cursor-pointer">
+<span class="flex items-center gap-1 hover:text-primary transition-colors">Locations <span class="material-symbols-outlined text-sm">expand_more</span></span>
+</div>
+<a class="hover:text-primary transition-colors" href="#">How It Works</a>
+<a class="hover:text-primary transition-colors" href="#">Reviews</a>
+<a class="hover:text-primary transition-colors" href="#">About Us</a>
+<a class="hover:text-primary transition-colors" href="#">Contact</a>
+</div>
+<button class="bg-primary hover:bg-primary-hover text-white px-5 py-2.5 rounded-lg font-semibold text-sm transition-all flex items-center gap-2 shadow-lg shadow-orange-500/20">
+<span class="material-symbols-outlined text-lg">calendar_month</span>
+            Book Now
+        </button>
+</nav>
+<header class="bg-background-dark relative overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-br from-blue-900/20 to-transparent pointer-events-none"></div>
+<div class="max-w-7xl mx-auto px-6 md:px-12 py-16 md:py-24 grid lg:grid-cols-2 gap-12 items-center relative z-10">
+<div class="space-y-6">
+<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/10 text-xs font-medium text-primary uppercase tracking-wide">
+<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    Available for same-day pickup
+                </div>
+<h1 class="text-4xl md:text-6xl font-extrabold text-white leading-tight tracking-tight">
+                    FURNITURE <br/>
+<span class="text-primary">REMOVAL</span> &amp; DONATION
+                </h1>
+<p class="text-lg text-gray-300 max-w-xl leading-relaxed">
+                    Don't break your back trying to move that old couch. We handle the heavy lifting for sofa removal, mattress disposal, and full estate cleanouts.
+                </p>
+<div class="flex flex-col sm:flex-row gap-4 pt-4">
+<button class="bg-primary hover:bg-primary-hover text-white px-8 py-4 rounded-lg font-bold text-lg transition-all shadow-xl shadow-orange-500/20 flex items-center justify-center gap-2 group">
+                        Get a Furniture Quote
+                        <span class="material-symbols-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</button>
+<button class="bg-transparent border border-gray-500 hover:border-white text-white px-8 py-4 rounded-lg font-bold text-lg transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">call</span>
+                        (832) 793-6566
+                    </button>
+</div>
+<div class="flex gap-6 text-xs text-gray-400 font-medium pt-2">
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-primary text-sm">check</span> Upfront Pricing</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-primary text-sm">check</span> Fully Insured</span>
+<span class="flex items-center gap-1"><span class="material-symbols-outlined text-primary text-sm">check</span> Donation Receipts Provided</span>
+</div>
+</div>
+<div class="relative">
+<div class="absolute -inset-4 bg-primary/20 rounded-3xl blur-2xl"></div>
+<img alt="CleanSweep team loading a sofa into a truck" class="relative rounded-2xl shadow-2xl border-4 border-white/10 w-full object-cover aspect-[4/3] transform hover:scale-[1.01] transition-transform duration-500" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC-PNnWEGKa3n6hufD7DkWviNwAzz9bqvSVApT-DsrxF_jdCnSbp0pS8SrDbje2MO5_vsR9KBaDyLttjJtpU12CYmFy5avpdm5zZOWTOL12rzNq7DrtcAIJp-2HqrTukbrQ5803im2b-PyNrRAwDQE7fNOqmzX1wr2aAgb3zQAmuVdFlx5Q1isEONzWTelBTaZUFDLMrpBjeZqcTJAghA1vYBV9G-8vxfpJ9n3QQv4k-HGY53ZSwv8RiqJMeHCpe8x3brnpKNX_24k"/>
+<div class="absolute -bottom-6 -left-6 bg-surface-light dark:bg-surface-dark p-4 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 flex items-center gap-4 max-w-xs hidden md:flex">
+<div class="w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center text-green-600 dark:text-green-400">
+<span class="material-symbols-outlined">recycling</span>
+</div>
+<div>
+<p class="font-bold text-sm text-text-light dark:text-text-dark">Eco-Friendly Disposal</p>
+<p class="text-xs text-secondary-text-light dark:text-secondary-text-dark">We donate &amp; recycle first.</p>
+</div>
+</div>
+</div>
+</div>
+</header>
+<section class="py-20 px-6 md:px-12 max-w-7xl mx-auto">
+<div class="text-center max-w-3xl mx-auto mb-16">
+<h2 class="text-3xl md:text-4xl font-bold mb-4 text-text-light dark:text-text-dark">Furniture We Remove</h2>
+<p class="text-secondary-text-light dark:text-secondary-text-dark text-lg">Whether it's a single recliner or a whole house of furniture, our team is ready to help.</p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+<div class="group bg-surface-light dark:bg-surface-dark border border-gray-100 dark:border-gray-700 rounded-2xl p-8 hover:shadow-xl hover:shadow-gray-200/50 dark:hover:shadow-black/30 transition-all duration-300">
+<div class="w-14 h-14 rounded-xl bg-orange-50 dark:bg-orange-900/20 text-primary flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-3xl">chair</span>
+</div>
+<h3 class="text-xl font-bold mb-2 text-text-light dark:text-text-dark">Sofas &amp; Sectionals</h3>
+<p class="text-secondary-text-light dark:text-secondary-text-dark text-sm leading-relaxed">
+                    Large sectionals, sleeper sofas, loveseats, and heavy couches. We disassemble if needed.
+                </p>
+</div>
+<div class="group bg-surface-light dark:bg-surface-dark border border-gray-100 dark:border-gray-700 rounded-2xl p-8 hover:shadow-xl hover:shadow-gray-200/50 dark:hover:shadow-black/30 transition-all duration-300">
+<div class="w-14 h-14 rounded-xl bg-orange-50 dark:bg-orange-900/20 text-primary flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-3xl">bed</span>
+</div>
+<h3 class="text-xl font-bold mb-2 text-text-light dark:text-text-dark">Mattresses &amp; Beds</h3>
+<p class="text-secondary-text-light dark:text-secondary-text-dark text-sm leading-relaxed">
+                    King, Queen, Twin mattresses, box springs, bed frames, and headboards.
+                </p>
+</div>
+<div class="group bg-surface-light dark:bg-surface-dark border border-gray-100 dark:border-gray-700 rounded-2xl p-8 hover:shadow-xl hover:shadow-gray-200/50 dark:hover:shadow-black/30 transition-all duration-300">
+<div class="w-14 h-14 rounded-xl bg-orange-50 dark:bg-orange-900/20 text-primary flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-3xl">table_restaurant</span>
+</div>
+<h3 class="text-xl font-bold mb-2 text-text-light dark:text-text-dark">Tables &amp; Dining Sets</h3>
+<p class="text-secondary-text-light dark:text-secondary-text-dark text-sm leading-relaxed">
+                    Dining tables, coffee tables, end tables, and heavy oak or glass furniture.
+                </p>
+</div>
+<div class="group bg-surface-light dark:bg-surface-dark border border-gray-100 dark:border-gray-700 rounded-2xl p-8 hover:shadow-xl hover:shadow-gray-200/50 dark:hover:shadow-black/30 transition-all duration-300">
+<div class="w-14 h-14 rounded-xl bg-orange-50 dark:bg-orange-900/20 text-primary flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-3xl">desk</span>
+</div>
+<h3 class="text-xl font-bold mb-2 text-text-light dark:text-text-dark">Desks &amp; Office</h3>
+<p class="text-secondary-text-light dark:text-secondary-text-dark text-sm leading-relaxed">
+                    Heavy wooden desks, filing cabinets, office chairs, and cubicle partitions.
+                </p>
+</div>
+<div class="group bg-surface-light dark:bg-surface-dark border border-gray-100 dark:border-gray-700 rounded-2xl p-8 hover:shadow-xl hover:shadow-gray-200/50 dark:hover:shadow-black/30 transition-all duration-300">
+<div class="w-14 h-14 rounded-xl bg-orange-50 dark:bg-orange-900/20 text-primary flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-3xl">shelves</span>
+</div>
+<h3 class="text-xl font-bold mb-2 text-text-light dark:text-text-dark">Bookcases &amp; Dressers</h3>
+<p class="text-secondary-text-light dark:text-secondary-text-dark text-sm leading-relaxed">
+                    Wardrobes, armoires, tall bookcases, chest of drawers, and vanity units.
+                </p>
+</div>
+<div class="group bg-surface-light dark:bg-surface-dark border border-gray-100 dark:border-gray-700 rounded-2xl p-8 hover:shadow-xl hover:shadow-gray-200/50 dark:hover:shadow-black/30 transition-all duration-300">
+<div class="w-14 h-14 rounded-xl bg-orange-50 dark:bg-orange-900/20 text-primary flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-3xl">deck</span>
+</div>
+<h3 class="text-xl font-bold mb-2 text-text-light dark:text-text-dark">Patio Furniture</h3>
+<p class="text-secondary-text-light dark:text-secondary-text-dark text-sm leading-relaxed">
+                    Outdoor lounge sets, rusty metal chairs, heavy grills, and patio tables.
+                </p>
+</div>
+</div>
+</section>
+<section class="bg-gray-50 dark:bg-surface-dark/50 py-20 px-6 md:px-12 border-y border-gray-200 dark:border-gray-800">
+<div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center gap-12">
+<div class="w-full md:w-1/2">
+<div class="relative">
+<div class="absolute -top-4 -left-4 w-24 h-24 bg-primary/20 rounded-full blur-xl"></div>
+<img alt="Donating furniture to charity" class="relative rounded-2xl shadow-xl w-full object-cover h-[400px]" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCJI4D3fji_t72UYzuNzRp5yXd0RRM_JHZkPD_NJ92d8ZnAp7C7W6xNLbaVSsO6M7RUAkvawASxxZXvb-aYDxOcVS5fJzpe_ULeAibUZxnX9Y_Z77aQ2ET-a6asiR74kE-yVJ_AocXfuOE-RA0HLg__1vp7uNP34xADBOAyDEOP1enj1jeuwa4BBec0SGZ5SoGJugvvM1FEOX2JXR7IOtnJPoon1MXIoH77RPt58CtM4bAZQQPJQKaj5X0pbJ5Ke0_CNbeC8fTmu1g"/>
+<div class="absolute bottom-6 right-6 bg-white dark:bg-surface-dark p-4 rounded-lg shadow-lg max-w-[200px]">
+<p class="text-primary font-bold text-lg mb-1">Tax Deductible</p>
+<p class="text-xs text-secondary-text-light dark:text-secondary-text-dark">We provide donation receipts for all eligible items.</p>
+</div>
+</div>
+</div>
+<div class="w-full md:w-1/2 space-y-6">
+<div class="inline-block text-primary font-bold tracking-wider text-sm uppercase">Community Focused</div>
+<h2 class="text-3xl md:text-4xl font-bold text-text-light dark:text-text-dark">The "Donation First" Approach</h2>
+<p class="text-secondary-text-light dark:text-secondary-text-dark text-lg leading-relaxed">
+                    We hate landfills as much as you do. That's why CleanSweep prioritizes donating your usable furniture to local charities like Habitat for Humanity, Goodwill, and local shelters.
+                </p>
+<ul class="space-y-4 pt-4">
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-green-500 mt-1">volunteer_activism</span>
+<div>
+<h4 class="font-bold text-text-light dark:text-text-dark">Supporting Local Families</h4>
+<p class="text-sm text-secondary-text-light dark:text-secondary-text-dark">Your old sofa could be a fresh start for a family in need.</p>
+</div>
+</li>
+<li class="flex items-start gap-3">
+<span class="material-symbols-outlined text-green-500 mt-1">forest</span>
+<div>
+<h4 class="font-bold text-text-light dark:text-text-dark">Environmental Impact</h4>
+<p class="text-sm text-secondary-text-light dark:text-secondary-text-dark">Keeping bulky items out of the landfill reduces waste significantly.</p>
+</div>
+</li>
+</ul>
+<div class="pt-4">
+<a class="text-primary font-bold flex items-center gap-2 hover:gap-3 transition-all" href="#">
+                        Learn more about our charity partners <span class="material-symbols-outlined text-sm">arrow_forward</span>
+</a>
+</div>
+</div>
+</div>
+</section>
+<section class="py-20 px-6 md:px-12 max-w-7xl mx-auto">
+<div class="text-center mb-16">
+<h2 class="text-3xl font-bold text-text-light dark:text-text-dark">Simple 3-Step Process</h2>
+<p class="text-secondary-text-light dark:text-secondary-text-dark mt-2">No stress, no mess. Here is how we get the job done efficiently.</p>
+</div>
+<div class="grid md:grid-cols-3 gap-12 text-center relative">
+<div class="hidden md:block absolute top-12 left-[16%] right-[16%] h-0.5 bg-gradient-to-r from-transparent via-gray-300 dark:via-gray-700 to-transparent -z-10"></div>
+<div class="flex flex-col items-center">
+<div class="w-24 h-24 bg-orange-50 dark:bg-orange-900/20 rounded-2xl flex items-center justify-center text-primary mb-6 shadow-sm">
+<span class="material-symbols-outlined text-4xl">calendar_clock</span>
+</div>
+<h3 class="text-xl font-bold mb-3 text-text-light dark:text-text-dark">1. Book Online</h3>
+<p class="text-secondary-text-light dark:text-secondary-text-dark text-sm max-w-xs mx-auto">
+                    Schedule a no-obligation onsite estimate in seconds via our website or phone.
+                </p>
+</div>
+<div class="flex flex-col items-center">
+<div class="w-24 h-24 bg-orange-50 dark:bg-orange-900/20 rounded-2xl flex items-center justify-center text-primary mb-6 shadow-sm">
+<span class="material-symbols-outlined text-4xl">local_shipping</span>
+</div>
+<h3 class="text-xl font-bold mb-3 text-text-light dark:text-text-dark">2. We Load It</h3>
+<p class="text-secondary-text-light dark:text-secondary-text-dark text-sm max-w-xs mx-auto">
+                    Our friendly, uniformed team arrives and does all the heavy lifting from anywhere in your home.
+                </p>
+</div>
+<div class="flex flex-col items-center">
+<div class="w-24 h-24 bg-orange-50 dark:bg-orange-900/20 rounded-2xl flex items-center justify-center text-primary mb-6 shadow-sm">
+<span class="material-symbols-outlined text-4xl">auto_awesome</span>
+</div>
+<h3 class="text-xl font-bold mb-3 text-text-light dark:text-text-dark">3. It's Gone!</h3>
+<p class="text-secondary-text-light dark:text-secondary-text-dark text-sm max-w-xs mx-auto">
+                    We haul it away to be responsibly disposed of, donated, or recycled.
+                </p>
+</div>
+</div>
+</section>
+<section class="bg-background-dark py-20 px-6 md:px-12 text-center">
+<h2 class="text-3xl font-bold text-white mb-12">WHAT OUR NEIGHBORS SAY</h2>
+<div class="max-w-7xl mx-auto grid md:grid-cols-3 gap-6">
+<div class="bg-surface-dark border border-gray-700 p-8 rounded-xl text-left hover:border-gray-600 transition-colors">
+<div class="flex gap-1 text-primary mb-4">
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+</div>
+<p class="text-gray-300 italic mb-6 text-sm leading-relaxed">
+                    "They removed a massive sectional from my 3rd-floor apartment without scratching a single wall. The price was exactly what they quoted upfront."
+                </p>
+<div>
+<p class="text-white font-bold text-sm">Marcus Johnson</p>
+<p class="text-gray-500 text-xs">Apartment Resident</p>
+</div>
+</div>
+<div class="bg-surface-dark border border-gray-700 p-8 rounded-xl text-left hover:border-gray-600 transition-colors">
+<div class="flex gap-1 text-primary mb-4">
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+</div>
+<p class="text-gray-300 italic mb-6 text-sm leading-relaxed">
+                    "I love that they donate! knowing my grandma's old dining set went to a shelter instead of a dump made the whole process feel so much better."
+                </p>
+<div>
+<p class="text-white font-bold text-sm">Sarah P.</p>
+<p class="text-gray-500 text-xs">Homeowner</p>
+</div>
+</div>
+<div class="bg-surface-dark border border-gray-700 p-8 rounded-xl text-left hover:border-gray-600 transition-colors">
+<div class="flex gap-1 text-primary mb-4">
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+<span class="material-symbols-outlined fill-current text-sm">star</span>
+</div>
+<p class="text-gray-300 italic mb-6 text-sm leading-relaxed">
+                    "Fast, efficient, and polite. Called them at 9am and the old mattresses were gone by noon. Highly recommend CleanSweep."
+                </p>
+<div>
+<p class="text-white font-bold text-sm">David Chen</p>
+<p class="text-gray-500 text-xs">Small Business Owner</p>
+</div>
+</div>
+</div>
+</section>
+<section class="bg-primary py-16 px-6 text-center">
+<div class="max-w-4xl mx-auto">
+<h2 class="text-3xl md:text-4xl font-extrabold text-white mb-6">Ready to Reclaim Your Space?</h2>
+<p class="text-white/90 text-lg mb-8 max-w-2xl mx-auto">Get a free estimate today. Same-day service available in most areas.</p>
+<div class="flex flex-col sm:flex-row justify-center gap-4">
+<button class="bg-white text-primary hover:bg-gray-100 px-8 py-4 rounded-lg font-bold text-lg shadow-lg transition-colors">
+                    Book Online Now
+                </button>
+<button class="bg-transparent border-2 border-white text-white hover:bg-white/10 px-8 py-4 rounded-lg font-bold text-lg transition-colors">
+                    Call (832) 793-6566
+                </button>
+</div>
+</div>
+</section>
+<footer class="bg-background-dark text-gray-400 py-16 px-6 md:px-12 border-t border-gray-800">
+<div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-12">
+<div class="col-span-1 md:col-span-1">
+<div class="flex items-center gap-2 mb-6">
+<span class="text-primary font-black text-2xl tracking-tighter">CLEAN</span><span class="font-bold text-2xl tracking-tighter -ml-2 text-white">SWEEP</span>
+</div>
+<p class="text-sm leading-relaxed mb-6">
+                    Professional residential removal services. We clean up your community, one haul at a time. Establish 2024.
+                </p>
+<div class="flex gap-4">
+<a class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center hover:bg-primary hover:text-white transition-colors" href="#">
+<span class="text-xs font-bold">FB</span>
+</a>
+<a class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center hover:bg-primary hover:text-white transition-colors" href="#">
+<span class="text-xs font-bold">IG</span>
+</a>
+<a class="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center hover:bg-primary hover:text-white transition-colors" href="#">
+<span class="text-xs font-bold">TW</span>
+</a>
+</div>
+</div>
+<div>
+<h4 class="text-primary font-bold mb-6 text-sm uppercase tracking-wider">Quick Links</h4>
+<ul class="space-y-3 text-sm">
+<li><a class="hover:text-white transition-colors" href="#">Home</a></li>
+<li><a class="hover:text-white transition-colors" href="#">Book Online</a></li>
+<li><a class="hover:text-white transition-colors" href="#">Our Services</a></li>
+<li><a class="hover:text-white transition-colors" href="#">Commercial</a></li>
+<li><a class="hover:text-white transition-colors" href="#">Locations</a></li>
+</ul>
+</div>
+<div>
+<h4 class="text-primary font-bold mb-6 text-sm uppercase tracking-wider">Support</h4>
+<ul class="space-y-3 text-sm">
+<li><a class="hover:text-white transition-colors" href="#">Reviews</a></li>
+<li><a class="hover:text-white transition-colors" href="#">FAQ</a></li>
+<li><a class="hover:text-white transition-colors" href="#">Contact Support</a></li>
+<li><a class="hover:text-white transition-colors" href="#">Legal &amp; Policies</a></li>
+</ul>
+</div>
+<div>
+<h4 class="text-primary font-bold mb-6 text-sm uppercase tracking-wider">Service Area</h4>
+<p class="text-sm mb-4">Greater Community Area</p>
+<p class="text-sm mb-6">Mon - Sat: 7am - 7pm</p>
+<p class="text-white font-bold text-lg">(832) 793-6566</p>
+</div>
+</div>
+<div class="max-w-7xl mx-auto mt-16 pt-8 border-t border-gray-800 text-xs text-center md:text-left flex flex-col md:flex-row justify-between items-center">
+<p>© 2024 Clean Sweep Junk Removal. All rights reserved.</p>
+<div class="flex gap-4 mt-4 md:mt-0">
+<a class="hover:text-white" href="#">Privacy Policy</a>
+<a class="hover:text-white" href="#">Terms of Service</a>
+</div>
+</div>
+</footer>
+
+</body></html>

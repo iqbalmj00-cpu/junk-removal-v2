@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Yard Waste Removal | CleanSweep</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet"/>
+<script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#ea580c", // Safety Orange from screenshot
+              secondary: "#0f172a", // Dark Navy from screenshot
+              "primary-hover": "#c2410c",
+              "background-light": "#ffffff",
+              "background-dark": "#0f172a", // Dark Navy
+              "surface-light": "#f8fafc",
+              "surface-dark": "#1e293b",
+              "card-light": "#ffffff",
+              "card-dark": "#1e293b",
+            },
+            fontFamily: {
+              display: ["Inter", "sans-serif"],
+              sans: ["Inter", "sans-serif"],
+            },
+            borderRadius: {
+              DEFAULT: "0.5rem",
+              'xl': "0.75rem",
+              '2xl': "1rem",
+            },
+          },
+        },
+      };
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-800 dark:text-slate-100 antialiased selection:bg-primary selection:text-white">
+<nav class="bg-secondary dark:bg-slate-900 border-b border-slate-700/50 sticky top-0 z-50">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="flex items-center justify-between h-20">
+<div class="flex items-center">
+<div class="flex-shrink-0">
+<span class="text-2xl font-bold tracking-tighter text-white">
+                            CLEAN<span class="text-primary">SWEEP</span>
+</span>
+</div>
+<div class="hidden md:block">
+<div class="ml-10 flex items-baseline space-x-8">
+<a class="text-gray-300 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors" href="#">Home</a>
+<a class="text-primary font-bold px-3 py-2 rounded-md text-sm transition-colors border-b-2 border-primary" href="#">Services</a>
+<a class="text-gray-300 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors" href="#">Locations</a>
+<a class="text-gray-300 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors" href="#">How It Works</a>
+<a class="text-gray-300 hover:text-white px-3 py-2 rounded-md text-sm font-medium transition-colors" href="#">Reviews</a>
+</div>
+</div>
+</div>
+<div class="hidden md:block">
+<a class="bg-primary hover:bg-primary-hover text-white px-6 py-2.5 rounded-full font-semibold text-sm transition-all shadow-lg flex items-center gap-2" href="#">
+<span class="material-icons-outlined text-sm">calendar_month</span> Book Now
+                    </a>
+</div>
+<div class="-mr-2 flex md:hidden">
+<button class="bg-slate-800 inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-white hover:bg-slate-700 focus:outline-none" type="button">
+<span class="sr-only">Open main menu</span>
+<span class="material-icons-outlined">menu</span>
+</button>
+</div>
+</div>
+</div>
+</nav>
+<div class="relative bg-secondary dark:bg-background-dark overflow-hidden">
+<div class="max-w-7xl mx-auto">
+<div class="relative z-10 pb-8 sm:pb-16 md:pb-20 lg:w-1/2 lg:pb-28 xl:pb-32 bg-secondary dark:bg-background-dark pt-10 px-4 sm:px-6 lg:px-8 flex flex-col justify-center h-full min-h-[600px]">
+<main class="mt-10 mx-auto max-w-7xl sm:mt-12 md:mt-16 lg:mt-20 xl:mt-28">
+<div class="sm:text-center lg:text-left">
+<div class="inline-flex items-center rounded-full bg-slate-700/50 px-3 py-1 text-sm font-medium text-primary ring-1 ring-inset ring-slate-600/50 mb-6">
+                            AVAILABLE FOR SAME-DAY PICKUP
+                        </div>
+<h1 class="text-4xl tracking-tight font-extrabold text-white sm:text-5xl md:text-6xl mb-6">
+<span class="block xl:inline">Yard Waste &amp;</span>
+<span class="block text-primary">Storm Debris Cleanup</span>
+</h1>
+<p class="mt-3 text-base text-gray-300 sm:mt-5 sm:text-lg sm:max-w-xl sm:mx-auto md:mt-5 md:text-xl lg:mx-0">
+                            Don't let yard trimmings and storm wreckage ruin your curb appeal. We handle the heavy lifting, hauling, and eco-friendly disposal of all your yard waste so you can enjoy your outdoor space again.
+                        </p>
+<div class="mt-8 sm:mt-10 flex flex-col sm:flex-row gap-4 sm:justify-center lg:justify-start">
+<div class="rounded-md shadow">
+<a class="w-full flex items-center justify-center px-8 py-3 border border-transparent text-base font-bold rounded-full text-white bg-primary hover:bg-primary-hover md:py-4 md:text-lg transition-all shadow-lg hover:shadow-primary/30" href="#">
+                                    Get a Yard Cleanup Quote <span class="material-icons-outlined ml-2">arrow_forward</span>
+</a>
+</div>
+<div class="rounded-md">
+<a class="w-full flex items-center justify-center px-8 py-3 border border-slate-500 text-base font-medium rounded-full text-white hover:bg-slate-800 md:py-4 md:text-lg transition-all" href="tel:8327936566">
+<span class="material-icons-outlined mr-2">call</span> (832) 793-6566
+                                </a>
+</div>
+</div>
+<div class="mt-6 flex flex-wrap gap-4 text-xs text-gray-400 sm:justify-center lg:justify-start">
+<span class="flex items-center"><span class="material-icons-outlined text-primary text-sm mr-1">check</span> Upfront Pricing</span>
+<span class="flex items-center"><span class="material-icons-outlined text-primary text-sm mr-1">check</span> Fully Insured</span>
+<span class="flex items-center"><span class="material-icons-outlined text-primary text-sm mr-1">check</span> Eco-Friendly Disposal</span>
+</div>
+</div>
+</main>
+</div>
+</div>
+<div class="lg:absolute lg:inset-y-0 lg:right-0 lg:w-1/2">
+<img alt="Professional team cleaning up yard waste and loading a truck" class="h-56 w-full object-cover sm:h-72 md:h-96 lg:w-full lg:h-full opacity-90" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDGPR69RR5d1hwgIXr6Do7n-UnjsESigbHdYAlBgAkcsZfpjyQ6uufZP344dGtmKlnrINtlOup5rGz9XFDVm0fZfCQsfqO4r9LzxylHXdQJbwf75yjmcm5pN09dy4N4npLXlWHf6FZ4jJmdJCDjZ-r6N_XagdFV8Ga_SwfkFpEYQiFla5Mh3Dk45RTV5pzSeaRqNhcDTHXC0T5A4pLRtvbw7kKL1LM2tM0G8dZaPV5731yPifCVtSnM_UkFNBZ86sJs7Lr3XVWFugw"/>
+<div class="absolute inset-0 bg-gradient-to-r from-secondary to-transparent lg:via-secondary/20 opacity-80 lg:opacity-100"></div>
+</div>
+</div>
+<section class="bg-primary/10 border-b border-primary/20 dark:bg-primary/5 dark:border-primary/10">
+<div class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+<div class="lg:grid lg:grid-cols-3 lg:gap-8 items-center">
+<div class="lg:col-span-2">
+<div class="flex items-center mb-4">
+<span class="material-icons-outlined text-primary text-4xl mr-3">thunderstorm</span>
+<h2 class="text-3xl font-extrabold text-slate-900 dark:text-white">
+                            Houston Storm Cleanup Services
+                        </h2>
+</div>
+<p class="mt-3 text-lg text-slate-600 dark:text-slate-300">
+                        Severe weather hits hard. When the storm clears, we are ready to help. We provide rapid response for fallen branches, scattered debris, and bag pickup after major weather events. Don't wait for the city schedule.
+                    </p>
+</div>
+<div class="mt-8 lg:mt-0 flex flex-col gap-3">
+<div class="flex items-start gap-3">
+<div class="flex-shrink-0 h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center">
+<span class="material-icons-outlined text-primary text-sm">forest</span>
+</div>
+<span class="text-slate-700 dark:text-slate-200 font-medium">Fallen Branch Removal</span>
+</div>
+<div class="flex items-start gap-3">
+<div class="flex-shrink-0 h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center">
+<span class="material-icons-outlined text-primary text-sm">shopping_bag</span>
+</div>
+<span class="text-slate-700 dark:text-slate-200 font-medium">Debris Bag Pickup</span>
+</div>
+<div class="flex items-start gap-3">
+<div class="flex-shrink-0 h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center">
+<span class="material-icons-outlined text-primary text-sm">fence</span>
+</div>
+<span class="text-slate-700 dark:text-slate-200 font-medium">Fence &amp; Structure Disposal</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section class="py-16 sm:py-24 bg-background-light dark:bg-background-dark">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="text-center">
+<h2 class="text-3xl font-extrabold text-slate-900 dark:text-white sm:text-4xl">
+                    SIMPLE 3-STEP PROCESS
+                </h2>
+<p class="mt-4 max-w-2xl mx-auto text-lg text-slate-500 dark:text-slate-400">
+                    No stress, no mess. Here is how we get your yard clean efficiently.
+                </p>
+</div>
+<div class="mt-16 grid grid-cols-1 gap-12 lg:grid-cols-3 lg:gap-8">
+<div class="text-center group">
+<div class="mx-auto h-24 w-24 rounded-2xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+<span class="material-icons-outlined text-primary text-5xl">calendar_today</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">Book Online</h3>
+<p class="text-slate-500 dark:text-slate-400 px-4">
+                        Schedule a no-obligation onsite estimate in seconds. Just tell us when to show up.
+                    </p>
+</div>
+<div class="text-center group">
+<div class="mx-auto h-24 w-24 rounded-2xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+<span class="material-icons-outlined text-primary text-5xl">local_shipping</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">We Load It</h3>
+<p class="text-slate-500 dark:text-slate-400 px-4">
+                        Our friendly, uniformed team arrives and does the heavy lifting, clearing branches and bags.
+                    </p>
+</div>
+<div class="text-center group">
+<div class="mx-auto h-24 w-24 rounded-2xl bg-orange-50 dark:bg-slate-800 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+<span class="material-icons-outlined text-primary text-5xl">auto_awesome</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">It's Gone!</h3>
+<p class="text-slate-500 dark:text-slate-400 px-4">
+                        We haul it away to be composted or responsibly disposed of. You enjoy your clean yard.
+                    </p>
+</div>
+</div>
+</div>
+</section>
+<section class="bg-surface-light dark:bg-surface-dark py-16 sm:py-24">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="text-center mb-16">
+<h2 class="text-3xl font-extrabold text-slate-900 dark:text-white sm:text-4xl">WHAT WE TAKE</h2>
+<a class="mt-4 inline-flex items-center text-primary font-semibold hover:text-primary-hover transition-colors" href="#">
+                    View full item list <span class="material-icons-outlined text-sm ml-1">arrow_forward</span>
+</a>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+<div class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 p-8 text-center hover:shadow-md transition-shadow">
+<div class="mx-auto h-16 w-16 rounded-full bg-orange-50 dark:bg-slate-800 flex items-center justify-center mb-6">
+<span class="material-icons-outlined text-primary text-3xl">park</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-2">Branches &amp; Limbs</h3>
+<p class="text-sm text-slate-500 dark:text-slate-400">Tree trimmings, large branches, and fallen limbs from storms.</p>
+</div>
+<div class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 p-8 text-center hover:shadow-md transition-shadow">
+<div class="mx-auto h-16 w-16 rounded-full bg-orange-50 dark:bg-slate-800 flex items-center justify-center mb-6">
+<span class="material-icons-outlined text-primary text-3xl">eco</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-2">Leaves &amp; Clippings</h3>
+<p class="text-sm text-slate-500 dark:text-slate-400">Bagged leaves, grass clippings, and hedge trimmings.</p>
+</div>
+<div class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 p-8 text-center hover:shadow-md transition-shadow">
+<div class="mx-auto h-16 w-16 rounded-full bg-orange-50 dark:bg-slate-800 flex items-center justify-center mb-6">
+<span class="material-icons-outlined text-primary text-3xl">landscape</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-2">Sod &amp; Soil</h3>
+<p class="text-sm text-slate-500 dark:text-slate-400">Old sod, dirt piles, and landscaping removal debris.</p>
+</div>
+<div class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 p-8 text-center hover:shadow-md transition-shadow">
+<div class="mx-auto h-16 w-16 rounded-full bg-orange-50 dark:bg-slate-800 flex items-center justify-center mb-6">
+<span class="material-icons-outlined text-primary text-3xl">deck</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-2">Fencing &amp; Decking</h3>
+<p class="text-sm text-slate-500 dark:text-slate-400">Old wooden fences, rotten deck boards, and posts.</p>
+</div>
+<div class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 p-8 text-center hover:shadow-md transition-shadow">
+<div class="mx-auto h-16 w-16 rounded-full bg-orange-50 dark:bg-slate-800 flex items-center justify-center mb-6">
+<span class="material-icons-outlined text-primary text-3xl">recycling</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-2">Compost Material</h3>
+<p class="text-sm text-slate-500 dark:text-slate-400">Organic garden waste suitable for composting facilities.</p>
+</div>
+<div class="bg-card-light dark:bg-card-dark rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 p-8 text-center hover:shadow-md transition-shadow">
+<div class="mx-auto h-16 w-16 rounded-full bg-orange-50 dark:bg-slate-800 flex items-center justify-center mb-6">
+<span class="material-icons-outlined text-primary text-3xl">house_siding</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-2">Sheds &amp; Structures</h3>
+<p class="text-sm text-slate-500 dark:text-slate-400">Demolition and removal of small garden sheds and play structures.</p>
+</div>
+</div>
+</div>
+</section>
+<section class="py-12 bg-white dark:bg-background-dark border-t border-slate-100 dark:border-slate-800">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="grid grid-cols-2 md:grid-cols-4 gap-8 text-center divide-x-0 md:divide-x divide-slate-100 dark:divide-slate-800">
+<div class="p-4">
+<div class="w-12 h-12 bg-secondary dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
+<span class="material-icons-outlined text-white">savings</span>
+</div>
+<h4 class="font-bold text-slate-900 dark:text-white mb-1">Upfront Pricing</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400">No hidden fees. Firm quote.</p>
+</div>
+<div class="p-4">
+<div class="w-12 h-12 bg-secondary dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
+<span class="material-icons-outlined text-white">schedule</span>
+</div>
+<h4 class="font-bold text-slate-900 dark:text-white mb-1">Fast Service</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400">Same-day/Next-day available.</p>
+</div>
+<div class="p-4">
+<div class="w-12 h-12 bg-secondary dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
+<span class="material-icons-outlined text-white">verified_user</span>
+</div>
+<h4 class="font-bold text-slate-900 dark:text-white mb-1">Fully Insured</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400">Your property is protected.</p>
+</div>
+<div class="p-4">
+<div class="w-12 h-12 bg-secondary dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
+<span class="material-icons-outlined text-white">recycling</span>
+</div>
+<h4 class="font-bold text-slate-900 dark:text-white mb-1">Eco-Friendly</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400">We recycle up to 60%.</p>
+</div>
+</div>
+</div>
+</section>
+<section class="bg-secondary dark:bg-surface-dark py-16 sm:py-24 text-white">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<h2 class="text-3xl font-extrabold text-center mb-16 uppercase tracking-wider">What Our Neighbors Say</h2>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+<div class="bg-slate-800/50 dark:bg-slate-800 p-8 rounded-lg border border-slate-700">
+<div class="flex text-primary mb-4">
+<span class="material-icons-outlined text-sm">star</span>
+<span class="material-icons-outlined text-sm">star</span>
+<span class="material-icons-outlined text-sm">star</span>
+<span class="material-icons-outlined text-sm">star</span>
+<span class="material-icons-outlined text-sm">star</span>
+</div>
+<p class="italic text-gray-300 text-sm mb-6 leading-relaxed">
+                        "After the hurricane, my backyard was a disaster zone. CleanSweep came out the next day and cleared two massive piles of branches in under an hour. Incredible service."
+                    </p>
+<div>
+<p class="font-bold text-white text-sm">Mark Thompson</p>
+<p class="text-xs text-gray-500">Homeowner</p>
+</div>
+</div>
+<div class="bg-slate-800/50 dark:bg-slate-800 p-8 rounded-lg border border-slate-700">
+<div class="flex text-primary mb-4">
+<span class="material-icons-outlined text-sm">star</span>
+<span class="material-icons-outlined text-sm">star</span>
+<span class="material-icons-outlined text-sm">star</span>
+<span class="material-icons-outlined text-sm">star</span>
+<span class="material-icons-outlined text-sm">star</span>
+</div>
+<p class="italic text-gray-300 text-sm mb-6 leading-relaxed">
+                        "I had an old wooden fence that needed to go. They dismantled it and hauled it away. The yard looks bigger and cleaner than it has in years. Highly recommend!"
+                    </p>
+<div>
+<p class="font-bold text-white text-sm">Jessica Alvez</p>
+<p class="text-xs text-gray-500">Small Business Owner</p>
+</div>
+</div>
+<div class="bg-slate-800/50 dark:bg-slate-800 p-8 rounded-lg border border-slate-700">
+<div class="flex text-primary mb-4">
+<span class="material-icons-outlined text-sm">star</span>
+<span class="material-icons-outlined text-sm">star</span>
+<span class="material-icons-outlined text-sm">star</span>
+<span class="material-icons-outlined text-sm">star</span>
+<span class="material-icons-outlined text-sm">star</span>
+</div>
+<p class="italic text-gray-300 text-sm mb-6 leading-relaxed">
+                        "Best price I found for simple bag pickup. I had about 40 bags of leaves and they took them all without complaint. Friendly crew."
+                    </p>
+<div>
+<p class="font-bold text-white text-sm">David Chen</p>
+<p class="text-xs text-gray-500">Homeowner</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<div class="bg-secondary dark:bg-slate-900 border-b border-slate-800 py-6 px-4">
+<div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+<div class="flex items-center">
+<span class="text-2xl font-bold tracking-tighter text-white mr-8">
+                    CLEAN<span class="text-primary">SWEEP</span>
+</span>
+<div class="hidden md:flex gap-6 text-sm font-medium text-gray-300">
+<a class="hover:text-white transition-colors border-b-2 border-primary pb-1" href="#">Home</a>
+<a class="hover:text-white transition-colors" href="#">Services</a>
+<a class="hover:text-white transition-colors" href="#">Locations</a>
+<a class="hover:text-white transition-colors" href="#">How It Works</a>
+<a class="hover:text-white transition-colors" href="#">Reviews</a>
+<a class="hover:text-white transition-colors" href="#">About Us</a>
+<a class="hover:text-white transition-colors" href="#">Contact</a>
+</div>
+</div>
+<a class="bg-primary hover:bg-primary-hover text-white px-6 py-2.5 rounded text-sm font-bold transition-all flex items-center gap-2" href="#">
+<span class="material-icons-outlined text-sm">calendar_month</span> Book Now
+            </a>
+</div>
+</div>
+<footer class="bg-secondary dark:bg-slate-900 pt-12 pb-8 border-t border-slate-800">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
+<div>
+<span class="text-xl font-bold tracking-tighter text-white block mb-4">
+                        CLEAN<span class="text-primary">SWEEP</span>
+</span>
+<p class="text-gray-400 text-xs leading-relaxed mb-4">
+                        Professional junk removal services. We clean up your community, one haul at a time. Establish 2024.
+                    </p>
+</div>
+<div>
+<h4 class="text-primary font-bold text-sm mb-4">Quick Links</h4>
+<ul class="space-y-2 text-xs text-gray-300">
+<li><a class="hover:text-white" href="#">Home</a></li>
+<li><a class="hover:text-white" href="#">Book Online</a></li>
+<li><a class="hover:text-white" href="#">Our Services</a></li>
+<li><a class="hover:text-white" href="#">Commercial</a></li>
+<li><a class="hover:text-white" href="#">Locations</a></li>
+<li><a class="hover:text-white" href="#">Items We Take</a></li>
+<li><a class="hover:text-white" href="#">Reviews</a></li>
+<li><a class="hover:text-white" href="#">FAQ</a></li>
+<li><a class="hover:text-white" href="#">Contact Support</a></li>
+<li><a class="hover:text-white" href="#">Legal &amp; Policies</a></li>
+</ul>
+</div>
+<div>
+<h4 class="text-primary font-bold text-sm mb-4">Service Area</h4>
+<p class="text-xs text-gray-300 mb-2">Greater Community Area</p>
+<p class="text-xs text-gray-300 mb-6">Mon - Sat: 7am - 7pm</p>
+<a class="text-white font-bold text-sm block hover:text-primary transition-colors" href="tel:8327936566">(832) 793-6566</a>
+</div>
+<div>
+</div>
+</div>
+<div class="border-t border-slate-800 mt-12 pt-8 text-center text-xs text-gray-500">
+                © 2024 Clean Sweep Junk Removal. All rights reserved.
+            </div>
+</div>
+</footer>
+
+</body></html>

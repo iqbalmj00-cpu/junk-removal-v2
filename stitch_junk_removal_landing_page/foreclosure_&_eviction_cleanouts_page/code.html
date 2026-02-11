@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Foreclosure &amp; Eviction Cleanouts</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet"/>
+<script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#EA580C", // Orange-600 tailored for the brand
+              "primary-hover": "#C2410C", // Darker orange for hover
+              "background-light": "#F8FAFC", // Slate-50
+              "background-dark": "#0F172A", // Slate-900 (Navy feel)
+              "surface-light": "#FFFFFF",
+              "surface-dark": "#1E293B", // Slate-800
+              "secondary-dark": "#111827", // Gray-900
+            },
+            fontFamily: {
+              display: ["Inter", "sans-serif"],
+              body: ["Inter", "sans-serif"],
+            },
+            borderRadius: {
+              DEFAULT: "0.5rem",
+              xl: "1rem",
+              "2xl": "1.5rem",
+            },
+          },
+        },
+      };
+    </script>
+<style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .hero-pattern {
+            background-color: #0F172A;
+            background-image: radial-gradient(#1E293B 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        .dark .hero-pattern {
+            background-color: #020617;background-image: radial-gradient(#1e293b 1px, transparent 1px);
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-800 dark:text-slate-200 transition-colors duration-200">
+<nav class="sticky top-0 z-50 w-full bg-background-dark/95 backdrop-blur border-b border-slate-700 dark:border-slate-800 text-white">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="flex justify-between h-20 items-center">
+<div class="flex-shrink-0 flex items-center gap-2">
+<span class="text-primary font-bold text-2xl tracking-tighter">CLEAN</span><span class="font-bold text-2xl tracking-tighter text-white">SWEEP</span>
+</div>
+<div class="hidden md:flex space-x-8 items-center">
+<a class="text-sm font-medium hover:text-primary transition-colors" href="#">Home</a>
+<a class="text-sm font-medium hover:text-primary transition-colors" href="#">Services</a>
+<a class="text-sm font-medium hover:text-primary transition-colors" href="#">Commercial</a>
+<a class="text-sm font-medium hover:text-primary transition-colors" href="#">Pricing</a>
+<button class="bg-primary hover:bg-primary-hover text-white px-5 py-2.5 rounded-full text-sm font-bold transition-all shadow-lg shadow-orange-900/20 flex items-center gap-2">
+<span class="material-icons-outlined text-sm">calendar_today</span>
+                        Book Now
+                    </button>
+</div>
+<div class="md:hidden flex items-center">
+<button class="text-white hover:text-primary">
+<span class="material-icons-outlined text-3xl">menu</span>
+</button>
+</div>
+</div>
+</div>
+</nav>
+<header class="relative hero-pattern pt-16 pb-24 lg:pt-32 lg:pb-40 overflow-hidden">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+<div class="grid lg:grid-cols-2 gap-12 items-center">
+<div class="space-y-8">
+<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-semibold uppercase tracking-wide text-primary">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+                        Available for Same-Day Pickup
+                    </div>
+<h1 class="text-5xl lg:text-7xl font-extrabold text-white leading-tight">
+                        FAST <br/>
+                        FORECLOSURE &amp; <br/>
+<span class="text-primary">EVICTION CLEANOUTS</span>
+</h1>
+<p class="text-lg text-slate-400 max-w-xl leading-relaxed">
+                        Speed is key. We handle the mess so you can list the property immediately. Professional, full-service removal for banks, property managers, and landlords.
+                    </p>
+<div class="flex flex-col sm:flex-row gap-4 pt-4">
+<button class="bg-primary hover:bg-primary-hover text-white px-8 py-4 rounded-full text-lg font-bold transition-all shadow-xl shadow-orange-900/30 flex items-center justify-center gap-2 hover:-translate-y-1">
+                            Request Urgent Quote
+                            <span class="material-icons-outlined">arrow_forward</span>
+</button>
+<button class="bg-transparent border-2 border-slate-600 hover:border-white text-white px-8 py-4 rounded-full text-lg font-semibold transition-all flex items-center justify-center gap-2 hover:bg-white/5">
+<span class="material-icons-outlined">call</span>
+                            (832) 793-6566
+                        </button>
+</div>
+<div class="flex items-center gap-6 text-sm text-slate-500 pt-4">
+<span class="flex items-center gap-1"><span class="material-icons-outlined text-primary text-base">check</span> Upfront Pricing</span>
+<span class="flex items-center gap-1"><span class="material-icons-outlined text-primary text-base">check</span> Fully Insured</span>
+<span class="flex items-center gap-1"><span class="material-icons-outlined text-primary text-base">check</span> Eco-Friendly Disposal</span>
+</div>
+</div>
+<div class="relative lg:h-[600px] h-[400px] w-full rounded-2xl overflow-hidden shadow-2xl border-4 border-slate-800">
+<div class="absolute inset-0 bg-gradient-to-t from-background-dark/80 to-transparent z-10"></div>
+<img alt="Cleanout crew loading a truck with furniture" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAei-vQDZAnR4YQqXET0exwsn3d_izeYXf6hisBShG1U4ooZxIztaDNJrB0PBNB6KOdO6RxNZaXKkkxk8TGZXcVm-VV-JU4ZryKD5a0oKe9cGcvWNPo3Ch-YFkAK5WJpR2vIF73EKeuOabOgC7rlhPtQaCN_PdWMQ_r6sKD2KaexFpJjiTQyF03ak3arGo4F3V0NRxEgAem3MAU4jkC3-W6pAC4L5_SnZNJGStgPOD2qDr0MbuEQcYglxTAVxbE5SB6GOSR5p_PBAg"/>
+<div class="absolute bottom-8 left-8 right-8 bg-surface-dark/90 backdrop-blur border border-slate-700 p-6 rounded-xl z-20 hidden sm:block">
+<div class="flex items-start gap-4">
+<div class="bg-primary/20 p-3 rounded-lg text-primary">
+<span class="material-icons-outlined text-3xl">real_estate_agent</span>
+</div>
+<div>
+<h3 class="text-white font-bold text-lg">Property Ready in 24h</h3>
+<p class="text-slate-400 text-sm mt-1">Our specialized teams clear entire properties quickly so you can maximize ROI and minimize vacancy time.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</header>
+<section class="py-20 bg-white dark:bg-surface-dark transition-colors">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="text-center mb-16">
+<h2 class="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white mb-4">RAPID RESPONSE PROCESS</h2>
+<p class="text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">No stress, no delays. Here is how we get your property back on the market efficiently.</p>
+</div>
+<div class="grid md:grid-cols-3 gap-12">
+<div class="text-center group">
+<div class="w-20 h-20 bg-orange-50 dark:bg-orange-900/20 rounded-2xl flex items-center justify-center mx-auto mb-6 transition-transform group-hover:scale-110 duration-300">
+<span class="material-icons-outlined text-4xl text-primary">schedule_send</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">1. Urgent Assessment</h3>
+<p class="text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Call us for a same-day onsite estimate. We understand the urgency of eviction timelines.
+                    </p>
+</div>
+<div class="text-center group">
+<div class="w-20 h-20 bg-orange-50 dark:bg-orange-900/20 rounded-2xl flex items-center justify-center mx-auto mb-6 transition-transform group-hover:scale-110 duration-300">
+<span class="material-icons-outlined text-4xl text-primary">local_shipping</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">2. Complete Clearing</h3>
+<p class="text-slate-600 dark:text-slate-400 leading-relaxed">
+                        Our uniformed team removes everything inside and out, including yard debris and hazardous items.
+                    </p>
+</div>
+<div class="text-center group">
+<div class="w-20 h-20 bg-orange-50 dark:bg-orange-900/20 rounded-2xl flex items-center justify-center mx-auto mb-6 transition-transform group-hover:scale-110 duration-300">
+<span class="material-icons-outlined text-4xl text-primary">key</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">3. Listing Ready</h3>
+<p class="text-slate-600 dark:text-slate-400 leading-relaxed">
+                        We sweep up and haul away responsibly. The property is empty, clean, and ready for photos.
+                    </p>
+</div>
+</div>
+</div>
+</section>
+<section class="py-20 bg-slate-50 dark:bg-slate-900 transition-colors">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="flex flex-col md:flex-row justify-between items-end mb-12 gap-6">
+<div>
+<h2 class="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white mb-2">TAILORED SOLUTIONS</h2>
+<p class="text-slate-600 dark:text-slate-400">Services designed for industry professionals.</p>
+</div>
+<a class="text-primary font-bold hover:text-primary-hover flex items-center gap-1 group" href="#">
+                    View all commercial services 
+                    <span class="material-icons-outlined group-hover:translate-x-1 transition-transform">arrow_forward</span>
+</a>
+</div>
+<div class="grid md:grid-cols-3 gap-8">
+<div class="bg-white dark:bg-surface-dark rounded-2xl p-8 shadow-sm hover:shadow-xl transition-all duration-300 border border-slate-100 dark:border-slate-800 group">
+<div class="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-6 group-hover:bg-primary group-hover:text-white transition-colors text-slate-600 dark:text-slate-300">
+<span class="material-icons-outlined text-2xl">apartment</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">For Landlords</h3>
+<p class="text-slate-600 dark:text-slate-400 mb-6 text-sm leading-relaxed">
+                        Dealing with a messy eviction? We handle the heavy lifting so you don't have to. Get your rental unit back to generating income faster.
+                    </p>
+<ul class="space-y-2 mb-6 text-sm text-slate-500 dark:text-slate-400">
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Unit cleanouts</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Furniture removal</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Bulk trash pickup</li>
+</ul>
+</div>
+<div class="bg-white dark:bg-surface-dark rounded-2xl p-8 shadow-sm hover:shadow-xl transition-all duration-300 border border-slate-100 dark:border-slate-800 group relative overflow-hidden">
+<div class="absolute top-0 right-0 bg-primary text-white text-xs font-bold px-3 py-1 rounded-bl-lg">POPULAR</div>
+<div class="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-6 group-hover:bg-primary group-hover:text-white transition-colors text-slate-600 dark:text-slate-300">
+<span class="material-icons-outlined text-2xl">storefront</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">For Real Estate Agents</h3>
+<p class="text-slate-600 dark:text-slate-400 mb-6 text-sm leading-relaxed">
+                        A cluttered home won't sell. We help you prep listings for the market with speed and professionalism. Impress your clients with swift action.
+                    </p>
+<ul class="space-y-2 mb-6 text-sm text-slate-500 dark:text-slate-400">
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Pre-listing cleanouts</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Curb appeal clearing</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Lockbox access</li>
+</ul>
+</div>
+<div class="bg-white dark:bg-surface-dark rounded-2xl p-8 shadow-sm hover:shadow-xl transition-all duration-300 border border-slate-100 dark:border-slate-800 group">
+<div class="w-14 h-14 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center mb-6 group-hover:bg-primary group-hover:text-white transition-colors text-slate-600 dark:text-slate-300">
+<span class="material-icons-outlined text-2xl">account_balance</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">For Banks &amp; REO</h3>
+<p class="text-slate-600 dark:text-slate-400 mb-6 text-sm leading-relaxed">
+                        Asset management requires reliability. We offer streamlined invoicing and complete property clearing for foreclosed assets.
+                    </p>
+<ul class="space-y-2 mb-6 text-sm text-slate-500 dark:text-slate-400">
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Entire estate clearing</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Professional invoicing</li>
+<li class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>Before/After photos</li>
+</ul>
+</div>
+</div>
+</div>
+</section>
+<section class="py-20 bg-white dark:bg-surface-dark transition-colors">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<h2 class="text-3xl font-extrabold text-center mb-16 text-slate-900 dark:text-white">WHY CHOOSE US?</h2>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-8">
+<div class="text-center p-4">
+<div class="w-16 h-16 rounded-full bg-background-dark text-white flex items-center justify-center mx-auto mb-4">
+<span class="material-icons-outlined text-3xl">bolt</span>
+</div>
+<h4 class="font-bold text-lg mb-2 text-slate-900 dark:text-white">Rapid Response</h4>
+<p class="text-sm text-slate-500 dark:text-slate-400">Same-day or next-day service available.</p>
+</div>
+<div class="text-center p-4">
+<div class="w-16 h-16 rounded-full bg-background-dark text-white flex items-center justify-center mx-auto mb-4">
+<span class="material-icons-outlined text-3xl">receipt_long</span>
+</div>
+<h4 class="font-bold text-lg mb-2 text-slate-900 dark:text-white">Professional Invoicing</h4>
+<p class="text-sm text-slate-500 dark:text-slate-400">Detailed billing for expense tracking.</p>
+</div>
+<div class="text-center p-4">
+<div class="w-16 h-16 rounded-full bg-background-dark text-white flex items-center justify-center mx-auto mb-4">
+<span class="material-icons-outlined text-3xl">verified_user</span>
+</div>
+<h4 class="font-bold text-lg mb-2 text-slate-900 dark:text-white">Fully Insured</h4>
+<p class="text-sm text-slate-500 dark:text-slate-400">Your property is protected during work.</p>
+</div>
+<div class="text-center p-4">
+<div class="w-16 h-16 rounded-full bg-background-dark text-white flex items-center justify-center mx-auto mb-4">
+<span class="material-icons-outlined text-3xl">recycling</span>
+</div>
+<h4 class="font-bold text-lg mb-2 text-slate-900 dark:text-white">Eco-Friendly</h4>
+<p class="text-sm text-slate-500 dark:text-slate-400">We donate and recycle up to 60%.</p>
+</div>
+</div>
+</div>
+</section>
+<section class="py-24 bg-background-dark text-white">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<h2 class="text-3xl md:text-4xl font-extrabold text-center mb-16">WHAT OUR COMMERCIAL PARTNERS SAY</h2>
+<div class="grid md:grid-cols-3 gap-8">
+<div class="bg-surface-dark border border-slate-700 p-8 rounded-2xl relative">
+<div class="flex text-primary mb-4">
+<span class="material-icons-outlined">star</span>
+<span class="material-icons-outlined">star</span>
+<span class="material-icons-outlined">star</span>
+<span class="material-icons-outlined">star</span>
+<span class="material-icons-outlined">star</span>
+</div>
+<p class="text-slate-300 italic mb-6">"CleanSweep saved our listing. The previous tenants left a disaster. The crew had it cleared in 4 hours. Incredible service."</p>
+<div>
+<p class="font-bold text-white">David Miller</p>
+<p class="text-sm text-slate-500">Real Estate Agent, Century 21</p>
+</div>
+</div>
+<div class="bg-surface-dark border border-slate-700 p-8 rounded-2xl relative">
+<div class="flex text-primary mb-4">
+<span class="material-icons-outlined">star</span>
+<span class="material-icons-outlined">star</span>
+<span class="material-icons-outlined">star</span>
+<span class="material-icons-outlined">star</span>
+<span class="material-icons-outlined">star</span>
+</div>
+<p class="text-slate-300 italic mb-6">"As a property manager, I need speed. Their online booking was easy, the invoice was professional, and the job was done right."</p>
+<div>
+<p class="font-bold text-white">Sarah Jenkins</p>
+<p class="text-sm text-slate-500">Property Manager, Highland Properties</p>
+</div>
+</div>
+<div class="bg-surface-dark border border-slate-700 p-8 rounded-2xl relative">
+<div class="flex text-primary mb-4">
+<span class="material-icons-outlined">star</span>
+<span class="material-icons-outlined">star</span>
+<span class="material-icons-outlined">star</span>
+<span class="material-icons-outlined">star</span>
+<span class="material-icons-outlined">star</span>
+</div>
+<p class="text-slate-300 italic mb-6">"Highly recommend for bank-owned properties. They handle everything from junk removal to deep cleaning referral."</p>
+<div>
+<p class="font-bold text-white">Robert Chen</p>
+<p class="text-sm text-slate-500">Asset Manager</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<div class="bg-background-dark border-t border-slate-800 py-12">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-8">
+<div class="flex items-center gap-2">
+<span class="text-primary font-bold text-2xl tracking-tighter">CLEAN</span><span class="font-bold text-2xl tracking-tighter text-white">SWEEP</span>
+</div>
+<nav class="flex flex-wrap justify-center gap-8 text-sm text-slate-400">
+<a class="hover:text-white transition-colors" href="#">Home</a>
+<a class="hover:text-white transition-colors" href="#">Services</a>
+<a class="hover:text-white transition-colors" href="#">Locations</a>
+<a class="hover:text-white transition-colors" href="#">How It Works</a>
+<a class="hover:text-white transition-colors" href="#">Reviews</a>
+<a class="hover:text-white transition-colors" href="#">Contact</a>
+</nav>
+<button class="bg-primary hover:bg-primary-hover text-white px-6 py-3 rounded-lg font-bold transition-all flex items-center gap-2">
+<span class="material-icons-outlined text-sm">calendar_today</span>
+                Book Now
+            </button>
+</div>
+</div>
+<footer class="bg-background-dark pt-12 pb-8 border-t border-slate-800">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="grid md:grid-cols-4 gap-12 mb-12">
+<div class="col-span-1 md:col-span-1">
+<div class="mb-4 text-white font-bold text-lg">About Us</div>
+<p class="text-slate-500 text-sm leading-relaxed">
+                        Professional removal services specialized for commercial and residential evictions. We clean up your community, one haul at a time. Established 2024.
+                    </p>
+</div>
+<div>
+<div class="mb-4 text-white font-bold text-lg">Quick Links</div>
+<ul class="space-y-2 text-sm text-slate-500">
+<li><a class="hover:text-primary transition-colors" href="#">Commercial Services</a></li>
+<li><a class="hover:text-primary transition-colors" href="#">Foreclosure Cleanouts</a></li>
+<li><a class="hover:text-primary transition-colors" href="#">Our Locations</a></li>
+<li><a class="hover:text-primary transition-colors" href="#">Items We Take</a></li>
+</ul>
+</div>
+<div>
+<div class="mb-4 text-white font-bold text-lg">Support</div>
+<ul class="space-y-2 text-sm text-slate-500">
+<li><a class="hover:text-primary transition-colors" href="#">Contact Support</a></li>
+<li><a class="hover:text-primary transition-colors" href="#">Privacy Policy</a></li>
+<li><a class="hover:text-primary transition-colors" href="#">Terms of Service</a></li>
+<li><a class="hover:text-primary transition-colors" href="#">FAQ</a></li>
+</ul>
+</div>
+<div>
+<div class="mb-4 text-white font-bold text-lg">Service Area</div>
+<p class="text-slate-500 text-sm mb-4">Greater Community Area</p>
+<p class="text-slate-500 text-sm mb-4">Mon - Sat: 7am - 7pm</p>
+<p class="text-white font-bold text-lg">(832) 793-6566</p>
+</div>
+</div>
+<div class="text-center text-slate-600 text-xs pt-8 border-t border-slate-800">
+                © 2024 Clean Sweep Junk Removal. All rights reserved.
+            </div>
+</div>
+</footer>
+
+</body></html>

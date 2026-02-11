@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Garage Cleanouts - CleanSweep</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet"/>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#F97316", // Orange from screenshot
+                        "primary-hover": "#EA580C",
+                        "navy-dark": "#0F172A", // Dark navy from screenshot
+                        "navy-light": "#1E293B", // Lighter navy for cards/sections
+                        "background-light": "#F8FAFC", // Light gray/white
+                        "background-dark": "#0B1120", // Very dark navy for dark mode bg
+                    },
+                    fontFamily: {
+                        display: ["Inter", "sans-serif"],
+                        sans: ["Inter", "sans-serif"],
+                    },
+                    borderRadius: {
+                        DEFAULT: "0.5rem",
+                        'xl': '1rem',
+                        '2xl': '1.5rem',
+                    },
+                },
+            },
+        };
+    </script>
+<style>.before-after-container {
+            position: relative;
+            overflow: hidden;
+            width: 100%;
+            height: 400px;
+        }
+        .before-image, .after-image {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .after-image {
+            clip-path: polygon(50% 0, 100% 0, 100% 100%, 50% 100%);
+            transition: clip-path 0.5s ease;
+        }
+        .slider-handle {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 50%;
+            width: 4px;
+            background: white;
+            cursor: ew-resize;
+            z-index: 10;
+        }
+        .slider-button {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            background: #F97316;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body class="font-sans bg-background-light dark:bg-background-dark text-slate-800 dark:text-slate-200 transition-colors duration-300">
+<nav class="bg-navy-dark text-white border-b border-white/10 dark:border-slate-800">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="flex justify-between items-center h-20">
+<div class="flex items-center">
+<a class="flex items-center gap-2" href="#">
+<span class="text-primary font-bold text-2xl tracking-tighter">CLEAN</span><span class="font-bold text-2xl tracking-tighter text-white">SWEEP</span>
+</a>
+</div>
+<div class="hidden md:flex space-x-8 items-center">
+<a class="hover:text-primary transition-colors" href="#">Home</a>
+<a class="text-primary font-medium" href="#">Services</a>
+<a class="hover:text-primary transition-colors" href="#">Locations</a>
+<a class="hover:text-primary transition-colors" href="#">How It Works</a>
+<a class="hover:text-primary transition-colors" href="#">Reviews</a>
+<a class="bg-primary hover:bg-primary-hover text-white px-5 py-2.5 rounded-full font-semibold transition-colors flex items-center gap-2" href="#">
+<span class="material-icons text-sm">calendar_today</span>
+                        Book Now
+                    </a>
+</div>
+<div class="md:hidden flex items-center">
+<button class="text-white hover:text-primary">
+<span class="material-icons">menu</span>
+</button>
+</div>
+</div>
+</div>
+</nav>
+<section class="relative bg-navy-dark text-white overflow-hidden">
+<div class="absolute inset-0 opacity-10 pointer-events-none bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary via-navy-dark to-transparent"></div>
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-32 relative z-10">
+<div class="grid lg:grid-cols-2 gap-12 items-center">
+<div class="space-y-8">
+<div class="inline-flex items-center gap-2 bg-white/10 px-4 py-1.5 rounded-full text-sm font-medium text-primary border border-white/10">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+                        Available for Same-Day Pickup
+                    </div>
+<h1 class="text-5xl lg:text-7xl font-extrabold leading-tight tracking-tight">
+                        RECLAIM YOUR <br/>
+<span class="text-primary">PARKING SPOT</span>
+</h1>
+<p class="text-lg text-slate-300 max-w-lg leading-relaxed">
+                        Professional garage junk removal and decluttering services. We handle the heavy lifting, sorting, and disposal so you can finally fit your car inside again.
+                    </p>
+<div class="flex flex-col sm:flex-row gap-4 pt-4">
+<a class="bg-primary hover:bg-primary-hover text-white px-8 py-4 rounded-full font-bold text-lg transition-all shadow-lg shadow-primary/30 flex items-center justify-center gap-2" href="#">
+                            Get a Fast Garage Quote
+                            <span class="material-icons">arrow_forward</span>
+</a>
+<a class="bg-transparent border-2 border-slate-600 hover:border-white text-white px-8 py-4 rounded-full font-bold text-lg transition-all flex items-center justify-center gap-2" href="tel:832-793-6566">
+<span class="material-icons text-primary">phone</span>
+                            (832) 793-6566
+                        </a>
+</div>
+<div class="flex items-center gap-6 text-sm text-slate-400 pt-4">
+<span class="flex items-center gap-1"><span class="material-icons text-primary text-base">check</span> Upfront Pricing</span>
+<span class="flex items-center gap-1"><span class="material-icons text-primary text-base">check</span> Fully Insured</span>
+</div>
+</div>
+<div class="relative">
+<div class="absolute -inset-4 bg-primary/20 rounded-2xl blur-xl"></div>
+<img alt="Cluttered garage full of boxes and old furniture" class="relative rounded-2xl shadow-2xl border-4 border-white/10 w-full object-cover h-[500px]" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA16BdoVlhbML5wYF7IW-WomY4Wb_8Xk7bssZvRifejzQrVhm0qqNxe_PjCWFJG2bN51VGorMn3n6UCT0W4J4SLic5EOngi2C3CbB9gl-21nI8z-3B0p1kuOUWAyFTXsLOUJ-QyUBoyW1pLRKYNiE4GFO0BZ6iUJiIklrwjAS-vB9ieyuKDBWyLtby6UFM6K090PZbKqUVavSSmypKwrmhWXp39ZvBZ7E5jZoBgGlA6n-TXMjPQ25xJ0NHPHQKT80Y5keMxZZ0fKHA"/>
+<div class="absolute bottom-8 left-8 bg-white dark:bg-slate-800 p-4 rounded-xl shadow-lg border border-slate-100 dark:border-slate-700 flex items-center gap-4 max-w-xs animate-bounce" style="animation-duration: 3s;">
+<div class="bg-green-100 dark:bg-green-900/30 p-2 rounded-full">
+<span class="material-icons text-green-600 dark:text-green-400">recycling</span>
+</div>
+<div>
+<p class="font-bold text-slate-900 dark:text-white text-sm">We Donate &amp; Recycle</p>
+<p class="text-xs text-slate-500 dark:text-slate-400">Keeping garages clean &amp; green.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section class="py-20 bg-background-light dark:bg-background-dark">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="text-center mb-16">
+<span class="text-primary font-bold tracking-wider uppercase text-sm">Real Results</span>
+<h2 class="text-3xl md:text-4xl font-bold mt-2 text-slate-900 dark:text-white">From Cluttered Mess to Car-Ready</h2>
+<p class="text-slate-600 dark:text-slate-400 mt-4 max-w-2xl mx-auto">See the difference a professional cleanout makes. Drag the slider to reveal the transformation.</p>
+</div>
+<div class="relative max-w-5xl mx-auto rounded-2xl overflow-hidden shadow-2xl border-4 border-white dark:border-slate-800">
+<div class="grid grid-cols-1 md:grid-cols-2 h-[400px] md:h-[500px] relative group">
+<div class="relative w-full h-full">
+<div class="absolute top-4 left-4 z-20 bg-black/70 text-white px-3 py-1 rounded text-sm font-bold">BEFORE</div>
+<img alt="Messy garage full of junk" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD3Hlpd5MJod_8A5uyOnGgAOcB2siOv8-H1-OgBSEXGjCQ4M9vv25VAAEpigh3WCeCIbvB3UVavuXmGw2C_8rZCoKglnxsz1FOrxrwuQtYcDC02b1Lq-KhkfITxBxaTDzxuLf7OnJqxZWvy-70YMUmODl5jly07EZuAC__CeWn12HPQ7YDJihj2vWiDmdvr8srSKHRO-zNg-Ig_BPneeUwLWxQga0SXM-FdeYizJk8vQObub9gbK3louzKpi0tr_BrQ-Yc5G7toIU0"/>
+</div>
+<div class="relative w-full h-full border-t-4 md:border-t-0 md:border-l-4 border-white dark:border-slate-800">
+<div class="absolute top-4 right-4 z-20 bg-primary text-white px-3 py-1 rounded text-sm font-bold">AFTER</div>
+<img alt="Clean empty garage with clean floor" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDx-tYgYhonraU_rlfMy0602yB-Gaj9LdLm3I5A9HUKG88xYjy1tXvhm4O_Mq36xx2nSAv_YyUXTnIekGTeVW_odXvRkkPsQ3lhg00p41IQ9qr23uotrILvT4y34cJhPjwK4RE4toRLUK1j_iFn30WilTL2qvM1FBP0CgrD2dD7t4BMTclQqfKF6N_yu3w9GER4T4oXbb3MeIfcWzZ8KLz-6cdMpl-s6_5l7cI64xCcuZkeRTBX77YVvkeqDzwmsy3DxXVIyQcLyag"/>
+</div>
+<div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-slate-800 p-2 rounded-full shadow-lg z-30 hidden md:block">
+<div class="bg-primary w-12 h-12 rounded-full flex items-center justify-center text-white">
+<span class="material-icons">compare_arrows</span>
+</div>
+</div>
+</div>
+</div>
+<div class="mt-8 text-center">
+<p class="text-sm text-slate-500 italic">"The crew cleared out my entire garage in less than 3 hours." - Sarah J.</p>
+</div>
+</div>
+</section>
+<section class="py-20 bg-white dark:bg-navy-light">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="text-center mb-16">
+<h2 class="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white uppercase tracking-tight">What We Remove</h2>
+<a class="inline-flex items-center text-primary font-semibold mt-4 hover:underline" href="#">
+                    View full item list <span class="material-icons text-sm ml-1">arrow_forward</span>
+</a>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+<div class="bg-background-light dark:bg-slate-800 p-8 rounded-2xl hover:shadow-xl transition-shadow border border-slate-100 dark:border-slate-700 group">
+<div class="w-14 h-14 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+<span class="material-icons text-primary text-3xl">chair</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">Furniture Removal</h3>
+<p class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">
+                        Old sofas, broken tables, dusty shelves, and cabinets taking up precious floor space.
+                    </p>
+</div>
+<div class="bg-background-light dark:bg-slate-800 p-8 rounded-2xl hover:shadow-xl transition-shadow border border-slate-100 dark:border-slate-700 group">
+<div class="w-14 h-14 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+<span class="material-icons text-primary text-3xl">construction</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">Old Tool Disposal</h3>
+<p class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">
+                        Rusted tools, broken lawnmowers, unused workbenches, and scrap metal piles.
+                    </p>
+</div>
+<div class="bg-background-light dark:bg-slate-800 p-8 rounded-2xl hover:shadow-xl transition-shadow border border-slate-100 dark:border-slate-700 group">
+<div class="w-14 h-14 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+<span class="material-icons text-primary text-3xl">delete_sweep</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">Trash Hauling</h3>
+<p class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">
+                        General household junk, boxes of old papers, holiday decorations, and miscellaneous clutter.
+                    </p>
+</div>
+<div class="bg-background-light dark:bg-slate-800 p-8 rounded-2xl hover:shadow-xl transition-shadow border border-slate-100 dark:border-slate-700 group">
+<div class="w-14 h-14 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+<span class="material-icons text-primary text-3xl">kitchen</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">Appliance Disposal</h3>
+<p class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">
+                        Unwanted fridges, freezers, washing machines, and dryers that are just gathering dust.
+                    </p>
+</div>
+<div class="bg-background-light dark:bg-slate-800 p-8 rounded-2xl hover:shadow-xl transition-shadow border border-slate-100 dark:border-slate-700 group">
+<div class="w-14 h-14 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+<span class="material-icons text-primary text-3xl">sports_baseball</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">Sports Equipment</h3>
+<p class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">
+                        Bicycles, treadmills, weights, kayaks, and old camping gear you no longer use.
+                    </p>
+</div>
+<div class="bg-background-light dark:bg-slate-800 p-8 rounded-2xl hover:shadow-xl transition-shadow border border-slate-100 dark:border-slate-700 group">
+<div class="w-14 h-14 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+<span class="material-icons text-primary text-3xl">inventory_2</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-3">Box Removal</h3>
+<p class="text-slate-600 dark:text-slate-400 text-sm leading-relaxed">
+                        Leftover moving boxes, Amazon delivery boxes, and storage containers.
+                    </p>
+</div>
+</div>
+</div>
+</section>
+<section class="py-20 bg-background-light dark:bg-background-dark">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="text-center mb-16">
+<h2 class="text-3xl md:text-4xl font-bold text-slate-900 dark:text-white uppercase tracking-tight">Simple 3-Step Process</h2>
+<p class="text-slate-600 dark:text-slate-400 mt-4">No stress, no mess. Here is how we get the job done efficiently.</p>
+</div>
+<div class="grid md:grid-cols-3 gap-8 relative">
+<div class="hidden md:block absolute top-12 left-[16%] right-[16%] h-0.5 bg-slate-200 dark:bg-slate-700 -z-0"></div>
+<div class="relative z-10 flex flex-col items-center text-center">
+<div class="w-24 h-24 bg-white dark:bg-slate-800 border-2 border-orange-100 dark:border-slate-700 rounded-2xl flex items-center justify-center shadow-lg mb-6">
+<span class="material-icons text-primary text-4xl">calendar_month</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-2">1. Book Online</h3>
+<p class="text-slate-600 dark:text-slate-400 text-sm max-w-xs">Schedule a no-obligation onsite estimate in seconds. Pick a time that works for you.</p>
+</div>
+<div class="relative z-10 flex flex-col items-center text-center">
+<div class="w-24 h-24 bg-white dark:bg-slate-800 border-2 border-orange-100 dark:border-slate-700 rounded-2xl flex items-center justify-center shadow-lg mb-6">
+<span class="material-icons text-primary text-4xl">local_shipping</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-2">2. We Load It</h3>
+<p class="text-slate-600 dark:text-slate-400 text-sm max-w-xs">Our friendly, uniformed team arrives and does all the heavy lifting from your garage.</p>
+</div>
+<div class="relative z-10 flex flex-col items-center text-center">
+<div class="w-24 h-24 bg-white dark:bg-slate-800 border-2 border-orange-100 dark:border-slate-700 rounded-2xl flex items-center justify-center shadow-lg mb-6">
+<span class="material-icons text-primary text-4xl">auto_awesome</span>
+</div>
+<h3 class="text-xl font-bold text-slate-900 dark:text-white mb-2">3. It's Gone!</h3>
+<p class="text-slate-600 dark:text-slate-400 text-sm max-w-xs">We haul it away to be responsibly disposed of and recycled. You enjoy your space.</p>
+</div>
+</div>
+</div>
+</section>
+<section class="py-12 bg-white dark:bg-navy-light border-y border-slate-200 dark:border-slate-700">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="grid grid-cols-2 md:grid-cols-4 gap-8">
+<div class="flex flex-col items-center text-center">
+<div class="w-12 h-12 bg-navy-dark rounded-full flex items-center justify-center mb-3">
+<span class="material-icons text-white">account_balance_wallet</span>
+</div>
+<h4 class="font-bold text-slate-900 dark:text-white">Upfront Pricing</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400">No hidden fees.</p>
+</div>
+<div class="flex flex-col items-center text-center">
+<div class="w-12 h-12 bg-navy-dark rounded-full flex items-center justify-center mb-3">
+<span class="material-icons text-white">schedule</span>
+</div>
+<h4 class="font-bold text-slate-900 dark:text-white">Fast Service</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400">Same-day available.</p>
+</div>
+<div class="flex flex-col items-center text-center">
+<div class="w-12 h-12 bg-navy-dark rounded-full flex items-center justify-center mb-3">
+<span class="material-icons text-white">verified_user</span>
+</div>
+<h4 class="font-bold text-slate-900 dark:text-white">Fully Insured</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400">Your property protected.</p>
+</div>
+<div class="flex flex-col items-center text-center">
+<div class="w-12 h-12 bg-navy-dark rounded-full flex items-center justify-center mb-3">
+<span class="material-icons text-white">recycling</span>
+</div>
+<h4 class="font-bold text-slate-900 dark:text-white">Eco-Friendly</h4>
+<p class="text-xs text-slate-500 dark:text-slate-400">We recycle up to 60%.</p>
+</div>
+</div>
+</div>
+</section>
+<section class="py-24 bg-navy-dark relative overflow-hidden">
+<div class="absolute inset-0 opacity-20 pointer-events-none bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-primary via-navy-dark to-transparent"></div>
+<div class="max-w-4xl mx-auto px-4 text-center relative z-10">
+<h2 class="text-4xl md:text-5xl font-extrabold text-white mb-6">Ready to Park Your Car Inside?</h2>
+<p class="text-xl text-slate-300 mb-10">Don't let junk take over your garage. Get a free estimate today and reclaim your space tomorrow.</p>
+<div class="flex flex-col sm:flex-row justify-center gap-4">
+<a class="bg-primary hover:bg-primary-hover text-white px-8 py-4 rounded-full font-bold text-lg transition-all shadow-lg shadow-primary/30" href="#">
+                    Get a Free Quote
+                </a>
+<a class="bg-white text-navy-dark hover:bg-slate-100 px-8 py-4 rounded-full font-bold text-lg transition-all" href="#">
+                    Call (832) 793-6566
+                </a>
+</div>
+</div>
+</section>
+<footer class="bg-navy-dark pt-16 pb-8 border-t border-slate-800">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+<div class="grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
+<div class="col-span-1 md:col-span-2">
+<a class="flex items-center gap-2 mb-6" href="#">
+<span class="text-primary font-bold text-2xl tracking-tighter">CLEAN</span><span class="font-bold text-2xl tracking-tighter text-white">SWEEP</span>
+</a>
+<p class="text-slate-400 text-sm leading-relaxed max-w-sm">
+                        Professional junk removal services. We clean up your community, one haul at a time. Establish 2024. Your satisfaction is our top priority.
+                    </p>
+</div>
+<div>
+<h4 class="text-primary font-bold mb-4">Quick Links</h4>
+<ul class="space-y-3 text-sm text-slate-400">
+<li><a class="hover:text-white transition-colors" href="#">Home</a></li>
+<li><a class="hover:text-white transition-colors" href="#">Book Online</a></li>
+<li><a class="hover:text-white transition-colors" href="#">Our Services</a></li>
+<li><a class="hover:text-white transition-colors" href="#">Commercial</a></li>
+<li><a class="hover:text-white transition-colors" href="#">Locations</a></li>
+</ul>
+</div>
+<div>
+<h4 class="text-primary font-bold mb-4">Contact Info</h4>
+<ul class="space-y-3 text-sm text-slate-400">
+<li>Greater Community Area</li>
+<li>Mon - Sat: 7am - 7pm</li>
+<li class="font-bold text-white pt-2">(832) 793-6566</li>
+<li>info@cleansweep.com</li>
+</ul>
+</div>
+</div>
+<div class="border-t border-slate-800 pt-8 text-center text-xs text-slate-500">
+<p>© 2024 Clean Sweep Junk Removal. All rights reserved.</p>
+</div>
+</div>
+</footer>
+
+</body></html>
