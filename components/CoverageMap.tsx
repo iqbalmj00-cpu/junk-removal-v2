@@ -75,7 +75,7 @@ export default function CoverageMap() {
                 popupAnchor: [0, -32],
             });
 
-            // Add markers for each service area
+            // Add markers for each service area with small coverage circles
             SERVICE_AREAS.forEach((area) => {
                 L.marker([area.lat, area.lng], { icon: orangeIcon })
                     .addTo(map)
@@ -86,17 +86,41 @@ export default function CoverageMap() {
                             <span style="font-size:12px;color:#64748b;">Service Area</span>
                         </div>`
                     );
+
+                // Small highlight circle around each service area (~5 mile radius)
+                L.circle([area.lat, area.lng], {
+                    radius: 8000,
+                    color: '#f97316',
+                    fillColor: '#f97316',
+                    fillOpacity: 0.08,
+                    weight: 1.5,
+                    opacity: 0.4,
+                }).addTo(map);
             });
 
-            // Draw a subtle coverage circle around Houston center
-            L.circle([29.76, -95.38], {
-                radius: 65000, // ~40 miles
+            // Draw a tight polygon connecting the outer service areas
+            const coverageBoundary = [
+                [30.1658, -95.4613], // The Woodlands (north)
+                [30.0799, -95.4172], // Spring
+                [29.9691, -95.6972], // Cypress (northwest)
+                [29.7858, -95.8245], // Katy (west)
+                [29.6197, -95.6349], // Sugar Land
+                [29.6186, -95.5377], // Missouri City
+                [29.5635, -95.2860], // Pearland (south)
+                [29.5075, -95.0949], // League City (southeast)
+                [29.6911, -95.2091], // Pasadena (east)
+                [29.7604, -95.3698], // Houston (center)
+                [30.0799, -95.4172], // Spring (close loop north)
+                [30.1658, -95.4613], // The Woodlands
+            ];
+
+            L.polygon(coverageBoundary, {
                 color: '#f97316',
                 fillColor: '#f97316',
-                fillOpacity: 0.06,
+                fillOpacity: 0.04,
                 weight: 2,
                 opacity: 0.3,
-                dashArray: '8, 8',
+                dashArray: '6, 6',
             }).addTo(map);
         };
         document.head.appendChild(script);
