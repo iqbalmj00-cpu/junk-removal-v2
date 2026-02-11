@@ -85,7 +85,7 @@ export default function ContactPage() {
                                         />
                                     </div>
 
-                                    <Button className="w-full h-16 bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold shadow-xl shadow-orange-900/20 rounded-xl">
+                                    <Button className="w-full h-16 bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold shadow-xl shadow-orange-900/20 rounded-full">
                                         SEND MESSAGE <Send className="ml-3" size={24} />
                                     </Button>
                                 </form>

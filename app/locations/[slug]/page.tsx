@@ -58,7 +58,14 @@ export default async function LocationPage({ params }: { params: Promise<{ slug:
             <main className="flex-grow">
                 {/* Hero Section */}
                 <section className="relative bg-slate-900 pt-36 pb-20 overflow-hidden">
-                    <div className="absolute inset-0 opacity-5" style={{ backgroundImage: 'radial-gradient(#f97316 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
+                    {/* Location Hero Image */}
+                    <img
+                        src={`/images/locations/${location.slug}.png`}
+                        alt={`${location.name}, Texas`}
+                        className="absolute inset-0 w-full h-full object-cover"
+                    />
+                    {/* Dark gradient overlay for text readability */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-slate-900/90 via-slate-900/80 to-slate-900/50" />
                     <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                         <div className="max-w-3xl">
                             <div className="inline-flex items-center px-4 py-1.5 rounded-full bg-brand-orange/10 border border-brand-orange/30 mb-6">

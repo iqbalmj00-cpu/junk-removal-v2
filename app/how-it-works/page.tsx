@@ -241,7 +241,7 @@ export default function HowItWorksPage() {
 
                             <div className="flex flex-col items-center gap-6">
                                 <Link href="/get-started">
-                                    <Button data-track="book_now" className="bg-brand-orange hover:bg-orange-600 text-white px-12 py-8 rounded-2xl text-2xl font-bold shadow-2xl shadow-orange-900/50 flex items-center gap-4 transition-transform hover:scale-105">
+                                    <Button data-track="book_now" className="bg-brand-orange hover:bg-orange-600 text-white px-12 py-8 rounded-full text-2xl font-bold shadow-2xl shadow-orange-900/50 flex items-center gap-4 transition-transform hover:scale-105">
                                         <Camera size={32} /> UPLOAD FOR QUOTE
                                     </Button>
                                 </Link>

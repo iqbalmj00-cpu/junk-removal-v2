@@ -268,7 +268,7 @@ export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails,
                                 type="submit"
                                 disabled={status === 'loading'}
                                 data-track="booking_finalized"
-                                className="w-full py-3.5 bg-brand-orange text-white font-bold rounded-lg hover:bg-orange-600 focus:ring-4 focus:ring-brand-orange/30 disabled:opacity-70 disabled:cursor-not-allowed transition-all shadow-lg shadow-brand-orange/20 flex items-center justify-center"
+                                className="w-full py-3.5 bg-brand-orange text-white font-bold rounded-full hover:bg-orange-600 focus:ring-4 focus:ring-brand-orange/30 disabled:opacity-70 disabled:cursor-not-allowed transition-all shadow-lg shadow-brand-orange/20 flex items-center justify-center"
                             >
                                 {status === 'loading' ? (
                                     <>
