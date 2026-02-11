@@ -19,6 +19,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        {/* Material Icons for new pages */}
+        <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
         <Script
           src="https://www.googletagmanager.com/gtag/js?id=G-56CMER4LL2"
           strategy="afterInteractive"

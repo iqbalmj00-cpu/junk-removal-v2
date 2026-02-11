@@ -14,9 +14,10 @@ export function Navbar() {
     const navLinks = [
         { name: 'Home', href: '/' },
         { name: 'Services', href: '/services' },
+        { name: 'Locations', href: '/locations' },
         { name: 'How It Works', href: '/how-it-works' },
+        { name: 'Reviews', href: '/reviews' },
         { name: 'About Us', href: '/about' },
-        { name: 'Blog', href: '/blog' },
         { name: 'Contact', href: '/contact' },
     ];
 
