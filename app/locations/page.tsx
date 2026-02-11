@@ -102,6 +102,35 @@ export default function LocationsPage() {
                     </div>
                 </section>
 
+                {/* Service Coverage Map */}
+                <section className="py-16 bg-white border-b border-slate-200">
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div className="bg-slate-50 rounded-2xl shadow-lg overflow-hidden border border-slate-100 flex flex-col lg:flex-row">
+                            <div className="lg:w-1/3 p-8 lg:p-12 flex flex-col justify-center">
+                                <h2 className="text-3xl font-bold text-slate-900 uppercase tracking-tight mb-4">Our Coverage Zone</h2>
+                                <div className="w-16 h-1.5 bg-brand-orange rounded-full mb-6" />
+                                <ul className="space-y-3 mb-8">
+                                    {['Inner Loop Houston', 'Greater Houston Suburbs', 'Beltway 8 Corridor', 'Grand Parkway Suburbs'].map((zone) => (
+                                        <li key={zone} className="flex items-center text-slate-600">
+                                            <span className="material-icons text-brand-orange mr-3 text-sm">check_circle</span>
+                                            <span>{zone}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                            <div className="lg:w-2/3 h-80 lg:h-auto relative bg-slate-200">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                    alt="Map graphic showing the Houston metropolitan area service zones"
+                                    className="w-full h-full object-cover opacity-90"
+                                    src="https://lh3.googleusercontent.com/aida-public/AB6AXuANrx6hHwnA_skggVpzO0GTR-01fCvxMR56y_S41reXITvE8SUnFp1AdyqiKcDOwAV0-XXLbUO6vn9SS9Ms4CtL_IPrL7EqsFtofhC6LvxA_vqxfKucT043CVpvG_m0ccN0PUbfNXwXQ-piYrBPsQFLMbPIRnRDvw8F0CpopZPAEbEqSk5POPYYCpbyrqd4sL9xMQQth6_Xnk5jdA1PZYMkPN1uIDpkm0LtpvW9r5WCjaTEWLnmvN3QZujAodZVZCvk9mFxyDAOkAs"
+                                />
+                                <div className="absolute inset-0 bg-brand-orange/10 mix-blend-multiply" />
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
                 {/* Bottom CTA */}
                 <section className="bg-slate-900 py-16">
                     <div className="max-w-4xl mx-auto px-4 text-center">
@@ -109,21 +138,21 @@ export default function LocationsPage() {
                         <p className="text-slate-300 text-lg mb-8 max-w-2xl mx-auto">
                             We cover more areas than we can list. Give us a call and chances are we&apos;re already serving your community.
                         </p>
-                        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                        <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
                             <Link
                                 href="/get-started"
-                                className="w-full sm:w-auto bg-brand-orange hover:bg-orange-500 text-white text-lg font-bold px-8 py-4 rounded-lg shadow-lg transition-all flex items-center justify-center gap-2"
+                                className="w-full sm:w-auto bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold px-10 py-5 rounded-full shadow-2xl shadow-orange-900/30 transition-all flex items-center justify-center gap-3"
                             >
-                                <Truck className="w-5 h-5" />
+                                <Truck className="w-6 h-6" />
                                 Book Your Pickup
                             </Link>
-                            <a
-                                href="tel:+18327936566"
-                                className="w-full sm:w-auto bg-transparent border-2 border-slate-500 hover:border-white text-white font-semibold px-8 py-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                            <Link
+                                href="tel:8327936566"
+                                className="w-full sm:w-auto bg-transparent border-2 border-white text-white hover:bg-white hover:text-slate-900 text-xl font-bold px-10 py-5 rounded-full transition-all duration-300 flex items-center justify-center gap-3"
                             >
-                                <Phone className="w-5 h-5" />
+                                <Phone className="text-brand-orange w-6 h-6" />
                                 (832) 793-6566
-                            </a>
+                            </Link>
                         </div>
                     </div>
                 </section>

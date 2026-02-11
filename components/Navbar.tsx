@@ -38,7 +38,7 @@ export function Navbar() {
 
                     {/* Desktop Navigation: Increased spacing and font size */}
                     <div className="hidden lg:block">
-                        <div className="ml-10 flex items-center space-x-12">
+                        <div className="ml-10 flex items-center space-x-6">
                             {navLinks.map((link) => (
                                 <Link
                                     key={link.name}

@@ -80,21 +80,21 @@ export default function CommercialPage() {
                             <p className="text-xl text-slate-300 mb-10 max-w-2xl leading-relaxed">
                                 We help businesses remove junk quickly with reliable scheduling and upfront pricing. Ideal for property managers, contractors, offices, and retail.
                             </p>
-                            <div className="flex flex-col sm:flex-row gap-4">
+                            <div className="flex flex-col sm:flex-row gap-6">
                                 <Link
                                     href="/get-started"
-                                    className="flex items-center justify-center bg-brand-orange hover:bg-orange-500 text-white px-8 py-4 rounded-lg font-bold text-lg transition-all shadow-lg uppercase tracking-wide"
+                                    className="flex items-center justify-center bg-brand-orange hover:bg-orange-600 text-white px-10 py-5 rounded-full font-bold text-xl transition-all shadow-2xl shadow-orange-900/30 uppercase tracking-wide gap-3"
                                 >
-                                    <Camera className="w-5 h-5 mr-2" />
+                                    <Camera className="w-6 h-6" />
                                     Get A Quote
                                 </Link>
-                                <a
-                                    href="tel:+18327936566"
-                                    className="flex items-center justify-center bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-sm px-8 py-4 rounded-lg font-bold text-lg transition-all uppercase tracking-wide"
+                                <Link
+                                    href="tel:8327936566"
+                                    className="flex items-center justify-center bg-transparent border-2 border-white text-white hover:bg-white hover:text-slate-900 px-10 py-5 rounded-full font-bold text-xl transition-all duration-300 gap-3"
                                 >
-                                    <Phone className="w-5 h-5 mr-2" />
+                                    <Phone className="text-brand-orange w-6 h-6" />
                                     (832) 793-6566
-                                </a>
+                                </Link>
                             </div>
                         </div>
                     </div>
@@ -160,8 +160,8 @@ export default function CommercialPage() {
                                     <h3 className="text-xl font-bold text-slate-900 uppercase mb-1">Upload Photos</h3>
                                     <p className="text-slate-500 text-sm">For an instant price estimate</p>
                                 </Link>
-                                <a
-                                    href="tel:+18327936566"
+                                <Link
+                                    href="tel:8327936566"
                                     className="group bg-slate-900 hover:bg-slate-800 rounded-xl p-6 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1 flex flex-col items-center"
                                 >
                                     <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mb-4 group-hover:bg-white/20 transition-colors">
@@ -169,7 +169,7 @@ export default function CommercialPage() {
                                     </div>
                                     <h3 className="text-xl font-bold text-white uppercase mb-1">Call For Site Visit</h3>
                                     <p className="text-slate-400 text-sm">Schedule a free on-site assessment</p>
-                                </a>
+                                </Link>
                             </div>
                         </div>
                     </div>

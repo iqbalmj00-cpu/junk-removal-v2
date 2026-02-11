@@ -144,17 +144,21 @@ export default function ItemsWeTakePage() {
                                     Don&apos;t guess. Text us a photo of your junk pile and we&apos;ll confirm instantly if we can take it — and give you a rough estimate.
                                 </p>
                             </div>
-                            <div className="flex-shrink-0 text-center">
+                            <div className="flex flex-col sm:flex-row items-center gap-6">
                                 <Link
                                     href="/get-started"
-                                    className="bg-brand-orange hover:bg-orange-500 text-white font-bold py-4 px-8 rounded-lg shadow-lg transition-all transform hover:scale-105 flex items-center gap-3 text-lg"
+                                    className="bg-brand-orange hover:bg-orange-600 text-white font-bold py-5 px-10 rounded-full shadow-2xl shadow-orange-900/30 transition-all flex items-center gap-3 text-xl"
                                 >
-                                    <MessageSquare className="w-5 h-5" />
+                                    <MessageSquare className="w-6 h-6" />
                                     SEND A PHOTO
                                 </Link>
-                                <p className="mt-3 text-sm text-slate-400 font-medium">
-                                    Or call <a href="tel:+18327936566" className="text-white hover:text-brand-orange transition-colors">(832) 793-6566</a>
-                                </p>
+                                <Link
+                                    href="tel:8327936566"
+                                    className="bg-transparent border-2 border-white text-white hover:bg-white hover:text-slate-900 font-bold py-5 px-10 rounded-full transition-all duration-300 flex items-center gap-3 text-xl"
+                                >
+                                    <Phone className="text-brand-orange w-6 h-6" />
+                                    (832) 793-6566
+                                </Link>
                             </div>
                         </div>
                     </div>

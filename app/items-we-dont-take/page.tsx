@@ -117,13 +117,22 @@ export default function ItemsWeDontTakePage() {
                                 <p className="text-slate-500 mb-6 max-w-2xl mx-auto">
                                     If you have something that isn&apos;t on this list but looks questionable, give us a call. We&apos;re happy to clarify!
                                 </p>
-                                <Link
-                                    href="/contact"
-                                    className="inline-flex items-center gap-2 bg-brand-orange hover:bg-orange-500 text-white px-8 py-4 rounded-lg font-bold uppercase tracking-wider shadow-lg transition-transform transform hover:-translate-y-1"
-                                >
-                                    <Phone className="w-4 h-4" />
-                                    Have Questions? Contact Us
-                                </Link>
+                                <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                                    <Link
+                                        href="/contact"
+                                        className="inline-flex items-center gap-3 bg-brand-orange hover:bg-orange-600 text-white px-10 py-5 rounded-full font-bold text-xl shadow-2xl shadow-orange-900/30 transition-all"
+                                    >
+                                        <Phone className="w-6 h-6" />
+                                        Contact Us
+                                    </Link>
+                                    <Link
+                                        href="tel:8327936566"
+                                        className="inline-flex items-center gap-3 bg-transparent border-2 border-slate-900 text-slate-900 hover:bg-slate-900 hover:text-white px-10 py-5 rounded-full font-bold text-xl transition-all duration-300"
+                                    >
+                                        <Phone className="text-brand-orange w-6 h-6" />
+                                        (832) 793-6566
+                                    </Link>
+                                </div>
                             </div>
                         </div>
                     </div>

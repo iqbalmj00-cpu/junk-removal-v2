@@ -71,21 +71,21 @@ export default async function LocationPage({ params }: { params: Promise<{ slug:
                             <p className="text-xl text-slate-300 max-w-2xl leading-relaxed mb-8">
                                 {location.heroDescription}
                             </p>
-                            <div className="flex flex-col sm:flex-row gap-4">
+                            <div className="flex flex-col sm:flex-row gap-6">
                                 <Link
                                     href="/get-started"
-                                    className="flex items-center justify-center bg-brand-orange hover:bg-orange-500 text-white px-8 py-4 rounded-lg font-bold text-lg transition-all shadow-lg uppercase tracking-wide"
+                                    className="flex items-center justify-center bg-brand-orange hover:bg-orange-600 text-white px-10 py-5 rounded-full font-bold text-xl transition-all shadow-2xl shadow-orange-900/30 uppercase tracking-wide gap-3"
                                 >
-                                    <Truck className="w-5 h-5 mr-2" />
+                                    <Truck className="w-6 h-6" />
                                     Get A Free Quote
                                 </Link>
-                                <a
-                                    href="tel:+18327936566"
-                                    className="flex items-center justify-center bg-white/10 hover:bg-white/20 text-white border border-white/20 backdrop-blur-sm px-8 py-4 rounded-lg font-bold text-lg transition-all"
+                                <Link
+                                    href="tel:8327936566"
+                                    className="flex items-center justify-center bg-transparent border-2 border-white text-white hover:bg-white hover:text-slate-900 px-10 py-5 rounded-full font-bold text-xl transition-all duration-300 gap-3"
                                 >
-                                    <Phone className="w-5 h-5 mr-2" />
+                                    <Phone className="text-brand-orange w-6 h-6" />
                                     (832) 793-6566
-                                </a>
+                                </Link>
                             </div>
                         </div>
                     </div>
@@ -215,21 +215,21 @@ export default async function LocationPage({ params }: { params: Promise<{ slug:
                         <p className="text-slate-300 text-lg mb-10 max-w-2xl mx-auto">
                             Upload a photo of your junk and get a fast, guaranteed price — or call us for an instant estimate.
                         </p>
-                        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                        <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
                             <Link
                                 href="/get-started"
-                                className="w-full sm:w-auto bg-brand-orange hover:bg-orange-500 text-white text-lg font-bold px-8 py-4 rounded-lg shadow-lg transition-all flex items-center justify-center gap-2"
+                                className="w-full sm:w-auto bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold px-10 py-5 rounded-full shadow-2xl shadow-orange-900/30 transition-all flex items-center justify-center gap-3"
                             >
-                                <Truck className="w-5 h-5" />
+                                <Truck className="w-6 h-6" />
                                 Get Instant Quote
                             </Link>
-                            <a
-                                href="tel:+18327936566"
-                                className="w-full sm:w-auto bg-transparent border-2 border-slate-500 hover:border-white text-white font-semibold px-8 py-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                            <Link
+                                href="tel:8327936566"
+                                className="w-full sm:w-auto bg-transparent border-2 border-white text-white hover:bg-white hover:text-slate-900 text-xl font-bold px-10 py-5 rounded-full transition-all duration-300 flex items-center justify-center gap-3"
                             >
-                                <Phone className="w-5 h-5" />
+                                <Phone className="text-brand-orange w-6 h-6" />
                                 (832) 793-6566
-                            </a>
+                            </Link>
                         </div>
                     </div>
                 </section>

@@ -214,21 +214,21 @@ export default function ReviewsPage() {
                         <p className="text-slate-300 text-lg mb-10 max-w-2xl mx-auto">
                             Skip the on-site visit. Snap a picture of your junk pile, upload it, and we&apos;ll send you a guaranteed price within 15 minutes.
                         </p>
-                        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                        <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
                             <Link
                                 href="/get-started"
-                                className="w-full sm:w-auto bg-brand-orange hover:bg-orange-500 text-white text-lg font-bold px-8 py-4 rounded-lg shadow-lg transition-all flex items-center justify-center gap-3"
+                                className="w-full sm:w-auto bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold px-10 py-5 rounded-full shadow-2xl shadow-orange-900/30 transition-all flex items-center justify-center gap-3"
                             >
-                                <Camera className="w-5 h-5" />
+                                <Camera className="w-6 h-6" />
                                 GET INSTANT QUOTE
                             </Link>
-                            <a
-                                href="tel:+18327936566"
-                                className="w-full sm:w-auto bg-transparent border-2 border-slate-500 hover:border-white text-white font-semibold px-8 py-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+                            <Link
+                                href="tel:8327936566"
+                                className="w-full sm:w-auto bg-transparent border-2 border-white text-white hover:bg-white hover:text-slate-900 text-xl font-bold px-10 py-5 rounded-full transition-all duration-300 flex items-center justify-center gap-3"
                             >
-                                <Phone className="w-5 h-5" />
-                                Call (832) 793-6566
-                            </a>
+                                <Phone className="text-brand-orange w-6 h-6" />
+                                (832) 793-6566
+                            </Link>
                         </div>
                     </div>
                 </section>
