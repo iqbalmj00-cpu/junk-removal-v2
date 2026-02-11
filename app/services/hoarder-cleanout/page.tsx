@@ -138,7 +138,7 @@ export default function HoarderCleanoutPage() {
                             { icon: Trash2, title: "Biohazard & Sanitation", desc: "We are equipped to handle hazardous materials, pests, mold, and deep grime, ensuring the property is safe for habitation." },
                             { icon: Search, title: "Valuables Recovery", desc: "We meticulously sort through clutter to locate lost documents, heirlooms, photos, and valuables, returning them safely to you." },
                             { icon: Recycle, title: "Sustainable Disposal", desc: "We prioritize donation and recycling. Items in good condition are donated to local charities, minimizing landfill impact." },
-                            { icon: Hammer, title: "Minor Repairs", desc: "After the clear-out, we can assist with minor drywall repairs, painting prep, and carpet removal to get the home ready for sale or living.", href: "/commercial/foreclosure-cleanout" }
+                            { icon: Hammer, title: "Minor Repairs", desc: "After the clear-out, we can assist with minor drywall repairs, painting prep, and carpet removal to get the home ready for sale or living.", href: "/services/foreclosure-cleanout" }
                         ].map((item, i) => (
                             <div key={i} className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow flex flex-col items-start border border-slate-100">
                                 <div className="p-3 bg-orange-50 rounded-lg mb-4">

@@ -37,7 +37,7 @@ const serviceCategories = [
             { name: "Estate Cleanouts", href: "/services/estate-cleanout" },
             { name: "Garage Cleanouts", href: "/services/garage-cleanout" },
             { name: "Hoarding Cleanouts", href: "/services/hoarder-cleanout" },
-            { name: "Foreclosure", href: "/commercial/foreclosure-cleanout" }
+            { name: "Foreclosure", href: "/services/foreclosure-cleanout" }
         ]
     },
     {

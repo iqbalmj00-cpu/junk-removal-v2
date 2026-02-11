@@ -15,7 +15,8 @@ import {
     Zap,
     PowerOff,
     Dumbbell,
-    Leaf
+    Leaf,
+    ShieldCheck
 } from "lucide-react";
 import Link from "next/link";
 import { Metadata } from "next";
