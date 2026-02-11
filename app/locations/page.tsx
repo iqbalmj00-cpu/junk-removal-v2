@@ -4,6 +4,16 @@ import { locations } from '@/lib/locationData';
 import { MapPin, ArrowRight, Phone, Truck, Shield, Clock } from 'lucide-react';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
+import dynamic from 'next/dynamic';
+
+const CoverageMap = dynamic(() => import('@/components/CoverageMap'), {
+    ssr: false,
+    loading: () => (
+        <div className="w-full h-full min-h-[400px] bg-slate-200 animate-pulse flex items-center justify-center">
+            <span className="text-slate-400 font-medium">Loading map...</span>
+        </div>
+    ),
+});
 
 export const metadata: Metadata = {
     title: 'Service Locations | Clean Sweep Junk Removal',
@@ -118,15 +128,8 @@ export default function LocationsPage() {
                                     ))}
                                 </ul>
                             </div>
-                            <div className="lg:w-2/3 h-80 lg:h-auto relative bg-slate-200 min-h-[400px]">
-                                <iframe
-                                    title="Clean Sweep Houston Coverage Map"
-                                    src="https://www.google.com/maps/embed?pb=!1m14!1m12!1m3!1d443088.839889!2d-95.5!3d29.76!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!5e0!3m2!1sen!2sus!4v1707600000000!5m2!1sen!2sus"
-                                    className="w-full h-full absolute inset-0 border-0"
-                                    allowFullScreen
-                                    loading="lazy"
-                                    referrerPolicy="no-referrer-when-downgrade"
-                                />
+                            <div className="lg:w-2/3 h-80 lg:h-auto relative bg-slate-200 min-h-[400px] overflow-hidden rounded-r-2xl">
+                                <CoverageMap />
                             </div>
                         </div>
                     </div>
