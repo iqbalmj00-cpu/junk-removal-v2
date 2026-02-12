@@ -1,9 +1,15 @@
+import { Metadata } from 'next';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Briefcase, Recycle, Tag, Cog, ArrowRight, Settings } from 'lucide-react';
+
+export const metadata: Metadata = {
+    title: 'About Us | Clean Sweep Junk Removal Houston',
+    description: 'Meet the Clean Sweep team. Locally owned junk removal in Houston, TX. Eco-friendly disposal, donation-first approach, and a commitment to our community.',
+};
 
 export default function AboutPage() {
     return (

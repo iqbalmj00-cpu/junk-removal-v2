@@ -7,8 +7,8 @@ import GoogleAnalytics from "@/components/GoogleAnalytics";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Junk Removal App",
-  description: "Clean simple junk removal",
+  title: "Clean Sweep Junk Removal Houston | Same-Day Pickup & Eco-Friendly Disposal",
+  description: "Professional junk removal in Houston, TX. Furniture, appliances, yard waste, full cleanouts. Upfront pricing, same-day service, eco-friendly disposal. Call (832) 793-6566.",
 };
 
 export default function RootLayout({
@@ -40,22 +40,14 @@ export default function RootLayout({
         <Script id="dashboard-tracking" strategy="afterInteractive">
           {`
             (function() {
-              var DASHBOARD = "https://scaleyourjunk.vercel.app";
-              var API_KEY = "bc47077cec5a30d12dfb961d5b8980125d3b4e02eba9b8728b3ce03cc7290a86";
-              var SITE_TOKEN = "2e9fefa7-4741-46b1-81a5-5d4800f2adfa";
-              var headers = {
-                "Content-Type": "application/json",
-                "x-api-key": API_KEY,
-                "x-site-token": SITE_TOKEN
-              };
-              function post(endpoint, data) {
-                fetch(DASHBOARD + endpoint, {
+              function post(type, data) {
+                fetch("/api/track", {
                   method: "POST",
-                  headers: headers,
-                  body: JSON.stringify(data)
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(Object.assign({ type: type }, data))
                 }).catch(function(err) { console.error("SYJ track error:", err); });
               }
-              post("/api/ingest/website-event", {
+              post("event", {
                 event: "page_view",
                 page: window.location.pathname
               });
@@ -64,18 +56,18 @@ export default function RootLayout({
                 if (!el) return;
                 var action = el.getAttribute("data-track");
                 if (["book_now_click", "book_now", "quote_upload", "booking_finalized"].indexOf(action) > -1) {
-                  post("/api/ingest/website-event", { event: action === "book_now" ? "book_now_click" : action, page: window.location.pathname });
+                  post("event", { event: action === "book_now" ? "book_now_click" : action, page: window.location.pathname });
                 }
               });
               window.syj = window.syj || {};
               window.syj.track = function(event, page, metadata) {
-                post("/api/ingest/website-event", { event: event, page: page || window.location.pathname, metadata: metadata || {} });
+                post("event", { event: event, page: page || window.location.pathname, metadata: metadata || {} });
               };
               window.syj.sendLead = function(data) {
-                post("/api/ingest/lead", data);
+                post("lead", data);
               };
               window.syj.sendQuote = function(data) {
-                post("/api/ingest/quote", data);
+                post("quote", data);
               };
             })();
           `}

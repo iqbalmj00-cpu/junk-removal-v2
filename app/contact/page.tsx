@@ -1,7 +1,13 @@
+import { Metadata } from 'next';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
-import { Button } from '@/components/ui/Button';
-import { Mail, Phone, MapPin, Clock, Send, CheckCircle } from 'lucide-react';
+import { ContactForm } from '@/components/ContactForm';
+import { Mail, Phone, MapPin, Clock, CheckCircle } from 'lucide-react';
+
+export const metadata: Metadata = {
+    title: 'Contact Us | Clean Sweep Junk Removal Houston',
+    description: 'Get in touch with Clean Sweep. Call (832) 793-6566 or fill out our contact form. Same-day junk removal in the Greater Houston area.',
+};
 
 export default function ContactPage() {
     return (
@@ -35,60 +41,7 @@ export default function ContactPage() {
                                     <h3 className="text-2xl font-bold text-slate-900">Send a Message</h3>
                                 </div>
 
-                                <form className="space-y-8">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                        <div>
-                                            <label className="block text-sm font-bold text-slate-700 mb-3">Full Name</label>
-                                            <input
-                                                type="text"
-                                                className="w-full h-14 px-5 rounded-xl bg-slate-50 border border-slate-200 focus:border-brand-orange focus:ring-brand-orange outline-none transition-colors text-lg"
-                                                placeholder="John Doe"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-bold text-slate-700 mb-3">Email Address</label>
-                                            <input
-                                                type="email"
-                                                className="w-full h-14 px-5 rounded-xl bg-slate-50 border border-slate-200 focus:border-brand-orange focus:ring-brand-orange outline-none transition-colors text-lg"
-                                                placeholder="john@example.com"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                        <div>
-                                            <label className="block text-sm font-bold text-slate-700 mb-3">Phone Number</label>
-                                            <input
-                                                type="tel"
-                                                className="w-full h-14 px-5 rounded-xl bg-slate-50 border border-slate-200 focus:border-brand-orange focus:ring-brand-orange outline-none transition-colors text-lg"
-                                                placeholder="(832) 793-6566"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-bold text-slate-700 mb-3">Service Type</label>
-                                            <select className="w-full h-14 px-5 rounded-xl bg-slate-50 border border-slate-200 focus:border-brand-orange focus:ring-brand-orange outline-none transition-colors text-slate-600 text-lg">
-                                                <option>General Junk Removal</option>
-                                                <option>Furniture Removal</option>
-                                                <option>Construction Debris</option>
-                                                <option>Appliance Disposal</option>
-                                                <option>Cleanout Service</option>
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-sm font-bold text-slate-700 mb-3">How Can We Help?</label>
-                                        <textarea
-                                            rows={6}
-                                            className="w-full p-5 rounded-xl bg-slate-50 border border-slate-200 focus:border-brand-orange focus:ring-brand-orange outline-none transition-colors text-lg"
-                                            placeholder="Tell us about what you need removed..."
-                                        />
-                                    </div>
-
-                                    <Button className="w-full h-16 bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold shadow-xl shadow-orange-900/20 rounded-full">
-                                        SEND MESSAGE <Send className="ml-3" size={24} />
-                                    </Button>
-                                </form>
+                                <ContactForm />
                             </div>
                         </div>
 

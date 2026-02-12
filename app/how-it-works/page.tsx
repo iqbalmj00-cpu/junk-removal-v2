@@ -1,10 +1,14 @@
-'use client';
-
+import { Metadata } from 'next';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
 import { ArrowRight, Truck, Calendar, CheckCircle, Box, Users, Recycle, Receipt, Camera, Star } from 'lucide-react';
 import Link from 'next/link';
+
+export const metadata: Metadata = {
+    title: 'How It Works | Clean Sweep Junk Removal Houston',
+    description: 'Simple 3-step process: snap a photo, get an instant quote, and we haul it away. Same-day junk removal in Houston with upfront pricing.',
+};
 
 export default function HowItWorksPage() {
     return (

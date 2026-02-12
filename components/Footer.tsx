@@ -37,6 +37,7 @@ export function Footer() {
                             <li><Link href="/services/garage-cleanout" className="text-slate-300 hover:text-white transition-colors">Garage Cleanouts</Link></li>
                             <li><Link href="/services/appliance-removal" className="text-slate-300 hover:text-white transition-colors">Appliance Disposal</Link></li>
                             <li><Link href="/services/shed-demolition" className="text-slate-300 hover:text-white transition-colors">Shed Demolition</Link></li>
+                            <li><Link href="/services/storage-unit-cleanout" className="text-slate-300 hover:text-white transition-colors">Storage Unit Cleanout</Link></li>
                         </ul>
                     </div>
 

@@ -1,11 +1,15 @@
-'use client';
-
+import { Metadata } from 'next';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Search, Calendar, User, ArrowRight, ArrowLeft } from 'lucide-react';
+
+export const metadata: Metadata = {
+    title: 'Blog | Clean Sweep Junk Removal Houston',
+    description: 'Tips, guides, and news about junk removal in Houston. Learn about recycling, decluttering, and eco-friendly disposal from the Clean Sweep team.',
+};
 
 // Reusable Blog Post Card
 const BlogPostCard = ({
