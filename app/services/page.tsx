@@ -4,7 +4,7 @@ import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
 import Link from 'next/link';
-import { ArrowRight, FileText, Ban, ShieldCheck, MapPin, Building2, Sofa, Tv, Monitor, Construction, Leaf, Home, ChevronUp, ChevronDown } from 'lucide-react';
+import { ArrowRight, FileText, Ban, ShieldCheck, MapPin, Building2, Sofa, Tv, Monitor, Construction, Leaf, Home, ChevronUp, ChevronDown, BedDouble, Warehouse, Heart, Landmark, Package, Flame, Hammer, Fence, Briefcase } from 'lucide-react';
 import { useState } from 'react';
 
 // --- SERVICE CARD COMPONENT ---
@@ -79,38 +79,101 @@ export default function ServicesPage() {
         },
         {
             icon: <Tv size={36} />,
-            title: "Appliance Recycling",
-            slug: "appliance-recycling",
+            title: "Appliance Removal",
+            slug: "appliance-removal",
             description: "Responsible disposal of fridges, washers, dryers, and ovens.",
             fullDescription: "Old appliances often contain hazardous chemicals like freon that require specialized handling. We partner with certified recycling facilities to ensure these materials are extracted safely before the metal is scrapped, keeping our community safe and compliant."
         },
         {
             icon: <Monitor size={36} />,
-            title: "E-Waste Disposal",
-            slug: "e-waste-disposal",
+            title: "E-Waste Recycling",
+            slug: "e-waste-recycling",
             description: "Secure and eco-friendly disposal for computers, monitors, printers, and TVs.",
             fullDescription: "Electronic waste is a growing global problem. We ensure your old devices are stripped for valuable components like copper and gold, while hazardous elements like lead and mercury are responsibly contained. Your data privacy is respected throughout the process."
         },
         {
-            icon: <Construction size={36} />,
-            title: "Construction Debris",
-            slug: "construction-debris",
-            description: "Fast cleanup for renovation sites. We take drywall, wood, tiles, flooring, and roofing.",
-            fullDescription: "Whether you're a DIY enthusiast or a professional contractor, job site debris can slow you down. We offer scheduled pickups to keep your workspace clear, ensuring safety and compliance with local disposal regulations for heavier construction materials."
+            icon: <BedDouble size={36} />,
+            title: "Mattress Disposal",
+            slug: "mattress-disposal",
+            description: "We pick up mattresses and box springs of any size — king, queen, twin, and more.",
+            fullDescription: "Curbside pickup won't take mattresses and they don't fit in your car. Our crew handles all the heavy lifting, including navigating tight hallways and staircases. Mattresses in good condition are donated, and the rest goes to certified recycling facilities."
         },
         {
             icon: <Leaf size={36} />,
-            title: "Yard Waste",
-            slug: "yard-waste",
+            title: "Yard Waste Removal",
+            slug: "yard-waste-removal",
             description: "Seasonal cleanup made easy. Branches, leaves, dirt, mulch, and small trees removed.",
             fullDescription: "From storm cleanup to annual landscaping projects, organic waste can pile up fast. We compost the majority of yard waste we collect, turning your old branches and clippings into nutrient-rich soil for local parks and gardens."
         },
         {
+            icon: <Construction size={36} />,
+            title: "Construction Debris Removal",
+            slug: "construction-debris-removal",
+            description: "Fast cleanup for renovation sites. We take drywall, wood, tiles, flooring, and roofing.",
+            fullDescription: "Whether you're a DIY enthusiast or a professional contractor, job site debris can slow you down. We offer scheduled pickups to keep your workspace clear, ensuring safety and compliance with local disposal regulations for heavier construction materials."
+        },
+        {
             icon: <Home size={36} />,
-            title: "Cleanouts",
-            slug: "cleanouts",
+            title: "Estate Cleanouts",
+            slug: "estate-cleanout",
             description: "Total property cleanouts for garages, attics, basements, and estates.",
             fullDescription: "Dealing with a hoard or an estate cleanout can be emotional and overwhelming. Our compassionate team handles these respectful large-scale jobs with discretion and efficiency, sorting items for donation, recycling, and disposal to get the property ready for its next chapter."
+        },
+        {
+            icon: <Warehouse size={36} />,
+            title: "Garage Cleanout",
+            slug: "garage-cleanout",
+            description: "Can't park in your garage anymore? We clear decades of accumulated clutter.",
+            fullDescription: "Over the years, holiday decorations, old furniture, broken tools, and forgotten boxes pile up. Our crew removes everything you point to, donating usable items and recycling what we can. Most single-car garage cleanouts are completed in 2-3 hours."
+        },
+        {
+            icon: <Heart size={36} />,
+            title: "Hoarder Cleanout",
+            slug: "hoarder-cleanout",
+            description: "Compassionate, non-judgmental cleanout services for hoarding situations.",
+            fullDescription: "Our crews are trained to work with patience and discretion. We work at the homeowner's pace, carefully setting aside sentimental items. Our service is fully confidential — we use unmarked vehicles and maintain complete privacy."
+        },
+        {
+            icon: <Landmark size={36} />,
+            title: "Foreclosure Cleanout",
+            slug: "foreclosure-cleanout",
+            description: "Fast property clearing for banks, REO companies, and property managers.",
+            fullDescription: "We remove all contents, sweep and clean the property, and haul everything away in a single visit. Most properties are cleared and ready to list within 24 hours. Volume pricing available for portfolios of multiple properties."
+        },
+        {
+            icon: <Package size={36} />,
+            title: "Storage Unit Cleanout",
+            slug: "storage-unit-cleanout",
+            description: "Stop paying rent on stuff you don't need. We clear units of any size.",
+            fullDescription: "We handle units from 5x5 lockers to 10x30 warehouse-style units. Our crew loads everything directly into our truck, sorting donations and recyclables. Most units are cleared in under 2 hours — you don't even need to be present."
+        },
+        {
+            icon: <Flame size={36} />,
+            title: "Hot Tub Removal",
+            slug: "hot-tub-removal",
+            description: "We safely disconnect, disassemble, and haul away your old hot tub or spa.",
+            fullDescription: "Our crew handles the full process: disconnecting electrical and water lines, draining the tub, disassembling it when needed, and hauling everything away. Acrylic, wood, and metal components are recycled wherever possible."
+        },
+        {
+            icon: <Hammer size={36} />,
+            title: "Shed Demolition",
+            slug: "shed-demolition",
+            description: "We demolish and haul away old sheds, playsets, and outdoor structures.",
+            fullDescription: "We dismantle wood, metal, and vinyl sheds of all sizes. Everything is broken down and hauled to recycling or disposal facilities. We also remove concrete pads, playsets, pergolas, fencing, and other yard structures."
+        },
+        {
+            icon: <Fence size={36} />,
+            title: "Deck Removal",
+            slug: "deck-removal",
+            description: "We tear down old wood and composite decks and haul everything away.",
+            fullDescription: "We remove decks of all sizes, from small porches to large multi-level structures. Our crew carefully dismantles boards, railing, stairs, and support posts. Concrete footings removed on request. Site left clean and level."
+        },
+        {
+            icon: <Briefcase size={36} />,
+            title: "Office Furniture Removal",
+            slug: "office-furniture-removal",
+            description: "Cubicles, desks, chairs, filing cabinets, and full office cleanouts.",
+            fullDescription: "We work evenings and weekends to minimize disruption to your business. Our crews disassemble cubicle systems, remove heavy conference tables, and clear entire floors. Usable furniture is donated to Houston nonprofits and schools."
         }
     ];
 

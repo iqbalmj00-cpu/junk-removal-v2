@@ -6,8 +6,18 @@ import { Truck, Phone, ArrowRight, ChevronDown, ChevronUp, CheckCircle, Camera }
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 
+// Slugs with dedicated /services/<name>/page.tsx files — exclude from static generation
+const DEDICATED_PAGES = new Set([
+    'furniture-removal', 'appliance-removal', 'e-waste-recycling',
+    'estate-cleanout', 'foreclosure-cleanout', 'garage-cleanout',
+    'hoarder-cleanout', 'mattress-disposal', 'storage-unit-cleanout',
+    'yard-waste-removal',
+]);
+
 export async function generateStaticParams() {
-    return services.map((svc) => ({ slug: svc.slug }));
+    return services
+        .filter((svc) => !DEDICATED_PAGES.has(svc.slug))
+        .map((svc) => ({ slug: svc.slug }));
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
