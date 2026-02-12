@@ -5,7 +5,7 @@ export default function robots(): MetadataRoute.Robots {
         rules: {
             userAgent: '*',
             allow: '/',
-            disallow: ['/api/', '/booking-details', '/booking-confirmed'],
+            disallow: ['/api/', '/booking-details', '/booking-confirmed', '/thank-you'],
         },
         sitemap: 'https://jamals-junk-v2.vercel.app/sitemap.xml',
     };

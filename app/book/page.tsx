@@ -7,7 +7,7 @@ import { Footer } from '@/components/Footer';
 import { Button } from '@/components/ui/Button';
 import { UploadCloud, CheckCircle, ArrowRight, Loader2, Calendar, User, Phone, MapPin, Mail, Building, ArrowUp, Bell, Receipt, Info, Camera, XCircle } from 'lucide-react';
 import Link from 'next/link';
-// v6.7.2: Removed browser-image-compression - now uploading original files directly
+import imageCompression from 'browser-image-compression';
 import exifr from 'exifr';
 import { trackEvent, trackQuote } from '@/lib/tracking';
 
@@ -406,10 +406,58 @@ function BookPageContent() {
 
     const handleBook = async (e: React.FormEvent) => {
         e.preventDefault();
-        setLoadingState({ title: 'FINALIZING BOOKING...', subtitle: 'Securing your appointment time...' });
-        setView('analyzing'); // Reuse spinner
+        setView('analyzing');
 
         try {
+            // --- STEP 1: Compress & Upload images to Vercel Blob ---
+            let imageUrls: string[] = [];
+            if (bookingData.selectedImages.length > 0) {
+                setLoadingState({ title: 'UPLOADING PHOTOS...', subtitle: 'Compressing and uploading images...' });
+                const compressed: File[] = [];
+                for (const file of bookingData.selectedImages) {
+                    try {
+                        const c = await imageCompression(file, { maxSizeMB: 0.5, maxWidthOrHeight: 1920, useWebWorker: true });
+                        compressed.push(c);
+                    } catch { compressed.push(file); }
+                }
+                const uploadForm = new FormData();
+                compressed.forEach(f => uploadForm.append('files', f));
+                const uploadRes = await fetch('/api/upload-images', { method: 'POST', body: uploadForm });
+                if (uploadRes.ok) {
+                    const uploadData = await uploadRes.json();
+                    imageUrls = uploadData.urls || [];
+                    console.log(`[CRM] ${imageUrls.length} images uploaded`);
+                }
+            }
+
+            // --- STEP 2: Submit to CRM ---
+            setLoadingState({ title: 'SUBMITTING TO CRM...', subtitle: 'Creating your lead...' });
+            let crmLeadId = '';
+            try {
+                const crmRes = await fetch('/api/crm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: bookingData.fullName,
+                        phone: bookingData.phone,
+                        email: bookingData.email,
+                        address: bookingData.address,
+                        description: `Volume: ${grandTotal.volume.toFixed(1)} yd³`,
+                        image_urls: imageUrls,
+                        website_honeypot: '',
+                    }),
+                });
+                if (crmRes.ok) {
+                    const crmData = await crmRes.json();
+                    crmLeadId = crmData.leadId || '';
+                    console.log('[CRM] Lead created:', crmLeadId);
+                }
+            } catch (crmErr) {
+                console.error('[CRM] Submission failed (continuing with Sheets):', crmErr);
+            }
+
+            // --- STEP 3: Dual-write to Google Sheets + Calendar ---
+            setLoadingState({ title: 'FINALIZING BOOKING...', subtitle: 'Securing your appointment time...' });
             const response = await fetch('/api/book-appointment', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -430,10 +478,10 @@ function BookPageContent() {
             console.log('Booking response:', data);
 
             if (data.success) {
-                setView('success');
                 // Track booking confirmed
                 trackEvent('booking_confirmed', '/book', {
                     bookingId: data.bookingId,
+                    crmLeadId,
                     leadId: searchParams.get('leadId'),
                     date: bookingData.date,
                     time: bookingData.timeSlot,
@@ -450,12 +498,22 @@ function BookPageContent() {
                         notes: 'Booking confirmed',
                     });
                 }
+
+                // Redirect to thank-you page
+                const params = new URLSearchParams({
+                    bookingId: data.bookingId,
+                    date: bookingData.date,
+                    time: bookingData.timeSlot,
+                    address: bookingData.address,
+                    name: bookingData.fullName,
+                });
+                router.push(`/thank-you?${params.toString()}`);
             } else {
                 throw new Error(data.error || 'Booking failed');
             }
         } catch (error: any) {
             console.error('Booking error:', error);
-            alert('Booking failed. Please try again or call us at (832) 793-6566.');
+            alert('We could not process your request automatically. Please call us at (832) 793-6566.');
             setView('scheduler');
         }
     };
@@ -978,6 +1036,7 @@ function BookPageContent() {
                     initialEmail={searchParams.get('email') || ''}
                     initialPhone={searchParams.get('phone') || ''}
                     leadId={searchParams.get('leadId') || ''}
+                    images={bookingData.selectedImages}
                 />
             </main>
 
