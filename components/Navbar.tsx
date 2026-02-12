@@ -62,7 +62,8 @@ export function Navbar() {
     const pathname = usePathname();
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
-    const dropdownRef = useRef<HTMLDivElement>(null);
+    const servicesDropdownRef = useRef<HTMLDivElement>(null);
+    const locationsDropdownRef = useRef<HTMLDivElement>(null);
 
     const navLinks = [
         { name: 'Home', href: '/' },
@@ -80,7 +81,10 @@ export function Navbar() {
     // Close dropdown when clicking outside
     useEffect(() => {
         function handleClickOutside(event: MouseEvent) {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+            const target = event.target as Node;
+            const insideServices = servicesDropdownRef.current?.contains(target);
+            const insideLocations = locationsDropdownRef.current?.contains(target);
+            if (!insideServices && !insideLocations) {
                 setActiveDropdown(null);
             }
         }
@@ -113,7 +117,7 @@ export function Navbar() {
                         <div className="flex items-center space-x-6">
                             {navLinks.map((link) => (
                                 link.hasDropdown ? (
-                                    <div key={link.name} className="relative" ref={dropdownRef}>
+                                    <div key={link.name} className="relative" ref={link.name === 'Services' ? servicesDropdownRef : locationsDropdownRef}>
                                         <button
                                             onClick={() => toggleDropdown(link.name)}
                                             className={`relative px-1 py-2 text-lg font-bold transition-colors duration-200 flex items-center gap-1
