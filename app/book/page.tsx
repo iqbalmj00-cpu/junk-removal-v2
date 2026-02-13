@@ -444,6 +444,7 @@ function BookPageContent() {
                         address: bookingData.address,
                         description: `Volume: ${grandTotal.volume.toFixed(1)} yd³`,
                         image_urls: imageUrls,
+                        requestedDate: bookingData.date,
                         website_honeypot: '',
                     }),
                 });

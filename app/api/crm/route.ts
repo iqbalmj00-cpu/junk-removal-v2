@@ -33,7 +33,7 @@ export async function POST(req: Request) {
         }
 
         // --- Build CRM payload (exact schema required) ---
-        const payload = {
+        const payload: Record<string, any> = {
             name: body.name || '',
             phone: body.phone || '',
             email: body.email || '',
@@ -43,6 +43,7 @@ export async function POST(req: Request) {
             image_urls: body.image_urls || [],
             website_honeypot: '',  // Always empty (we already checked above)
         };
+        if (body.requestedDate) payload.requestedDate = body.requestedDate;
 
         // --- Forward to CRM ---
         const response = await fetch(crmEndpoint, {

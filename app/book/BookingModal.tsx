@@ -109,6 +109,7 @@ export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails,
             address: formData.address,
             description: junkDetails,
             image_urls: imageUrls,
+            requestedDate: formData.date,
             website_honeypot: honeypot,
         };
 
