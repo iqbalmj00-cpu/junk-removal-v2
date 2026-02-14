@@ -14,12 +14,15 @@ import { NextResponse } from 'next/server';
 export async function GET() {
     const apiKey = process.env.INGEST_API_KEY;
     const siteToken = process.env.SITE_TOKEN || process.env.DASHBOARD_SITE_TOKEN;
+    const dashboardUrl = process.env.DASHBOARD_URL;
+    const crmEndpoint = `${dashboardUrl}/api/ingest/website`;
     const diagnostics: Record<string, any> = {
         timestamp: new Date().toISOString(),
         env_INGEST_API_KEY: apiKey ? `SET (${apiKey.length} chars, starts: ${apiKey.substring(0, 6)}...)` : '❌ NOT SET',
         env_SITE_TOKEN: siteToken ? `SET (${siteToken.length} chars, starts: ${siteToken.substring(0, 6)}...)` : '❌ NOT SET',
-        env_checked: 'SITE_TOKEN, DASHBOARD_SITE_TOKEN',
-        crmEndpoint: 'https://app.scaleyourjunk.com/api/ingest/website',
+        env_DASHBOARD_URL: dashboardUrl || '❌ NOT SET',
+        env_checked: 'SITE_TOKEN, DASHBOARD_SITE_TOKEN, DASHBOARD_URL',
+        crmEndpoint,
         testPayload: {
             name: 'CRM Test Lead',
             phone: '000-000-0000',
@@ -29,14 +32,14 @@ export async function GET() {
         },
     };
 
-    if (!apiKey || !siteToken) {
+    if (!apiKey || !siteToken || !dashboardUrl) {
         diagnostics.result = '❌ FAILED: Missing environment variables';
         return NextResponse.json(diagnostics, { status: 500 });
     }
 
     // Actually try to send a test lead
     try {
-        const response = await fetch('https://app.scaleyourjunk.com/api/ingest/website', {
+        const response = await fetch(crmEndpoint, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

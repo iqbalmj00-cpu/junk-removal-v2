@@ -22,16 +22,18 @@ export async function POST(req: Request) {
         // --- Credentials ---
         const apiKey = process.env.INGEST_API_KEY;
         const siteToken = process.env.SITE_TOKEN || process.env.DASHBOARD_SITE_TOKEN;
-        const crmEndpoint = 'https://app.scaleyourjunk.com/api/ingest/website';
+        const dashboardUrl = process.env.DASHBOARD_URL;
+        const crmEndpoint = `${dashboardUrl}/api/ingest/website`;
 
         console.log('[CRM] === Incoming Request ===');
         console.log('[CRM] Env INGEST_API_KEY:', apiKey ? `SET (${apiKey.length} chars)` : '❌ NOT SET');
         console.log('[CRM] Env SITE_TOKEN:', siteToken ? `SET (${siteToken.length} chars)` : '❌ NOT SET');
+        console.log('[CRM] Env DASHBOARD_URL:', dashboardUrl || '❌ NOT SET');
 
-        if (!apiKey || !siteToken) {
+        if (!apiKey || !siteToken || !dashboardUrl) {
             console.error('❌ CRM credentials not configured');
             return NextResponse.json(
-                { success: false, error: 'CRM credentials not configured' },
+                { success: false, error: 'CRM credentials not configured (missing INGEST_API_KEY, SITE_TOKEN, or DASHBOARD_URL)' },
                 { status: 500 }
             );
         }
