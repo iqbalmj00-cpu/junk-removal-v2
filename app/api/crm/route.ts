@@ -24,6 +24,10 @@ export async function POST(req: Request) {
         const siteToken = process.env.SITE_TOKEN;
         const crmEndpoint = 'https://app.scaleyourjunk.com/api/ingest/website';
 
+        console.log('[CRM] === Incoming Request ===');
+        console.log('[CRM] Env INGEST_API_KEY:', apiKey ? `SET (${apiKey.length} chars)` : '❌ NOT SET');
+        console.log('[CRM] Env SITE_TOKEN:', siteToken ? `SET (${siteToken.length} chars)` : '❌ NOT SET');
+
         if (!apiKey || !siteToken) {
             console.error('❌ CRM credentials not configured');
             return NextResponse.json(
@@ -45,6 +49,8 @@ export async function POST(req: Request) {
         };
         if (body.requestedDate) payload.requestedDate = body.requestedDate;
 
+        console.log('[CRM] Payload:', JSON.stringify(payload));
+
         // --- Forward to CRM ---
         const response = await fetch(crmEndpoint, {
             method: 'POST',
@@ -56,7 +62,12 @@ export async function POST(req: Request) {
             body: JSON.stringify(payload),
         });
 
-        const data = await response.json();
+        const responseText = await response.text();
+        console.log(`[CRM] Response status: ${response.status}`);
+        console.log(`[CRM] Response body: ${responseText}`);
+
+        let data: any;
+        try { data = JSON.parse(responseText); } catch { data = { raw: responseText }; }
 
         if (!response.ok) {
             console.error(`❌ CRM rejected request (${response.status}):`, data);
