@@ -15,8 +15,9 @@ import { trackEvent, trackQuote } from '@/lib/tracking';
 // --- Pricing Engine ---
 import { calculateJunkPrice } from '@/lib/pricingEngine';
 import BookingModal from "./BookingModal";
+import LiabilityWaiver from "./LiabilityWaiver";
 
-type ViewState = 'calculator' | 'analyzing' | 'receipt' | 'scheduler' | 'success';
+type ViewState = 'calculator' | 'analyzing' | 'receipt' | 'scheduler' | 'waiver' | 'success';
 
 interface BookingData {
     selectedImages: File[];
@@ -32,6 +33,7 @@ interface BookingData {
     phone: string;
     address: string;
     instructions: string;
+    signature: string;
 }
 
 function BookPageContent() {
@@ -49,7 +51,8 @@ function BookPageContent() {
         email: searchParams.get('email') || '',
         phone: searchParams.get('phone') || '',
         address: '',
-        instructions: ''
+        instructions: '',
+        signature: '',
     });
     const [loadingState, setLoadingState] = useState({ title: 'ANALYZING JUNK...', subtitle: 'Calculating volume and finding the best price.' });
     // Smart Validation State
@@ -404,8 +407,17 @@ function BookPageContent() {
         }
     };
 
-    const handleBook = async (e: React.FormEvent) => {
+    const handleSchedulerSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        setView('waiver');
+    };
+
+    const handleWaiverAccept = (signatureDataUrl: string) => {
+        setBookingData(prev => ({ ...prev, signature: signatureDataUrl }));
+        handleBook(signatureDataUrl);
+    };
+
+    const handleBook = async (signatureDataUrl?: string) => {
         setView('analyzing');
 
         try {
@@ -868,7 +880,7 @@ function BookPageContent() {
                     <p className="text-slate-500">Secure your spot for <strong>${priceDetails.totalPrice}</strong>.</p>
                 </div>
 
-                <form onSubmit={handleBook} className="space-y-6">
+                <form onSubmit={handleSchedulerSubmit} className="space-y-6">
                     {/* Date & Time */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
@@ -926,7 +938,7 @@ function BookPageContent() {
                     </div>
 
                     <Button data-track="booking_finalized" className="w-full h-16 bg-brand-orange hover:bg-orange-600 text-white text-xl font-bold rounded-full mt-4 shadow-xl shadow-orange-900/20">
-                        CONFIRM BOOKING
+                        REVIEW &amp; SIGN WAIVER
                     </Button>
                 </form>
             </div>
@@ -1026,6 +1038,12 @@ function BookPageContent() {
                 {view === 'analyzing' && renderAnalyzing()}
                 {view === 'receipt' && renderReceipt()}
                 {view === 'scheduler' && renderScheduler()}
+                {view === 'waiver' && (
+                    <LiabilityWaiver
+                        onAccept={handleWaiverAccept}
+                        onBack={() => setView('scheduler')}
+                    />
+                )}
                 {view === 'success' && renderSuccess()}
 
                 <BookingModal
