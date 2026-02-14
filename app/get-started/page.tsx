@@ -79,6 +79,22 @@ export default function GetStartedPage() {
             console.error('Lead capture failed:', err);
         }
 
+        // Also send to CRM (non-blocking)
+        try {
+            fetch('/api/crm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: `${leadData.firstName} ${leadData.lastName}`,
+                    phone: leadData.phone,
+                    email: leadData.email,
+                    website_honeypot: '',
+                }),
+            }).catch(err => console.error('[CRM] Lead submission failed:', err));
+        } catch (err) {
+            console.error('[CRM] Lead submission error:', err);
+        }
+
         const params = new URLSearchParams(leadData);
         if (leadId) {
             params.set('leadId', leadId);
