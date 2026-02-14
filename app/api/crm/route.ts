@@ -21,7 +21,7 @@ export async function POST(req: Request) {
 
         // --- Credentials ---
         const apiKey = process.env.INGEST_API_KEY;
-        const siteToken = process.env.SITE_TOKEN;
+        const siteToken = process.env.SITE_TOKEN || process.env.DASHBOARD_SITE_TOKEN;
         const crmEndpoint = 'https://app.scaleyourjunk.com/api/ingest/website';
 
         console.log('[CRM] === Incoming Request ===');

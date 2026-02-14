@@ -13,11 +13,12 @@ import { NextResponse } from 'next/server';
  */
 export async function GET() {
     const apiKey = process.env.INGEST_API_KEY;
-    const siteToken = process.env.SITE_TOKEN;
+    const siteToken = process.env.SITE_TOKEN || process.env.DASHBOARD_SITE_TOKEN;
     const diagnostics: Record<string, any> = {
         timestamp: new Date().toISOString(),
         env_INGEST_API_KEY: apiKey ? `SET (${apiKey.length} chars, starts: ${apiKey.substring(0, 6)}...)` : '❌ NOT SET',
         env_SITE_TOKEN: siteToken ? `SET (${siteToken.length} chars, starts: ${siteToken.substring(0, 6)}...)` : '❌ NOT SET',
+        env_checked: 'SITE_TOKEN, DASHBOARD_SITE_TOKEN',
         crmEndpoint: 'https://app.scaleyourjunk.com/api/ingest/website',
         testPayload: {
             name: 'CRM Test Lead',
