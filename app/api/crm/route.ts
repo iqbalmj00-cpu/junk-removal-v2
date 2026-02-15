@@ -38,21 +38,27 @@ export async function POST(req: Request) {
             );
         }
 
-        // --- Build CRM payload (exact schema required) ---
-        const payload: Record<string, any> = {
-            name: body.name || '',
-            phone: body.phone || '',
-            email: body.email || '',
-            address: body.address || '',
-            description: body.description || '',
-            source: 'WEBSITE',
-            image_urls: body.image_urls || [],
-            website_honeypot: '',  // Always empty (we already checked above)
-        };
-        if (body.requestedDate) payload.requestedDate = body.requestedDate;
+        // --- Build CRM payload (only include fields that are actually provided) ---
+        const payload: Record<string, any> = {};
+
+        // Always include leadId if provided (for updates)
         if (body.leadId) payload.leadId = body.leadId;
+
+        // Contact fields — only include if caller actually sent them
+        if (body.name) payload.name = body.name;
+        if (body.phone) payload.phone = body.phone;
+        if (body.email) payload.email = body.email;
+        if (body.address) payload.address = body.address;
+        if (body.description) payload.description = body.description;
+
+        // Optional enrichment fields
+        if (body.image_urls && body.image_urls.length > 0) payload.image_urls = body.image_urls;
+        if (body.requestedDate) payload.requestedDate = body.requestedDate;
         if (body.status) payload.status = body.status;
         if (body.value !== undefined) payload.value = body.value;
+
+        // Always include source on new leads (no leadId = new lead)
+        if (!body.leadId) payload.source = 'WEBSITE';
 
         console.log('[CRM] Payload:', JSON.stringify(payload));
 
