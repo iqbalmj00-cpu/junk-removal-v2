@@ -353,6 +353,27 @@ function BookPageContent() {
                     }
                 }
 
+                // --- CRM Step 2: Update lead to "quoted" ---
+                try {
+                    const syjLeadId = sessionStorage.getItem('syjLeadId');
+                    if (syjLeadId) {
+                        fetch('/api/crm', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                leadId: syjLeadId,
+                                value: priceDetails.totalPrice,
+                                description: `Volume: ${volumeYards.toFixed(1)} yd³`,
+                                status: 'quoted',
+                                website_honeypot: '',
+                            }),
+                        }).catch(err => console.error('[CRM] Quoted update failed:', err));
+                        console.log('[CRM] Lead updated to quoted:', syjLeadId);
+                    }
+                } catch (err) {
+                    console.error('[CRM] Quoted update error:', err);
+                }
+
                 // Transition Logic
                 setView('receipt');
 
@@ -442,15 +463,15 @@ function BookPageContent() {
                 }
             }
 
-            // --- STEP 2: Submit to CRM (update existing lead or create new) ---
+            // --- STEP 2: Submit to CRM (update lead to "booked") ---
             setLoadingState({ title: 'SUBMITTING TO CRM...', subtitle: 'Updating your booking details...' });
-            let crmLeadId = searchParams.get('crmLeadId') || '';
+            const syjLeadId = sessionStorage.getItem('syjLeadId') || '';
             try {
                 const crmRes = await fetch('/api/crm', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        leadId: crmLeadId || undefined,
+                        leadId: syjLeadId || undefined,
                         name: bookingData.fullName,
                         phone: bookingData.phone,
                         email: bookingData.email,
@@ -458,13 +479,13 @@ function BookPageContent() {
                         description: `Volume: ${grandTotal.volume.toFixed(1)} yd³`,
                         image_urls: imageUrls,
                         requestedDate: bookingData.date,
+                        status: 'booked',
                         website_honeypot: '',
                     }),
                 });
                 if (crmRes.ok) {
                     const crmData = await crmRes.json();
-                    crmLeadId = crmData.leadId || '';
-                    console.log('[CRM] Lead created:', crmLeadId);
+                    console.log('[CRM] Lead updated to booked:', crmData.leadId, crmData.updated ? '(updated)' : '(new)');
                 }
             } catch (crmErr) {
                 console.error('[CRM] Submission failed (continuing with Sheets):', crmErr);
@@ -495,7 +516,7 @@ function BookPageContent() {
                 // Track booking confirmed
                 trackEvent('booking_confirmed', '/book', {
                     bookingId: data.bookingId,
-                    crmLeadId,
+                    crmLeadId: sessionStorage.getItem('syjLeadId') || '',
                     leadId: searchParams.get('leadId'),
                     date: bookingData.date,
                     time: bookingData.timeSlot,
@@ -1056,7 +1077,7 @@ function BookPageContent() {
                     initialEmail={searchParams.get('email') || ''}
                     initialPhone={searchParams.get('phone') || ''}
                     leadId={searchParams.get('leadId') || ''}
-                    crmLeadId={searchParams.get('crmLeadId') || ''}
+
                     images={bookingData.selectedImages}
                 />
             </main>

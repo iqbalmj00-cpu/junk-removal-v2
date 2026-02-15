@@ -80,7 +80,6 @@ export default function GetStartedPage() {
         }
 
         // Also send to CRM — capture leadId for progressive updates
-        let crmLeadId = '';
         try {
             const crmRes = await fetch('/api/crm', {
                 method: 'POST',
@@ -94,8 +93,10 @@ export default function GetStartedPage() {
             });
             if (crmRes.ok) {
                 const crmData = await crmRes.json();
-                crmLeadId = crmData.leadId || '';
-                console.log('[CRM] Initial lead created:', crmLeadId);
+                if (crmData.leadId) {
+                    sessionStorage.setItem('syjLeadId', crmData.leadId);
+                    console.log('[CRM] Lead created, saved to sessionStorage:', crmData.leadId);
+                }
             }
         } catch (err) {
             console.error('[CRM] Lead submission error:', err);
@@ -104,9 +105,6 @@ export default function GetStartedPage() {
         const params = new URLSearchParams(leadData);
         if (leadId) {
             params.set('leadId', leadId);
-        }
-        if (crmLeadId) {
-            params.set('crmLeadId', crmLeadId);
         }
         router.push(`/book?${params.toString()}`);
     };

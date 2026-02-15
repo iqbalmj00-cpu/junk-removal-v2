@@ -15,11 +15,10 @@ interface BookingModalProps {
     initialEmail?: string;
     initialPhone?: string;
     leadId?: string;
-    crmLeadId?: string;
     images?: File[];
 }
 
-export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails, initialName, initialEmail, initialPhone, leadId, crmLeadId, images }: BookingModalProps) {
+export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails, initialName, initialEmail, initialPhone, leadId, images }: BookingModalProps) {
     const router = useRouter();
     const [formData, setFormData] = useState({
         name: initialName || '',
@@ -103,6 +102,7 @@ export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails,
 
     // --- Step 2: Submit to CRM ---
     const submitToCRM = async (imageUrls: string[]) => {
+        const syjLeadId = sessionStorage.getItem('syjLeadId');
         const payload: Record<string, any> = {
             name: formData.name,
             phone: formData.phone,
@@ -111,9 +111,10 @@ export default function BookingModal({ isOpen, onClose, quoteRange, junkDetails,
             description: junkDetails,
             image_urls: imageUrls,
             requestedDate: formData.date,
+            status: 'booked',
             website_honeypot: honeypot,
         };
-        if (crmLeadId) payload.leadId = crmLeadId;
+        if (syjLeadId) payload.leadId = syjLeadId;
 
         const res = await fetch('/api/crm', {
             method: 'POST',

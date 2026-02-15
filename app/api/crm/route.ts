@@ -51,6 +51,8 @@ export async function POST(req: Request) {
         };
         if (body.requestedDate) payload.requestedDate = body.requestedDate;
         if (body.leadId) payload.leadId = body.leadId;
+        if (body.status) payload.status = body.status;
+        if (body.value !== undefined) payload.value = body.value;
 
         console.log('[CRM] Payload:', JSON.stringify(payload));
 
