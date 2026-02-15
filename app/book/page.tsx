@@ -362,7 +362,7 @@ function BookPageContent() {
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 leadId: syjLeadId,
-                                value: priceDetails.totalPrice,
+                                value: quote.min_price || 0,
                                 description: `Volume: ${volumeYards.toFixed(1)} yd³`,
                                 status: 'quoted',
                                 website_honeypot: '',
