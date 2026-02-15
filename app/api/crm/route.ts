@@ -50,6 +50,7 @@ export async function POST(req: Request) {
             website_honeypot: '',  // Always empty (we already checked above)
         };
         if (body.requestedDate) payload.requestedDate = body.requestedDate;
+        if (body.leadId) payload.leadId = body.leadId;
 
         console.log('[CRM] Payload:', JSON.stringify(payload));
 

@@ -442,14 +442,15 @@ function BookPageContent() {
                 }
             }
 
-            // --- STEP 2: Submit to CRM ---
-            setLoadingState({ title: 'SUBMITTING TO CRM...', subtitle: 'Creating your lead...' });
-            let crmLeadId = '';
+            // --- STEP 2: Submit to CRM (update existing lead or create new) ---
+            setLoadingState({ title: 'SUBMITTING TO CRM...', subtitle: 'Updating your booking details...' });
+            let crmLeadId = searchParams.get('crmLeadId') || '';
             try {
                 const crmRes = await fetch('/api/crm', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        leadId: crmLeadId || undefined,
                         name: bookingData.fullName,
                         phone: bookingData.phone,
                         email: bookingData.email,
@@ -1055,6 +1056,7 @@ function BookPageContent() {
                     initialEmail={searchParams.get('email') || ''}
                     initialPhone={searchParams.get('phone') || ''}
                     leadId={searchParams.get('leadId') || ''}
+                    crmLeadId={searchParams.get('crmLeadId') || ''}
                     images={bookingData.selectedImages}
                 />
             </main>

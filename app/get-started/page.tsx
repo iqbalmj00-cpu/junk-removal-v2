@@ -79,9 +79,10 @@ export default function GetStartedPage() {
             console.error('Lead capture failed:', err);
         }
 
-        // Also send to CRM (non-blocking)
+        // Also send to CRM — capture leadId for progressive updates
+        let crmLeadId = '';
         try {
-            fetch('/api/crm', {
+            const crmRes = await fetch('/api/crm', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -90,7 +91,12 @@ export default function GetStartedPage() {
                     email: leadData.email,
                     website_honeypot: '',
                 }),
-            }).catch(err => console.error('[CRM] Lead submission failed:', err));
+            });
+            if (crmRes.ok) {
+                const crmData = await crmRes.json();
+                crmLeadId = crmData.leadId || '';
+                console.log('[CRM] Initial lead created:', crmLeadId);
+            }
         } catch (err) {
             console.error('[CRM] Lead submission error:', err);
         }
@@ -98,6 +104,9 @@ export default function GetStartedPage() {
         const params = new URLSearchParams(leadData);
         if (leadId) {
             params.set('leadId', leadId);
+        }
+        if (crmLeadId) {
+            params.set('crmLeadId', crmLeadId);
         }
         router.push(`/book?${params.toString()}`);
     };
